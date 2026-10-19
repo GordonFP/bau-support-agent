@@ -1,0 +1,15 @@
+# Local agent state
+.pi/
+.DS_Store
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+
+# Node.js dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
