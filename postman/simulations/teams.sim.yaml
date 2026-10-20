@@ -1,0 +1,5 @@
+simulation: bau-synthetic-teams-connector
+routing: path
+mocks:
+  - routeKey: teams
+    path: ../mocks/teams/config.yaml

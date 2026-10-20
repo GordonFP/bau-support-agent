@@ -88,7 +88,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     text: "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
     code: { repositoryRef: "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
       snapshotRef: "simulator-snapshot-1", indexedAt: "2026-10-19T08:00:00.000Z", receiptRef: "synthetic-snapshot-receipt-1" } };
-  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string) => {
+  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>) => {
     actor = recordActor(actor);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
     const saved = cases.get(caseRef);
@@ -103,6 +103,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     const result = structuredClone({ scope: "full" as const, view: saved.initial.view, records: saved.records,
       audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
     await ports.audit.complete(context, action, "allowed");
+    try { await beforeDisclose?.(); }
+    catch { await recordDenial(ports.audit, context); return null; }
     const currentRole = await recordRole(ports.authorization, actor, owner, action);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
     if (currentRole !== role) {
@@ -111,8 +113,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     }
     return recordDisclosure(result, role);
   };
-  const readRecord = async (actor: TrustedActor, caseRef: string, action: string) => {
-    try { return await authorizedRecord(actor, caseRef, action); } catch { throw new Error("unavailable"); }
+  const readRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>) => {
+    try { return await authorizedRecord(actor, caseRef, action, beforeDisclose); } catch { throw new Error("unavailable"); }
   };
   const ports: Ports = {
     records: {
@@ -134,7 +136,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         saved.records.push(structuredClone(record));
         if (record.kind === "view" && advancesView(saved.initial.view, record.payload as InitialCase["view"])) saved.initial = { ...saved.initial, view: structuredClone(record.payload as InitialCase["view"]) };
       },
-      async read(actor, caseRef) { return readRecord(actor, caseRef, "records.read"); },
+      async read(actor, caseRef, beforeDisclose) { return readRecord(actor, caseRef, "records.read", beforeDisclose); },
       async export(actor, caseRef) { return readRecord(actor, caseRef, "records.export"); },
     },
     admission: {
@@ -185,7 +187,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         if (options.auditFails === `${action}:intent`) throw new Error("synthetic-audit-failure");
         events.push({ action: `audit:${action}:intent`, input: structuredClone({ ...context, signal: undefined, details }) });
         audits.push(structuredClone(auditRecord(context, action, "intent", "pending", ports.clock.utc(), details, costFor(context.callId))));
-        if (action === "delivery.send" && details?.delivery) {
+        if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery) {
           cases.get(context.caseRef)?.deliveries.push({ schemaVersion: 1, caseRef: context.caseRef, callId: context.callId,
             deliveryKey: details.delivery.deliveryKey, segment: details.delivery.segment, status: "unknown" });
         }
@@ -196,9 +198,9 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         if (options.auditFails === `${action}:complete`) throw new Error("synthetic-audit-failure");
         events.push({ action: `audit:${action}:complete`, input: { callId: context.callId, outcome, details } });
         audits.push(structuredClone(auditRecord(context, action, "complete", outcome, ports.clock.utc(), details, costFor(context.callId))));
-        if (action === "delivery.send" && outcome === "ok" && details?.delivery?.status) {
+        if (["delivery.send", "delivery.notice"].includes(action) && outcome === "ok" && details?.delivery?.status) {
           const saved = cases.get(context.caseRef);
-          if (saved) saved.deliveries = saved.deliveries.map((item) => item.callId === context.callId ? { ...item, status: details.delivery!.status! } : item);
+          if (saved) saved.deliveries = saved.deliveries.map((item) => item.callId === context.callId ? { ...item, status: details.delivery!.status!, ...(details.delivery!.receiptRef ? { receiptRef: details.delivery!.receiptRef } : {}) } : item);
         }
       },
     },
@@ -281,10 +283,16 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       return { ...response, message: "message" in response && response.message ? response.message : { stopReason: "stop",
         content: [{ type: "text", text: typeof response.candidate === "string" ? response.candidate : JSON.stringify(response.candidate) }] } };
     } },
-    delivery: { async fault(destinationRef, notice, deliveryKey) {
+    delivery: { async notice(destinationRef, notice, deliveryKey, attempt) {
+      await attempt?.beforeWrite();
+      events.push({ action: "delivery.notice", input: { destinationRef, notice, deliveryKey } });
+      return "delivered";
+    }, async fault(destinationRef, notice, deliveryKey, attempt) {
+      await attempt?.beforeWrite(notice);
       events.push({ action: "delivery.fault", input: { destinationRef, notice, deliveryKey } });
       return "delivered";
-    }, async send(destinationRef, report, deliveryKey) {
+    }, async send(destinationRef, report, deliveryKey, attempt) {
+      await attempt?.beforeWrite();
       events.push({ action: "delivery.send", input: { destinationRef, report, deliveryKey } });
       sent.resolve({ destinationRef, report, deliveryKey });
       return "delivered";

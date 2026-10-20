@@ -80,3 +80,7 @@ teams.common2.1.1: sha512-chbBLXOJj+hHWl0Cls2VQExvq1l+UK2adxChhxkrvypcnDDamDY9fr
 [原生互操作预检](../../scripts/check-teams-interop.mjs)在独立进程禁用 tracer／meter 并使用丢弃 logger，只绑定合成 loopback：实际 App 服务签名路由、实际 OAuth token client 404、原生 app.send 成功／429／已消费请求后连接重置。plain AppOptions.client 让 SDK 创建匹配的 CJS client；404 返回无 token，成功有合成 receipt，每个发送恰好一个物理 POST，没有直接 ESM Client 注入。macOS／受限 Linux arm64 均通过；这证明当前安装闭包的该路径，不推导其他 SDK 重试／边界行为已完成。
 
 独立类型检查、构建、Pi 严格消费端预检和原有 **262** 项 macOS／Linux 行为测试全部通过。完整 Teams A→Pi→D、64 KiB 原始入站控制、当前用户认证／披露、补问、分段、持久未知回执及关闭生命周期尚未实现；本检查点不关闭 #24。真实租户、SSO、会话可见性与部署身份继续未验证，#15 Node 更新门禁、#28 notices 和父规格 #14 保持未完成。
+
+### #24 no-op telemetry 的直接依赖
+
+运行实现显式导入原锁图已有的 `@opentelemetry/api@1.9.1`，因此将其固定为直接依赖；全部非根 lock 条目逐一比较不变。官方 registry、lock 与独立下载 SHA-512 一致：`sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==`。元数据为 Apache-2.0、Node >=8，随包完整 LICENSE 已读取，无新增安装脚本或 ABI 制品；当前完整锁图 npm audit 为 0。公开 API `ProxyTracerProvider`、`createNoopMeter`、`trace`／`metrics`／`diag` 实际用于 SDK 导入前的显式 no-op 配置，macOS 原生 Teams 行为检查通过；完整运行结果见 [#24 交付](issue-24.md)。[精确官方制品元数据](https://registry.npmjs.org/@opentelemetry%2fapi/1.9.1)不是部署遥测隔离、签名或全部分发通知的证明。

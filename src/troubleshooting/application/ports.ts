@@ -3,6 +3,7 @@ import type { AuditDetails, CaseRecords, InitialCase, RecordGrant, RecordRole, S
 import type { BudgetSettlement, BudgetStatus } from "./model-budget.js";
 import type { BeforeModelSend, ModelResponse, ModelTurn } from "./model-contract.js";
 
+import type { DeliveryAttempt, DeliveryNotice, DeliveryResult } from "./communication.js";
 import type { Retention } from "./retention.js";
 
 export type SafeReason = "denied" | "invalid_request" | "contract_unverified" | "schema_mismatch" |
@@ -153,6 +154,7 @@ export interface Ports {
   };
   readonly agent: { run(context: CallContext, request: RuntimeRequest): Promise<unknown>; abort(caseRef: string, phaseId?: number): Promise<void>; close(caseRef: string, phaseId?: number): Promise<void> };
   readonly model: { generate(context: CallContext, turn: ModelTurn, beforeSend: BeforeModelSend): Promise<ModelResponse> };
-  readonly delivery: { send(destinationRef: string, report: DiagnosticReport, deliveryKey: string): Promise<"delivered" | "unknown" | "failed">;
-    fault(destinationRef: string, notice: "Investigation stopped because audit storage is unavailable.", deliveryKey: string): Promise<"delivered" | "unknown" | "failed"> };
+  readonly delivery: { readonly maxTextBytes?: number; send(destinationRef: string, report: DiagnosticReport, deliveryKey: string, attempt?: DeliveryAttempt): Promise<DeliveryResult>;
+    notice?(destinationRef: string, notice: DeliveryNotice, deliveryKey: string, attempt?: DeliveryAttempt): Promise<DeliveryResult>;
+    fault(destinationRef: string, notice: "Investigation stopped because audit storage is unavailable.", deliveryKey: string, attempt?: DeliveryAttempt): Promise<"delivered" | "unknown" | "failed"> };
 }
