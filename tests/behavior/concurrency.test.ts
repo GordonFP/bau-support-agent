@@ -363,7 +363,10 @@ test("pending admissions are bounded before authorization can build a waiting qu
   const results = await Promise.all(requests);
   assert.equal(results.filter((result) => result.status === "accepted").length, 32);
   assert.deepEqual(results[32], { status: "service_unavailable", reason: "unavailable" });
-  for (const result of results) if ("view" in result) await mock.phaseClosed(1, result.view.caseRef);
+  for (const result of results) if ("view" in result) {
+    await mock.application.cancel(actor, result.view.caseRef);
+    await mock.phaseClosed(1, result.view.caseRef);
+  }
 });
 
 test("31 waiting cases plus one active case fill capacity; a duplicate still returns its current authorized state", { timeout: 5_000 }, async () => {

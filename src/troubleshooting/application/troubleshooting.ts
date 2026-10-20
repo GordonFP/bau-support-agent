@@ -1,12 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TroubleshootingCase } from "../domain/simulator.js";
-import { boundedBody, CASE_EXECUTION_MS, CLEANUP_MS, MAX_ACTIVE_CASES, MAX_LOG_RECORDS, MAX_MODEL_ATTEMPTS, MODEL_CALL_MS, MODEL_RESERVATION_MICROUSD, TOOL_CALL_MS, phaseWindow } from "./limits.js";
+import { boundedBody, CASE_EXECUTION_MS, CASE_MODEL_MICROUSD, CLEANUP_MS, MAX_ACTIVE_CASES, MAX_LOG_RECORDS, MAX_MODEL_ATTEMPTS, MODEL_CALL_MS, TOOL_CALL_MS, phaseWindow } from "./limits.js";
 import { beforeDeadline, schedule } from "./deadline.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
 import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationReply, InformationResult, Ports, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
 import type { AuditDetails, CaseRecord } from "./records.js";
 import { AuditBoundary } from "./audit-boundary.js";
 import { deniedContext, recordDenial } from "./authorization-audit.js";
+import { modelEnvelope, validateModelResponse } from "./model-envelope.js";
+import type { ModelPolicy } from "./model-contract.js";
+import { ModelFailure } from "./model-failure.js";
+import { retryModel } from "./model-retry.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
   "timeout", "cancelled", "rate_limited", "budget_exhausted", "version_unknown", "version_mismatch", "unsafe_content", "audit_unavailable"]);
@@ -23,6 +27,8 @@ interface RunningCase {
   readonly replyFlights: Map<string, Promise<InformationResult>>;
   readonly replyEvents: Set<string>;
   readonly coverageWindows: Set<string>;
+  readonly modelHistory: unknown[];
+  readonly modelTools: unknown[];
   readonly acceptedMono: number;
   finishedMono?: number;
   recordSequence: number;
@@ -39,6 +45,7 @@ export interface OfflineScope {
   readonly mode: "mock";
   readonly snapshotRef: string;
   readonly queryWindow: { readonly from: string; readonly to: string };
+  readonly modelPolicy?: ModelPolicy;
 }
 
 export class Troubleshooting {
@@ -197,7 +204,8 @@ export class Troubleshooting {
       phases: [{ phaseId: 1, startedAt: now }], inputWaits: [] };
     const investigation = new TroubleshootingCase(caseRef);
     const running: RunningCase = { inbound: structuredClone(inbound), context, controller, view, investigation,
-      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(), recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
+      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
+      modelHistory: [], modelTools: [], recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
     let admitted = false;
     try {
       const confirmation = await ports.admission.confirm({ key, caseRef, principalRef: context.principalRef,
@@ -286,7 +294,7 @@ export class Troubleshooting {
       const context = { ...running.context, callId: `${running.context.caseRef}:reply:${reply.eventRef}` };
       const budget = await ports.budget.status(context.caseRef);
       if (running.view.state !== "awaiting_input") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
-      if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS || running.view.usage.logRecords >= MAX_LOG_RECORDS || budget.reservedMicrousd >= 2_000_000) {
+      if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS || running.view.usage.logRecords >= MAX_LOG_RECORDS || budget.reservedMicrousd >= CASE_MODEL_MICROUSD) {
         running.view = { ...running.view, state: "stopped", stopReason: "budget_exhausted",
           inputWaits: running.view.inputWaits.map((wait) => wait.questionId === reply.reply.questionId
             ? { ...wait, endedAt: ports.clock.utc(), replyEventRef: reply.eventRef, replyReceivedAt: reply.receivedAt } : wait) };
@@ -365,6 +373,8 @@ export class Troubleshooting {
       try { ports.sanitization.clear(running.context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
       delete running.candidates;
+      running.modelHistory.length = 0;
+      running.modelTools.length = 0;
       void ports.admission.release(running.context.caseRef).catch(() => {});
     }
     void ports.records.append(running.context, { recordRef: `${running.context.caseRef}:view:${++running.recordSequence}`,
@@ -472,12 +482,14 @@ export class Troubleshooting {
       if ((!allowEnded && !investigation.isCurrentPhase(phaseContext.phaseId)) || phaseController.signal.aborted || running.context.phaseId !== phaseContext.phaseId) throw new Error("cancelled");
     };
     const contextFor = (action: string): CallContext => Object.freeze({ ...phaseContext, callId: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${action}:${++callSequence}` });
-    const guarded = async <T>(action: string, operation: (context: CallContext) => Promise<T>, acceptResult?: (result: T, auditRef: string) => void | Promise<void>): Promise<T> => {
+    const guarded = async <T>(action: string, operation: (context: CallContext) => Promise<T>, acceptResult?: (result: T, auditRef: string) => void | Promise<void>,
+      attempt?: { callId: string; operationRef: string; deadline: number; recoverable: (error: unknown) => boolean }): Promise<T> => {
       const assertAllowed = () => assertCurrent(action === "delivery.send");
       if (ports.clock.now() >= phaseContext.deadline) throw new Error("timeout");
       assertAllowed();
       const cap = action === "model.generate" ? MODEL_CALL_MS : ["logs.read", "code.search"].includes(action) ? TOOL_CALL_MS : CASE_EXECUTION_MS;
-      const context = Object.freeze({ ...contextFor(action), deadline: Math.min(phaseContext.deadline, ports.clock.now() + cap) });
+      const context = Object.freeze({ ...(attempt ? { ...phaseContext, callId: attempt.callId, operationRef: attempt.operationRef } : contextFor(action)),
+        deadline: Math.min(phaseContext.deadline, attempt?.deadline ?? ports.clock.now() + cap) });
       const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef: "simulator-source", ...this.scope!.queryWindow, pageSize: 100 } }
         : action === "code.search" ? { scope: { repositoryRef: "simulator-source", snapshotRef: phaseContext.snapshotRef } }
         : action === "delivery.send" ? { delivery: { deliveryKey: `${phaseContext.caseRef}:report:1`, segment: 1 } } : {};
@@ -524,13 +536,20 @@ export class Troubleshooting {
         try { await ports.audit.complete(context, action, "ok", completeDetails); } catch { throw new Error("audit_unavailable"); }
         check();
         await acceptResult?.(result, auditRef);
+        if (["logs.read", "code.search"].includes(action)) {
+          check();
+          running.modelTools.push(structuredClone({ tool: action, callId: context.callId, result }));
+        }
         return result;
       };
       try { return await beforeDeadline(ports.clock, context.deadline, work, phaseController.signal); }
       catch (error) {
+        if (attempt?.recoverable(error)) throw error;
         if (invoked && (phaseController.signal.aborted || ports.clock.now() >= context.deadline)) {
-          void beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS,
-            () => ports.audit.complete(context, action, "unknown")).catch(() => {});
+          void beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS, async () => {
+            if (action === "model.generate") await ports.budget.settle(context, null, { execution: "unknown", source: "unknown" });
+            await ports.audit.complete(context, action, "unknown");
+          }).catch(() => {});
         }
         if (running.context.phaseId === phaseContext.phaseId && running.view.state === "investigating") {
           const reason = safeReason(error);
@@ -653,22 +672,46 @@ export class Troubleshooting {
           if (!boundedBody(value) || !ports.sanitization.safe(ports.sanitization.sanitize(value, phaseContext.caseRef))) throw new Error("unsafe_content");
           // Progress is deliberately not retained or forwarded and never changes any deadline.
         },
-        generate: (draft) => guarded("model.generate", async (modelContext) => {
-          if (!ports.sanitization.safe(draft)) throw new Error("unsafe_content");
-          if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
-          await this.saveRecord(running, modelContext, ports, { recordRef: `${modelContext.callId}:input`, schemaVersion: 1, kind: "model_input", payload: draft });
-          if (!await ports.budget.reserve(modelContext, MODEL_RESERVATION_MICROUSD)) throw new Error("budget_exhausted");
-          assertCurrent();
-          if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
-          running.view = { ...running.view, usage: { ...running.view.usage, modelAttempts: running.view.usage.modelAttempts + 1 } };
-          await this.saveView(running, ports);
-          assertCurrent();
-          if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
-          const response = await ports.model.generate(modelContext, draft);
-          await ports.budget.settle(modelContext, response.actualMicrousd);
-          if (!ports.sanitization.safe(response.candidate)) throw new Error("unsafe_content");
-          return response.candidate;
-        }),
+        generate: (inputDraft) => {
+          const draft = structuredClone(inputDraft);
+          return retryModel(ports.clock, phaseContext.deadline, () => contextFor("model.generate").callId, async (identity) => {
+            let networkFailure: unknown;
+            const response = await guarded("model.generate", async (modelContext) => {
+              if (!ports.sanitization.safe(draft)) throw new Error("unsafe_content");
+              if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
+              const envelope = modelEnvelope(safeInput.question, running.modelHistory, running.modelTools, draft, this.scope!.modelPolicy);
+              running.view = { ...running.view, usage: { ...running.view.usage, modelAttempts: running.view.usage.modelAttempts + 1 } };
+              await this.saveRecord(running, modelContext, ports, { recordRef: `${modelContext.callId}:input`, schemaVersion: 1, kind: "model_input", payload: envelope });
+              await this.saveView(running, ports);
+              if (!await ports.budget.reserve(modelContext, envelope.planning.reservationMicrousd, async () => {
+                if (!await ports.authorization.allows("model.generate", modelContext)) {
+                  await recordDenial(ports.audit, modelContext);
+                  throw new Error("denied");
+                }
+                assertCurrent();
+                if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
+              })) throw new Error("budget_exhausted");
+              assertCurrent();
+              if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
+              let response;
+              try { response = await ports.model.generate(modelContext, draft, envelope); }
+              catch (error) {
+                if (error instanceof ModelFailure && error.kind === "transient_network") networkFailure = error;
+                await ports.budget.settle(modelContext, null, { execution: "unknown", source: "unknown" });
+                throw error;
+              }
+              const usageSource = response.usageSource ?? (response.actualMicrousd !== null && response.actualMicrousd > 0 ? "mock_usage" : "unknown");
+              await ports.budget.settle(modelContext, response.actualMicrousd, { execution: "ended", source: usageSource });
+              if (["mock_usage", "upstream_usage"].includes(usageSource) && response.actualMicrousd !== null &&
+                response.actualMicrousd > envelope.planning.reservationMicrousd) throw new Error("contract_unverified");
+              validateModelResponse(response);
+              if (!ports.sanitization.safe(response)) throw new Error("unsafe_content");
+              return response;
+            }, (response) => { running.modelHistory.push(structuredClone({ role: "assistant", content: response.candidate })); },
+              { ...identity, recoverable: (error) => identity.retryable && error === networkFailure });
+            return response.candidate;
+          });
+        },
       }));
       if (!ports.sanitization.safe(candidate)) throw new Error("unsafe_content");
       const report = investigation.finish(candidate, diagnose());

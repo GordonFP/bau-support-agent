@@ -7,12 +7,14 @@ import { SqliteSession } from "./sqlite-session.js";
 import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
 import { advancesView, contextSnapshot, recordSnapshot, sameCaseAuthority, savedContextSnapshot } from "../../troubleshooting/application/record-contract.js";
 import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
+import { SqliteBudget } from "./sqlite-budget.js";
 
 type Controls = Pick<Ports, "authorization" | "sanitization" | "clock">;
 
 export class SqliteRecords {
   private readonly session: SqliteSession;
   readonly records: CaseRecords;
+  readonly budget: SqliteBudget;
 
   constructor(directory: string, private readonly controls: Controls, private readonly options: { readonly fault?: (checkpoint: string) => void } = {}) {
     try { this.session = new SqliteSession(directory); } catch { throw new Error("unavailable"); }
@@ -22,9 +24,15 @@ export class SqliteRecords {
       const application = Number(db.prepare("PRAGMA application_id").get()!.application_id);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map((row) => String(row.name));
       const fresh = version === 0 && application === 0 && tables.length === 0;
-      if (!fresh && (version !== 1 || application !== 0x42415531 ||
+      if (!fresh && (![1, 2].includes(version) || application !== 0x42415531 ||
         !["cases", "records", "audit", "case_sequence", "budget", "deliveries"].every((name) => tables.includes(name)) ||
+        (version === 2 && !tables.includes("budget_clock")) ||
         !db.prepare("SELECT value FROM case_sequence WHERE id=1").get())) throw new Error("unavailable");
+      if (version === 2) {
+        db.prepare("SELECT ended,started_at,estimated,binding FROM budget LIMIT 0");
+        const rate = db.prepare("SELECT rate_ms FROM budget_clock WHERE id=1").get();
+        if (!rate || !Number.isSafeInteger(rate.rate_ms) || Number(rate.rate_ms) < 0) throw new Error("unavailable");
+      }
       this.session.transaction(() => {
         this.session.database.exec(`
           CREATE TABLE IF NOT EXISTS cases(case_ref TEXT PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, context TEXT NOT NULL, view TEXT NOT NULL) STRICT;
@@ -36,9 +44,26 @@ export class SqliteRecords {
             actual INTEGER CHECK(actual>=0), source TEXT NOT NULL) STRICT;
           CREATE TABLE IF NOT EXISTS deliveries(delivery_key TEXT NOT NULL, segment INTEGER NOT NULL, case_ref TEXT NOT NULL, call_id TEXT NOT NULL, value TEXT NOT NULL,
             PRIMARY KEY(delivery_key,segment)) STRICT;
+          CREATE TABLE IF NOT EXISTS budget_clock(id INTEGER PRIMARY KEY CHECK(id=1), rate_ms INTEGER NOT NULL) STRICT;
           PRAGMA application_id=1111577905;
-          PRAGMA user_version=1;
         `);
+        if (fresh || version === 1) {
+          this.session.database.exec(`ALTER TABLE budget ADD COLUMN ended INTEGER NOT NULL DEFAULT 0 CHECK(ended IN (0,1));
+            ALTER TABLE budget ADD COLUMN started_at INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE budget ADD COLUMN estimated INTEGER CHECK(estimated>=0);
+            ALTER TABLE budget ADD COLUMN binding TEXT;
+            UPDATE budget SET ended=1 WHERE actual IS NOT NULL;`);
+          this.session.database.prepare("UPDATE budget SET started_at=0").run();
+          for (const row of this.session.database.prepare("SELECT budget.call_id,cases.context FROM budget JOIN cases ON cases.case_ref=budget.case_ref").all()) {
+            const saved = JSON.parse(String(row.context)) as SavedContext;
+            const phase = /:phase-(\d+):/.exec(String(row.call_id));
+            this.session.database.prepare("UPDATE budget SET binding=? WHERE call_id=?")
+              .run(JSON.stringify({ ...savedContextSnapshot({ ...saved, phaseId: phase ? Number(phase[1]) : saved.phaseId }), operationRef: String(row.call_id) }), String(row.call_id));
+          }
+          if (version === 1) this.options.fault?.("budget:migrate:before_commit");
+        }
+        this.session.database.prepare("INSERT INTO budget_clock VALUES(1,0) ON CONFLICT(id) DO NOTHING").run();
+        this.session.database.exec("PRAGMA user_version=2;");
         for (const row of this.session.database.prepare("SELECT case_ref, context, view FROM cases").all()) {
           const view = JSON.parse(String(row.view)) as InitialCase["view"];
           if (view.state === "investigating" || view.state === "awaiting_input") {
@@ -59,6 +84,7 @@ export class SqliteRecords {
         }
       });
     } catch { this.session.close(); throw new Error("unavailable"); }
+    this.budget = new SqliteBudget(this.session, controls, () => this.options.fault?.("budget:reserve:before_commit"));
     this.records = { append: async (context, record) => {
       try { await this.append(context, record); }
       catch (error) { throw new Error(error instanceof Error && ["denied", "invalid_request", "unsafe_content"].includes(error.message) ? error.message : "unavailable"); }
@@ -100,32 +126,6 @@ export class SqliteRecords {
   readonly audit: Ports["audit"] = {
     intent: async (context, action, details) => this.auditWrite(context, action, "intent", "pending", details),
     complete: async (context, action, outcome, details) => { this.auditWrite(context, action, "complete", outcome, details); },
-  };
-
-  readonly budget: Ports["budget"] = {
-    reserve: async (context, amount) => {
-      if (!Number.isSafeInteger(amount) || amount < 0) throw new Error("invalid_request");
-      this.safe({ callId: context.callId, caseRef: context.caseRef });
-      return this.session.transaction(() => {
-        const existing = this.session.database.prepare("SELECT reserved FROM budget WHERE call_id=?").get(context.callId);
-        if (existing) return Number(existing.reserved) === amount;
-        this.session.database.prepare("INSERT INTO budget VALUES(?,?,?,NULL,'reserved_upper_bound')").run(context.callId, context.caseRef, amount);
-        return true;
-      });
-    },
-    settle: async (context, actual) => {
-      if (actual !== null && (!Number.isSafeInteger(actual) || actual < 0)) throw new Error("invalid_request");
-      this.session.transaction(() => {
-        const existing = this.session.database.prepare("SELECT actual FROM budget WHERE call_id=? AND case_ref=?").get(context.callId, context.caseRef);
-        if (!existing || (existing.actual !== null && actual !== null && Number(existing.actual) !== actual)) throw new Error("invalid_request");
-        if (actual === null) this.session.database.prepare("UPDATE budget SET source='unknown' WHERE call_id=? AND actual IS NULL").run(context.callId);
-        else this.session.database.prepare("UPDATE budget SET actual=?,source='mock_usage' WHERE call_id=?").run(actual, context.callId);
-      });
-    },
-    status: async (caseRef) => {
-      const row = this.session.database.prepare("SELECT COALESCE(SUM(COALESCE(actual,reserved)),0) AS amount FROM budget WHERE case_ref=?").get(caseRef);
-      return { reservedMicrousd: Number(row?.amount) };
-    },
   };
 
   private safe(value: unknown): void {
@@ -220,5 +220,5 @@ export class SqliteRecords {
     try { return await this.read(actor, caseRef, action); } catch { throw new Error("unavailable"); }
   }
 
-  close(): void { this.session.close(); }
+  close(): void { this.budget.close(); this.session.close(); }
 }

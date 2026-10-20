@@ -8,7 +8,7 @@ export function savedContextSnapshot(value: SavedContext): SavedContext {
 }
 
 export function contextSnapshot(value: CallContext): CallContext {
-  return Object.freeze({ ...savedContextSnapshot(value), callId: value.callId, deadline: value.deadline, signal: value.signal });
+  return Object.freeze({ ...savedContextSnapshot(value), callId: value.callId, ...(value.operationRef ? { operationRef: value.operationRef } : {}), deadline: value.deadline, signal: value.signal });
 }
 
 export function sameCaseAuthority(actual: SavedContext, expected: SavedContext): boolean {

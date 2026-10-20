@@ -8,6 +8,9 @@ import type { OfflineScope } from "../../troubleshooting/application/troubleshoo
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
 import type { InitialCase, CaseRecord, DeliveryRecord } from "../../troubleshooting/application/records.js";
+import { MockModelBudget } from "./model-budget.js";
+import { mockModelPolicy, validateModelEnvelope } from "../../troubleshooting/application/model-envelope.js";
+import type { ModelPolicy } from "../../troubleshooting/application/model-contract.js";
 
 // All values and identities in this adapter are synthetic. No transport is created.
 export const simulatorFixture: SimulatorObservation = {
@@ -18,6 +21,7 @@ export const simulatorFixture: SimulatorObservation = {
 };
 
 export interface MockOptions {
+  readonly modelPolicy?: ModelPolicy | null;
   readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "audit" | "budget">>;
   readonly authorizedActors?: readonly TrustedActor[];
   readonly observation?: SimulatorObservation | null;
@@ -47,19 +51,18 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     return phaseClosures.get(key)!;
   };
   const events: { action: string; input: unknown }[] = [];
-  const reserved = new Map<string, number>();
-  const upperBounds = new Map<string, number>();
-  const actualCharges = new Map<string, number | null>();
+  let modelBudget: MockModelBudget;
   const audits: Readonly<Record<string, unknown>>[] = [];
-  const costFor = (callId: string) => upperBounds.has(callId) ? { reserved: upperBounds.get(callId)!, actual: actualCharges.get(callId) ?? null,
-    source: actualCharges.has(callId) ? actualCharges.get(callId) === null ? "unknown" : "mock_usage" : "reserved_upper_bound" } : undefined;
+  const costFor = (callId: string) => modelBudget.cost(callId);
   const admissions = new Map<string, { caseRef: string; principalRef: string; active: boolean }>();
   const cases = new Map<string, { initial: InitialCase; records: CaseRecord[]; deliveries: DeliveryRecord[] }>();
   const authorizedActors = structuredClone(options.authorizedActors ?? [
     { principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1" },
   ]);
   let sanitizationCount = 0;
-  const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1", queryWindow: options.queryWindow ?? {
+  const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1",
+    ...(options.modelPolicy === null ? {} : { modelPolicy: options.modelPolicy === undefined ? mockModelPolicy : Object.freeze(structuredClone(options.modelPolicy)) }),
+    queryWindow: options.queryWindow ?? {
     from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z",
   } };
   const inbound: VerifiedInbound = { eventRef: "event-1", tenantRef: "tenant-1",
@@ -163,13 +166,9 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       },
     },
     budget: {
-      async reserve(context, upperBoundMicrousd) {
-        if (upperBounds.has(context.callId)) return upperBounds.get(context.callId) === upperBoundMicrousd;
-        upperBounds.set(context.callId, upperBoundMicrousd); reserved.set(context.callId, upperBoundMicrousd); return true;
-      },
-      async settle(context, actualMicrousd) { actualCharges.set(context.callId, actualMicrousd); if (actualMicrousd !== null) reserved.set(context.callId, actualMicrousd); },
-      async status(caseRef) { return { reservedMicrousd: [...reserved.entries()]
-        .filter(([callId]) => callId.startsWith(`${caseRef}:`)).reduce((sum, [, amount]) => sum + amount, 0) }; },
+      reserve: (context, amount, beforeStart) => modelBudget.reserve(context, amount, beforeStart),
+      settle: (context, amount, settlement) => modelBudget.settle(context, amount, settlement),
+      status: (caseRef) => modelBudget.status(caseRef),
     },
     logs: { async read(context, query) {
       events.push({ action: "logs.read", input: query });
@@ -198,9 +197,10 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         closed.resolve();
       },
     },
-    model: { async generate(context, draft) {
+    model: { async generate(context, draft, envelope) {
+      validateModelEnvelope(draft, envelope);
       events.push({ action: "model.generate", input: structuredClone(draft) });
-      if (options.model) return options.model(context, draft);
+      if (options.model) return options.model(context, draft, envelope);
       return { candidate: options.candidate ? options.candidate(draft) : structuredClone(draft), actualMicrousd: 1_000 };
     } },
     delivery: { async fault(destinationRef, notice, deliveryKey) {
@@ -212,6 +212,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       return "delivered";
     } },
   };
+  modelBudget = new MockModelBudget(ports);
   Object.assign(ports, options.controlPorts?.(ports));
   const configured: Partial<Ports> = { ...ports };
   for (const key of options.unavailableControls ?? []) delete configured[key];

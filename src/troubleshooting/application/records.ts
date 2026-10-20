@@ -1,6 +1,6 @@
 import type { CallContext, CaseView, TrustedActor, VerifiedInbound } from "./ports.js";
 
-export type SavedContext = Omit<CallContext, "signal" | "deadline" | "callId">;
+export type SavedContext = Omit<CallContext, "signal" | "deadline" | "callId" | "operationRef">;
 export interface InitialCase {
   readonly context: SavedContext;
   readonly view: CaseView;
