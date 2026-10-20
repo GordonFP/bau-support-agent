@@ -34,6 +34,8 @@ interface RunningCase {
   recordSequence: number;
   cleanupDeadline?: number;
   readonly closures: Map<number, Promise<void>>;
+  readonly aborts: Map<number, Promise<void>>;
+  readonly work: Map<number, Set<Promise<unknown>>>;
   readonly stopping: Map<number, Promise<void>>;
   cancelDeadline?: () => void;
   candidates?: ApplicationCandidates["candidates"];
@@ -75,8 +77,9 @@ export class Troubleshooting {
         delete running.candidates; running.modelHistory.length = 0; running.modelTools.length = 0;
       }
       this.cases.clear(); this.acceptances.clear(); this.pendingAdmissions.clear(); this.persistedLookups.clear();
-      await Promise.all(active.flatMap((running) => [Promise.resolve().then(() => ports.agent.abort(running.context.caseRef, running.context.phaseId)),
-        Promise.resolve().then(() => ports.agent.close(running.context.caseRef, running.context.phaseId))]));
+      const closed = await Promise.allSettled(active.flatMap((running) => [Promise.resolve().then(() => ports.agent.abort(running.context.caseRef, running.context.phaseId)),
+        this.closePhase(running, running.context, ports), ...running.closures.values()]));
+      if (closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
       retired = [];
     });
   }
@@ -227,7 +230,7 @@ export class Troubleshooting {
       phases: [{ phaseId: 1, startedAt: now }], inputWaits: [] };
     const investigation = new TroubleshootingCase(caseRef);
     const running: RunningCase = { inbound: structuredClone(inbound), context, controller, view, investigation,
-      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
+      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), aborts: new Map(), work: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
       modelHistory: [], modelTools: [], recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
     let admitted = false;
     try {
@@ -363,6 +366,14 @@ export class Troubleshooting {
     catch { this.auditBoundary?.fail(context, "records.append", "complete"); throw new Error("audit_unavailable"); }
   }
 
+  private trackWork<T>(running: RunningCase, phaseId: number, task: Promise<T>): Promise<T> {
+    const pending = running.work.get(phaseId) ?? new Set<Promise<unknown>>();
+    running.work.set(phaseId, pending); pending.add(task);
+    const ended = () => { pending.delete(task); if (!pending.size) running.work.delete(phaseId); };
+    void task.then(ended, ended);
+    return task;
+  }
+
   private saveView(running: RunningCase, ports: Ports): Promise<void> {
     return this.saveRecord(running, running.context, ports, { recordRef: `${running.context.caseRef}:view:${++running.recordSequence}`,
       schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) });
@@ -402,9 +413,11 @@ export class Troubleshooting {
       running.modelTools.length = 0;
       void ports.admission.release(running.context.caseRef).catch(() => {});
     }
-    void ports.records.append(running.context, { recordRef: `${running.context.caseRef}:view:${++running.recordSequence}`,
-      schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) })
-      .catch(() => this.auditBoundary?.fail(running.context, "records.append", "complete"));
+    const context = running.context;
+    const record: CaseRecord = { recordRef: `${context.caseRef}:view:${++running.recordSequence}`,
+      schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) };
+    void this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.records.append(context, record)))
+      .catch(() => this.auditBoundary?.fail(context, "records.append", "complete"));
   }
 
   private armDeadline(running: RunningCase, ports: Ports): void {
@@ -424,9 +437,22 @@ export class Troubleshooting {
   private closePhase(running: RunningCase, context: CallContext, ports: Ports): Promise<void> {
     const previous = running.closures.get(context.phaseId);
     if (previous) return previous;
-    const operation = beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS,
-      () => ports.agent.close(context.caseRef, context.phaseId)).catch(() => {});
+    const operation = (async () => {
+      const closed = await Promise.allSettled([Promise.resolve().then(() => ports.agent.close(context.caseRef, context.phaseId)), running.aborts.get(context.phaseId), (async () => {
+        while (running.work.get(context.phaseId)?.size) await Promise.allSettled([...running.work.get(context.phaseId)!]);
+      })()]);
+      if (closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
+    })();
+    void operation.catch(() => {});
     running.closures.set(context.phaseId, operation);
+    return operation;
+  }
+
+  private abortPhase(running: RunningCase, context: CallContext, ports: Ports): Promise<void> {
+    const previous = running.aborts.get(context.phaseId);
+    if (previous) return previous;
+    const operation = this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.agent.abort(context.caseRef, context.phaseId)));
+    running.aborts.set(context.phaseId, operation); void operation.catch(() => {});
     return operation;
   }
 
@@ -436,14 +462,18 @@ export class Troubleshooting {
     const deadline = running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS;
     const operation = beforeDeadline(ports.clock, deadline, async () => {
       if (this.auditBoundary?.hasLost(context.caseRef)) {
-        await Promise.allSettled([ports.agent.abort(context.caseRef, context.phaseId), this.closePhase(running, context, ports)]);
+        const abort = this.abortPhase(running, context, ports);
+        void this.closePhase(running, context, ports).catch(() => {});
+        await abort;
         return;
       }
       const audit = { ...context, callId: `${context.caseRef}:phase-${context.phaseId}:${reason}` };
-      try { await ports.audit.intent(audit, reason); } catch { /* local stop remains effective */ }
+      try { await this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.audit.intent(audit, reason))); } catch { /* local stop remains effective */ }
       if (ports.clock.now() >= deadline) return;
-      await Promise.allSettled([ports.agent.abort(context.caseRef, context.phaseId), this.closePhase(running, context, ports),
-        ports.audit.complete(audit, reason, "stopped")]);
+      const abort = this.abortPhase(running, context, ports);
+      const complete = this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.audit.complete(audit, reason, "stopped")));
+      void this.closePhase(running, context, ports).catch(() => {});
+      await Promise.allSettled([abort, complete]);
     }).catch(() => {});
     running.stopping.set(context.phaseId, operation);
     return operation;
@@ -577,14 +607,17 @@ export class Troubleshooting {
         }
         return result;
       };
-      try { return await beforeDeadline(ports.clock, context.deadline, work, phaseController.signal); }
+      const start = () => {
+        return this.trackWork(running, context.phaseId, work());
+      };
+      try { return await beforeDeadline(ports.clock, context.deadline, start, phaseController.signal); }
       catch (error) {
         if (attempt?.recoverable(error)) throw error;
         if (invoked && (phaseController.signal.aborted || ports.clock.now() >= context.deadline)) {
-          void beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS, async () => {
+          void beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS, () => this.trackWork(running, context.phaseId, (async () => {
             if (action === "model.generate") await ports.budget.settle(context, null, { execution: "unknown", source: "unknown" });
             await ports.audit.complete(context, action, "unknown");
-          }).catch(() => {});
+          })())).catch(() => {});
         }
         if (running.context.phaseId === phaseContext.phaseId && running.view.state === "investigating") {
           const reason = safeReason(error);
@@ -675,7 +708,7 @@ export class Troubleshooting {
             format: "ISO-8601 UTC", prompt: "Select the submission time for this customer's application; do not change the investigation target.",
           }, inputWaits: [...running.view.inputWaits, { questionId: `${phaseContext.caseRef}:question:${phaseContext.phaseId}`, startedAt: ports.clock.utc() }] };
           this.endPhase(running, "awaiting_input", ports);
-          await ports.agent.abort(phaseContext.caseRef, phaseContext.phaseId);
+          void this.abortPhase(running, phaseContext, ports).catch(() => {});
           throw new Error("awaiting_input");
         }
         await acceptEvidence(read, "log", logAuditRef);
@@ -786,7 +819,8 @@ export class Troubleshooting {
         await this.stopPhase(running, phaseContext, reason, ports);
       }
     } finally {
-      await this.closePhase(running, phaseContext, ports);
+      await beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS,
+        () => this.closePhase(running, phaseContext, ports)).catch(() => {});
     }
   }
 }

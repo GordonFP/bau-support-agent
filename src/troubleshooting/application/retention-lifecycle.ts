@@ -18,7 +18,7 @@ const actorDigest = (actor: TrustedActor) => createHash("sha256").update(JSON.st
 export class RetentionLifecycle implements Retention {
   private controlsPending = 0;
   private purging: Promise<RetentionStatus> | undefined;
-  private closing: Promise<unknown[]> | undefined;
+  private closing: Promise<void> | undefined;
   private readonly handlers = new Set<() => Promise<void>>();
 
   constructor(private readonly controls: Pick<Ports, "clock" | "authorization">, private readonly store: RetentionStore) {}
@@ -100,7 +100,9 @@ export class RetentionLifecycle implements Retention {
     const checks: DeletionCheck[] = [];
     try {
       if (!this.closing) {
-        const closing = Promise.all([...this.handlers].map((handler) => Promise.resolve().then(handler)));
+        const closing = Promise.allSettled([...this.handlers].map((handler) => Promise.resolve().then(handler))).then((results) => {
+          if (results.some((result) => result.status === "rejected")) throw new Error("unavailable");
+        });
         this.closing = closing;
         void closing.catch(() => { if (this.closing === closing) this.closing = undefined; });
       }

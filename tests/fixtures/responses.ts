@@ -22,7 +22,8 @@ export function sendText(response: ServerResponse, text: string, usage?: object)
 
 export function sendTool(response: ServerResponse, options: { done: boolean; terminal: boolean; name?: string; arguments?: string;
   terminalEvent?: { type: string; status?: string } }): void {
-  const item = { type: "function_call", id: "fc_synthetic", call_id: "call_synthetic", name: options.name ?? "logs_read", arguments: options.arguments ?? "{}", status: "completed" };
+  const suffix = options.name ?? "synthetic";
+  const item = { type: "function_call", id: `fc_${suffix}`, call_id: `call_${suffix}`, name: options.name ?? "logs_read", arguments: options.arguments ?? "{}", status: "completed" };
   response.writeHead(200, { "content-type": "text/event-stream" });
   const events: object[] = [
     { type: "response.created", response: { id: "resp_synthetic" } },

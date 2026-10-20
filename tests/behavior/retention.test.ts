@@ -268,8 +268,9 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} late m
   const directory = await mkdtemp(join(tmpdir(), "bau-purge-late-model-"));
   const started = Promise.withResolvers<void>();
   const finish = Promise.withResolvers<void>();
+  const clock = new ManualClock();
   let store: SqliteRecords | undefined;
-  const mock = createMockTroubleshooting({ lifecycleActors: [lifecycleActor], model: async (_context, draft) => {
+  const mock = createMockTroubleshooting({ clock, lifecycleActors: [lifecycleActor], model: async (_context, draft) => {
     started.resolve(); await finish.promise; return { candidate: draft, actualMicrousd: 1_000 };
   }, controlPorts: (ports) => {
     if (!durable) return {};
@@ -279,11 +280,14 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} late m
   try {
     await mock.receive(); await started.promise;
     await mock.ports.retention!.recordTrigger(lifecycleActor, { triggerRef: "stop", kind: "terminated", decidedAt: "2026-09-19T09:00:00.000Z", scope: "poc" });
-    assert.equal((await mock.ports.retention!.purgeDue(lifecycleActor)).state, "deleted");
+    const purge = mock.ports.retention!.purgeDue(lifecycleActor);
+    await new Promise((resolve) => setImmediate(resolve)); clock.advance(5_000);
+    assert.equal((await purge).state, "partial");
     assert.equal((await mock.ports.budget.status("case-1")).unsettledCalls, 1);
     assert.equal((await mock.ports.budget.status("case-1")).pocMicrousd, 180_000);
     finish.resolve();
     await new Promise((resolve) => setImmediate(resolve));
+    assert.equal((await mock.ports.retention!.purgeDue(lifecycleActor)).state, "deleted");
     assert.equal((await mock.ports.budget.status("case-1")).pocMicrousd, 1_000);
     assert.equal((await mock.ports.budget.status("case-1")).unsettledCalls, 0);
     assert.equal(await mock.ports.records.export(mock.inbound, "case-1"), null);
