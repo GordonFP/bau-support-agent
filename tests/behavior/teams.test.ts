@@ -450,3 +450,29 @@ test("a host identity-denial audit failure closes admission and aborts existing 
     assert.equal(mock.events.some((event) => ["logs.read", "model.generate"].includes(event.action)), false);
   } finally { release.resolve(); await host.stop(); await service.close(); }
 });
+
+test("a restored SQLite query cannot disclose case metadata after application close during its final resource authorization", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises"); const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+  const { SqliteRecords } = await import("../../src/adapters/records/sqlite.js");
+  const directory = await mkdtemp(join(tmpdir(), "bau-teams-query-close-"));
+  const service = await teamsServices(); const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let store: InstanceType<typeof SqliteRecords> | undefined, host: Awaited<ReturnType<typeof createLocalTeamsHost>> | undefined;
+  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, audit: store.audit, admission: store.admission, budget: store.budget, retention: store.retention }; };
+  const post = (body: unknown) => fetch(host!.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
+  try {
+    const first = createMockTroubleshooting({ controlPorts: controls });
+    host = await createLocalTeamsHost(service.configuration, { application: first.application, ports: first.ports }); await host.start();
+    assert.equal((await (await post(service.activity())).json() as { status: string }).status, "accepted"); await first.closed;
+    assert.equal(await host.stop(), "closed"); store!.close();
+    const restored = createMockTroubleshooting({ controlPorts: controls });
+    host = await createLocalTeamsHost(service.configuration, { application: restored.application, ports: restored.ports }); await host.start();
+    const allows = restored.ports.authorization.allows; let reads = 0;
+    restored.ports.authorization.allows = async (action, context) => { if (action === "records.read" && ++reads === 2) { held.resolve(); await release.promise; } return allows(action, context); };
+    const querying = post({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-1" })), id: "restored-query-close" });
+    await held.promise; await restored.application.close(); release.resolve();
+    assert.deepEqual(await (await querying).json(), { status: "denied" });
+    assert.deepEqual(await restored.application.get(service.mapping.actor, "case-1"), { status: "denied" });
+    assert.equal(service.writes.length, 2, "closing and restored queries never send another status or report");
+    assert.equal(await host.stop(), "closed");
+  } finally { release.resolve(); await host?.stop(); store?.close(); await service.close(); await rm(directory, { recursive: true, force: true }); }
+});
