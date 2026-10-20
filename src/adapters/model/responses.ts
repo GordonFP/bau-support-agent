@@ -41,7 +41,7 @@ export function createResponsesGateway(options: { readonly route: "mock" | "loca
     let failure: unknown;
     let sends = 0;
     let responseFinished = Promise.resolve();
-    let terminal = false;
+    let terminal: "completed" | "incomplete" | "failed" | undefined;
     let usage: { actualMicrousd: number | null; source: "unknown" | "mock_usage" | "upstream_usage" | "estimated" } = { actualMicrousd: null, source: "unknown" };
     const ownedFetch: typeof fetch = async (url, init) => {
       let dispatched = false;
@@ -61,16 +61,18 @@ export function createResponsesGateway(options: { readonly route: "mock" | "loca
     };
     const native = await streamSimple(model, transcript(turn), { apiKey: "synthetic-no-credential", maxTokens: 4_000, maxRetries: 0,
       cacheRetention: "none", fetch: ownedFetch, signal: context.signal, onProviderStreamEvent: (event) => {
-        try { const found = terminalUsage(event); if (found) { terminal = true; usage = found; } }
-        catch (error) { failure = error; throw error; }
+        try { const found = terminalUsage(event); if (found) { terminal = found.status; usage = found; } }
+        catch (error) { if (error instanceof ModelFailure && error.execution === "unknown") terminal = undefined; failure = error; throw error; }
       } }).result();
     await responseFinished.catch(() => {});
     const charge = usage.actualMicrousd === null ? undefined : { actualMicrousd: usage.actualMicrousd, source: usage.source };
+    if (options.clock && options.clock.now() >= context.deadline) throw new ModelFailure("timeout", terminal ? "ended" : "unknown", charge);
+    if (context.signal.aborted) throw new ModelFailure("cancelled", terminal ? "ended" : "unknown", charge);
     if (failure) {
       if (failure instanceof ModelFailure && terminal) throw new ModelFailure(failure.kind, "ended", charge ?? failure.charge);
       throw failure;
     }
-    if (!["stop", "toolUse"].includes(native.stopReason)) throw new ModelFailure("schema_mismatch", terminal ? "ended" : "unknown", charge);
+    if (terminal !== "completed" || !["stop", "toolUse"].includes(native.stopReason)) throw new ModelFailure("schema_mismatch", terminal ? "ended" : "unknown", charge);
     const content: ModelContent[] = native.content.map((part) => {
       if (part.type === "text") return { type: "text", text: part.text };
       if (part.type !== "toolCall" || !["logs_read", "code_search"].includes(part.name) || part.argumentsError) throw new ModelFailure("schema_mismatch", terminal ? "ended" : "unknown", charge);

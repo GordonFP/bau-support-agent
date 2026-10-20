@@ -8,6 +8,7 @@ import { createMockTroubleshooting, type MockOptions } from "../../src/adapters/
 import { reportIn, responsesServer, sendText, sendTool, textEvents } from "../fixtures/responses.js";
 import type { ModelResponse } from "../../src/troubleshooting/application/model-contract.js";
 import { ManualClock } from "../fixtures/clock.js";
+import { modelDrivenSimulator } from "../fixtures/model-driver.js";
 
 const context: CallContext = { caseRef: "case-1", phaseId: 1, callId: "case-1:model:1", principalRef: "principal-1",
   tenantRef: "tenant-1", destinationRef: "private-1", policyVersion: "policy-1", approvalRef: "approval-1",
@@ -199,6 +200,79 @@ test("native missing, estimated and explicitly synthetic usage keep distinct dur
   }
 });
 
+test("native terminal event and status must match before releasing a report, tool or execution slot", async () => {
+  const invalid = [
+    { type: "response.completed", status: "in_progress" },
+    { type: "response.completed" },
+    { type: "response.completed", status: "incomplete" },
+    { type: "response.completed", status: "failed" },
+    { type: "response.incomplete", status: "completed" },
+    { type: "response.incomplete", status: "failed" },
+    { type: "response.failed", status: "completed" },
+    { type: "response.failed", status: "incomplete" },
+  ];
+  for (const ending of invalid) for (const kind of ["report", "tool"] as const) {
+    const server = await responsesServer((body, response) => {
+      if (kind === "tool") return sendTool(response, { done: true, terminal: true, terminalEvent: ending });
+      const events = textEvents(JSON.stringify(reportIn(body)));
+      const original = events.at(-1)!;
+      assert.ok(original.response && "status" in original.response);
+      const { status: _status, ...rest } = original.response;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      for (const event of [...events.slice(0, -1), { type: ending.type, response: { ...rest, ...("status" in ending ? { status: ending.status } : {}) } }])
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
+    const mock = createMockTroubleshooting({ agent: modelDrivenSimulator, modelPolicy: responsesModelPolicy, modelProfile: "local_protocol" });
+    mock.ports.model.generate = createResponsesGateway({ route: "local_protocol", contract: responsesModelPolicy.protocol, baseUrl: server.baseUrl, clock: mock.ports.clock }).generate;
+    try {
+      await mock.receive(); await mock.closed;
+      const view = await mock.application.get(mock.inbound, "case-1");
+      assert.ok("state" in view && view.state === "stopped" && view.stopReason === "schema_mismatch", `${ending.type}/${ending.status}/${kind}`);
+      assert.equal(mock.events.some((event) => ["logs.read", "code.search", "delivery.send"].includes(event.action)), false);
+      assert.equal(server.requests.length, 1);
+      const budget = await mock.ports.budget.status("case-1");
+      assert.equal(budget.reservedMicrousd, 180_000);
+      assert.equal(budget.unsettledCalls, 1);
+      assert.equal(budget.charges[0]!.execution, "unknown");
+      const stored = await mock.ports.records.export(mock.inbound, "case-1");
+      assert.equal(stored?.records.some((record) => record.kind === "model_output" || record.kind === "report"), false);
+    } finally { await server.close(); }
+  }
+});
+
+test("valid incomplete or failed native endings release execution while retaining unknown or estimated fees and no diagnosis", async () => {
+  for (const status of ["incomplete", "failed"] as const) for (const source of ["unknown", "estimated"] as const) {
+    const server = await responsesServer((body, response) => {
+      const events = textEvents(JSON.stringify(reportIn(body)), source === "estimated"
+        ? { synthetic_source: "estimated", synthetic_cost_microusd: 0 } : undefined);
+      const original = events.at(-1)!;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      for (const event of [...events.slice(0, -1), { type: `response.${status}`, response: { ...original.response, status } }])
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
+    const mock = createMockTroubleshooting({ agent: modelDrivenSimulator, modelPolicy: responsesModelPolicy, modelProfile: "local_protocol" });
+    mock.ports.model.generate = createResponsesGateway({ route: "local_protocol", contract: responsesModelPolicy.protocol, baseUrl: server.baseUrl, clock: mock.ports.clock }).generate;
+    try {
+      await mock.receive(); await mock.closed;
+      assert.equal(mock.events.some((event) => ["logs.read", "code.search", "delivery.send"].includes(event.action)), false);
+      assert.equal(server.requests.length, 1);
+      const view = await mock.application.get(mock.inbound, "case-1");
+      assert.ok("state" in view && view.state === "stopped" && view.stopReason === "schema_mismatch");
+      const budget = await mock.ports.budget.status("case-1");
+      assert.equal(budget.reservedMicrousd, 180_000);
+      assert.equal(budget.unsettledCalls, 0);
+      assert.equal(budget.charges[0]!.execution, "ended");
+      assert.equal(budget.charges[0]!.source, source);
+      assert.equal(budget.charges[0]!.actualMicrousd, null);
+      assert.equal(budget.charges[0]!.estimatedMicrousd, source === "estimated" ? 0 : null);
+      const stored = await mock.ports.records.export(mock.inbound, "case-1");
+      assert.equal(stored?.records.some((record) => record.kind === "model_output" || record.kind === "report"), false);
+    } finally { await server.close(); }
+  }
+});
+
 test("malformed UTF-8 after logical text cannot be repaired by the codec into a completed diagnostic", async () => {
   const server = await responsesServer((body, response) => {
     const events = textEvents(JSON.stringify(reportIn(body)));
@@ -280,6 +354,76 @@ test("pre-header cancellation or timeout aborts only its physical request and re
       assert.equal(delivered.length, 1);
       assert.equal((delivered[0]!.input as { report: { caseRef: string } }).report.caseRef, "case-2");
     } finally { late.resolve(); await server.close(); }
+  }
+});
+
+test("B preserves host cancellation and deadline causes after receiving SSE headers without inventing an execution end", async () => {
+  for (const reason of ["cancelled", "timeout"] as const) for (const terminal of [false, true]) {
+    const headers = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const clock = new ManualClock();
+    const server = await responsesServer((_body, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      const events = textEvents("Synthetic answer.");
+      for (const event of terminal ? events : events.slice(0, 1)) response.write(`data: ${JSON.stringify(event)}\n\n`);
+      headers.resolve(); // Keep the physical body open after these bytes.
+    });
+    try {
+      const gateway = createResponsesGateway({ route: "local_protocol", baseUrl: server.baseUrl, contract: responsesModelPolicy.protocol, clock });
+      const response = gateway.generate({ ...context, signal: controller.signal }, { schemaVersion: 1, messages: [
+        { role: "system", content: "Synthetic only." }, { role: "user", content: "Synthetic cancellation probe." },
+      ] }, async () => {});
+      const rejected = assert.rejects(response, (error: unknown) => {
+        assert.ok(error instanceof Error && "execution" in error);
+        assert.equal(error.message, reason);
+        assert.equal(error.execution, terminal ? "ended" : "unknown");
+        return true;
+      });
+      await headers.promise;
+      await new Promise((done) => setTimeout(done, 20)); // Allow the native client to consume the already sent headers/events.
+      if (reason === "timeout") clock.advance(60_000);
+      controller.abort();
+      await rejected;
+      assert.equal(server.requests.length, 1);
+    } finally { controller.abort(); await server.close(); }
+  }
+});
+
+test("A/C cancellation or timeout after SSE headers keeps the original unknown reservation and blocks delivery", async () => {
+  for (const reason of ["cancelled", "timeout"] as const) {
+    const headers = Promise.withResolvers<void>();
+    const failed = Promise.withResolvers<unknown>();
+    const clock = new ManualClock();
+    const server = await responsesServer((_body, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"type":"response.created","response":{"id":"resp_synthetic"}}\n\n');
+      headers.resolve();
+    });
+    const mock = createMockTroubleshooting({ clock, modelPolicy: responsesModelPolicy, modelProfile: "local_protocol" });
+    const gateway = createResponsesGateway({ route: "local_protocol", contract: responsesModelPolicy.protocol, baseUrl: server.baseUrl, clock });
+    mock.ports.model.generate = async (...args) => {
+      try { return await gateway.generate(...args); } catch (error) { failed.resolve(error); throw error; }
+    };
+    try {
+      await mock.receive(); await headers.promise;
+      await new Promise((done) => setTimeout(done, 20));
+      if (reason === "cancelled") await mock.application.cancel(mock.inbound, "case-1");
+      else clock.advance(60_000);
+      await mock.closed;
+      const error = await failed.promise;
+      assert.ok(error instanceof Error && "execution" in error);
+      assert.equal(error.message, reason);
+      assert.equal(error.execution, "unknown");
+      const view = await mock.application.get(mock.inbound, "case-1");
+      assert.ok("state" in view && view.state === "stopped" && view.stopReason === reason);
+      const budget = await mock.ports.budget.status("case-1");
+      assert.equal(budget.attempts, 1);
+      assert.equal(budget.reservedMicrousd, 180_000);
+      assert.equal(budget.unsettledCalls, 1);
+      assert.equal(budget.charges[0]!.execution, "unknown");
+      assert.equal(mock.events.some((event) => event.action === "delivery.send"), false);
+      assert.equal(server.requests.length, 1);
+    } finally { await server.close(); }
   }
 });
 

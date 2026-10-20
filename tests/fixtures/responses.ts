@@ -20,7 +20,8 @@ export function sendText(response: ServerResponse, text: string, usage?: object)
   response.end();
 }
 
-export function sendTool(response: ServerResponse, options: { done: boolean; terminal: boolean; name?: string; arguments?: string }): void {
+export function sendTool(response: ServerResponse, options: { done: boolean; terminal: boolean; name?: string; arguments?: string;
+  terminalEvent?: { type: string; status?: string } }): void {
   const item = { type: "function_call", id: "fc_synthetic", call_id: "call_synthetic", name: options.name ?? "logs_read", arguments: options.arguments ?? "{}", status: "completed" };
   response.writeHead(200, { "content-type": "text/event-stream" });
   const events: object[] = [
@@ -30,7 +31,8 @@ export function sendTool(response: ServerResponse, options: { done: boolean; ter
     { type: "response.function_call_arguments.done", output_index: 0, item_id: item.id, arguments: item.arguments },
   ];
   if (options.done) events.push({ type: "response.output_item.done", output_index: 0, item });
-  if (options.terminal) events.push({ type: "response.completed", response: { id: "resp_synthetic", status: "completed", model: "gpt6.1-sol", output: [item] } });
+  if (options.terminal) events.push({ type: options.terminalEvent?.type ?? "response.completed", response: { id: "resp_synthetic",
+    ...(options.terminalEvent ? options.terminalEvent.status ? { status: options.terminalEvent.status } : {} : { status: "completed" }), model: "gpt6.1-sol", output: [item] } });
   for (const event of events) response.write(`data: ${JSON.stringify(event)}\n\n`);
   response.end();
 }

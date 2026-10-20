@@ -48,3 +48,21 @@ docker run --rm --pull=never --network none --read-only \
 ```
 
 尚未执行且保持关闭：CPA／公司实际部署、真实别名映射／模型／收费／reasoning／tokenizer／输出与计费保证、真实数据政策、凭据／网络及真实模型工具闭环；真实源、Teams 和生产／GitLab 访问亦未执行。HTTP 压缩响应未单独验证，当前测试只覆盖未压缩 SSE；没有将本次结果记作任意 transport 兼容性证明。#15 Node 更新通知、制品签名信任链、分发通知和最终镜像门禁仍未完成。没有以本地通过关闭真实联调票或父规格 #14。
+
+## 评审修订：语义有效的终止事件
+
+规格评审在 `9754bf2` 通过实际 SDK／本地 HTTP 复现：`response.completed` 搭配 `in_progress` 或缺少 status，以及 `response.incomplete` 搭配 `completed`，都被 SDK 解释成 stop，并交付报告、释放未知执行槽。先加入公开 A／B／C 行为测试，观察 `completed/in_progress` 仍交付，再修正 Adapter；不解析 SDK 错误字符串或改变 A–D 操作。
+
+现在仅 `completed/completed`、`incomplete/incomplete`、`failed/failed` 三种精确事件／状态配对证明执行结束；仅第一种且 SDK 输出完整时才交出候选或工具调用。缺失、非终止或交叉配对以 `schema_mismatch` 拒绝，费用预留及未知执行槽保留。有效 incomplete／failed 拒绝诊断，仍允许释放已知终止的执行槽；缺失或估算 usage 不解除费用预留。终止状态与费用来源保持独立。
+
+新增两项公开测试，实际覆盖上述两种缺失／非终止状态及全部六种交叉配对，各自测试报告和工具响应：零工具／报告副作用、零完整模型结果留存、仅一次 HTTP、180,000 microusd 预留及未知槽保留。另覆盖有效 incomplete／failed 各自缺失／估算 usage，确认 ended 与保留费用；既有有效 completed 三种 usage 来源继续通过。
+
+修订后精确 Node 24.22.0 下类型检查、构建、macOS 247 项及相同受限 Linux arm64 247 项行为测试通过；两项实际 Postman 合约测试重新通过。`git diff --check` 与文档链接检查通过。合并最新集成 `9754bf2`，结果 already up to date。真实路线及其他未验证门禁保持上述状态；本修订没有推送或关闭票。
+
+## 评审修订：响应体中途取消
+
+独立公开 B 探针还确认：收到 200 与 `response.created` 后取消，接收 wrapper 原先把读取中断统一归为 `schema_mismatch`。新增实际 HTTP 回归先观察到该失败，再在有界接收结束处检查宿主 AbortSignal 与注入的绝对 deadline；这些已知控制原因分别返回有限 `cancelled`／`timeout`，不从 SDK 文本推断。异常仍携带原 call 的执行／费用信息：未确认语义终止保持 unknown；此前已有有效终止则保留 ended，不能因为后续取消重新丢失证明。
+
+新增两项公开行为分别覆盖 B 的取消／timeout × 有效终止存在／不存在，以及 A／C 在响应头后取消／timeout 的停止视图、零报告、一次 HTTP、原 180,000 microusd 预留与未知槽保留。原有首响应前取消、跨案隔离、无效终止配对及有效终止费用回归保持适用。
+
+两项评审修订合并后，重新执行精确 Node 24.22.0 严格类型检查与构建、macOS 全部 249 项、受限 Linux arm64 全部 249 项及实际 Postman 两项协议测试，均通过；差异与文档本地引用检查通过。最终交付包含四项新增公开行为测试，不变更版本、A–D 操作或真实路线启用条件。
