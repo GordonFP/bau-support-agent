@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | `@earendil-works/pi-ai` | 1.3.0 | MIT；Node >=22.19.0 | `api/openai-responses` 的 `streamSimple` 与注入 fetch、maxRetries、maxTokens；SDK 类型只在 Adapter 使用 |
 | `@modelcontextprotocol/sdk` | 1.32.1 | MIT；Node >=18 | 独立 `Client`、`StdioClientTransport` 的 maxBufferSize |
+| `zod` | 4.6.7 | MIT；沿用 SDK 已锁定制品 | `z.strictObject` 拒绝未知字段，用于 #22 闭合结果 DTO |
 
 来源：[Pi 固定 Responses 实现](https://github.com/earendil-works/pi/blob/71023aec1546d6d677a65669c5665c0927ce0dd0/packages/ai/src/api/openai-responses.ts)、[Pi 制品元数据](https://registry.npmjs.org/@earendil-works%2fpi-ai/1.3.0)、[MCP 制品元数据](https://registry.npmjs.org/@modelcontextprotocol%2fsdk/1.32.1)。未增加 coding-agent、Teams 或版本升级。
 
@@ -31,3 +32,7 @@ MCP1.32.1: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulU
 - 依赖安装后独立 `npm run typecheck`、`npm run build`、macOS 全部 173 项既有行为测试通过。此依赖提交没有应用 wire／MCP 业务实现；Linux 协议运行、完整生成／取消／字节行为由对应票后续验证，不在此记通过。
 
 #15 的 Node 安全更新通知仍为待核实更新门禁。所有模型／生产源／Teams 真实路径继续关闭；上述包核验不证明真实部署、模型别名、费用或数据政策。
+
+## #22 闭合 schema 的直接依赖
+
+将 SDK 已有 transitive／peer `zod@4.6.7` 显式列为直接依赖，不改变其制品或其他锁定版本。重新下载官方制品验证 registry／lock SHA-512 一致；MIT 与随包 LICENSE 已核对。实际 strictObject 接受已知字段、拒绝额外字段，npm audit 仍为 0。这样避开本票不使用的 SDK Ajv provider 声明 TS2709，不放宽项目类型检查。该直接依赖调整后，类型检查、构建及原有 173 项测试通过。
