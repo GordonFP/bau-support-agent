@@ -27,7 +27,7 @@ export function evaluate(input: unknown) {
   const costs = measureCosts(parsed.data);
   const issues = [...new Set([...records.issues, ...review.issues, ...times.issues, ...costs.issues])];
   if (issues.length) return { valid: false as const, decision: 'cannot_determine' as const, issues, pending: ['invalid_format'], stopPaths };
-  const pending = [...new Set([...records.pending, ...review.pending])];
+  const pending = [...new Set([...records.pending, ...review.pending, ...times.pending])];
   const sceneSummaries = scenes.map(scene => {
       const caseIds = new Set(round.cases.filter(item => item.scene === scene).map(item => item.caseId));
       const count = review.cases.filter(item => caseIds.has(item.caseId) && item.useful).length;

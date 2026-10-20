@@ -295,3 +295,30 @@ test('a cancelled case retains its original late physical completion and fee, wi
   runs[9]!.attempts[0]!.startedAt = '2026-10-02T00:02:01Z';
   assert.equal(evaluate({ ...input, results: { ...input.results, runs } }).valid, false);
 });
+
+test('executed cases need phase records; a missing execution phase is unknown rather than zero', () => {
+  const input = declaredFormal();
+  input.results.runs[0]!.timeline.phases = [];
+  const result = evaluate(input);
+  assert.equal(result.valid, true);
+  if (!result.valid) return;
+  assert.equal(result.decision, 'cannot_determine');
+  assert.ok(result.pending.includes('missing_execution_phases'));
+  assert.equal(result.times.cases[0]!.phaseMs, null);
+  input.results.runs[0]!.timeline.phases = [{ id: 'unrelated-phase', startedAt: '2026-10-02T00:03:00Z', endedAt: '2026-10-02T00:05:00Z' }];
+  assert.ok(evaluate(input).pending.includes('missing_execution_phases'));
+});
+
+test('not-accepted or accepted-before-start cancellation does not invent an execution phase', () => {
+  const input = evaluationExample();
+  const runs = input.results.runs.map((run, i) => i === 9 || i === 10 ? {
+    ...run, status: i === 9 ? 'not_accepted' : 'cancelled', failureRef: 'pre-start-receipt', report: null, primary: null, secondary: null, factChecks: [], attempts: [], attemptIds: [],
+    timeline: { ...run.timeline, acceptedAt: i === 9 ? null : '2026-10-02T00:01:00Z', finishedAt: '2026-10-02T00:01:05Z', phases: [] },
+  } : run);
+  const result = evaluate({ ...input, results: { ...input.results, runs } });
+  assert.equal(result.valid, true);
+  if (!result.valid) return;
+  assert.ok(!result.pending.includes('missing_execution_phases'));
+  assert.equal(result.times.cases[9]!.phaseMs, 0);
+  assert.equal(result.times.cases[10]!.phaseMs, 0);
+});

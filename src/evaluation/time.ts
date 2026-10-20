@@ -26,6 +26,7 @@ export function describe(values: (number | null)[], denominator = values.length)
 
 export function measureTimes({ round, results }: EvaluationBundle) {
   const issues: string[] = [];
+  const pending: string[] = [];
   const work = results.runs.flatMap(run => run.timeline.humanWork);
   for (const [index, item] of work.entries()) {
     if (work.slice(index + 1).some(other => item.actorId === other.actorId && overlaps(item, other))) issues.push('human_work_overlap');
@@ -38,6 +39,8 @@ export function measureTimes({ round, results }: EvaluationBundle) {
     const accepted = time.acceptedAt === null ? null : Date.parse(time.acceptedAt);
     const finished = time.finishedAt === null ? null : Date.parse(time.finishedAt);
     const delivered = run.report?.deliveredAt ? Date.parse(run.report.deliveredAt) : null;
+    const missingExecution = (time.phases.length === 0 && (run.attempts.length > 0 || delivered !== null)) || run.attempts.some(attempt => !time.phases.some(phase => Date.parse(attempt.startedAt) >= start(phase) && Date.parse(attempt.startedAt) <= end(phase)));
+    if (missingExecution) pending.push('missing_execution_phases');
     if ((accepted !== null && accepted < received) || (finished !== null && finished < (accepted ?? received)) || (run.status !== 'pending' && finished === null) || (run.status === 'pending' && finished !== null)) issues.push('invalid_lifecycle_order');
     if (accepted === null && (delivered !== null || time.clue || time.phases.length || time.waits.length || run.attempts.length)) issues.push('work_without_acceptance');
     if (run.status === 'not_accepted' && accepted !== null) issues.push('invalid_lifecycle_order');
@@ -60,7 +63,7 @@ export function measureTimes({ round, results }: EvaluationBundle) {
       caseId: item.caseId,
       clueMs: clue?.safe && clue.supported && accepted !== null ? Date.parse(clue.deliveredAt) - accepted : null,
       reportMs: delivered !== null && accepted !== null ? delivered - accepted : null,
-      phaseMs: unionMs(time.phases),
+      phaseMs: missingExecution ? null : unionMs(time.phases),
       waitMs: { queue: unionMs(time.waits.filter(wait => wait.kind === 'queue')), tool: unionMs(time.waits.filter(wait => wait.kind === 'tool')), model: unionMs(time.waits.filter(wait => wait.kind === 'model')), clarification: unionMs(time.waits.filter(wait => wait.kind === 'clarification')) },
       manualMs: time.humanWork.filter(human => !['score', 'second_review'].includes(human.kind)).reduce((total, human) => total + end(human) - start(human), 0),
       scoringMs: time.humanWork.filter(human => human.kind === 'score').reduce((total, human) => total + end(human) - start(human), 0),
@@ -68,7 +71,7 @@ export function measureTimes({ round, results }: EvaluationBundle) {
     };
   });
   if (cases.some(item => [item.phaseMs, item.manualMs, item.scoringMs, item.secondReviewMs, ...Object.values(item.waitMs)].some(value => value !== null && !Number.isSafeInteger(value)))) issues.push('time_overflow');
-  return { issues, cases, scenes: scenes.map(scene => {
+  return { issues, pending, cases, scenes: scenes.map(scene => {
     const selected = cases.filter(item => round.cases.some(candidate => candidate.caseId === item.caseId && candidate.scene === scene));
     return { scene, clueMs: describe(selected.map(item => item.clueMs), 12), reportMs: describe(selected.map(item => item.reportMs), 12), phaseMs: describe(selected.map(item => item.phaseMs), 12), manualMs: describe(selected.map(item => item.manualMs), 12), scoringMs: describe(selected.map(item => item.scoringMs), 12), secondReviewMs: describe(selected.map(item => item.secondReviewMs), 12), waitMs: { queue: describe(selected.map(item => item.waitMs.queue), 12), tool: describe(selected.map(item => item.waitMs.tool), 12), model: describe(selected.map(item => item.waitMs.model), 12), clarification: describe(selected.map(item => item.waitMs.clarification), 12) } };
   }) };
