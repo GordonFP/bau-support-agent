@@ -45,6 +45,7 @@ export class Troubleshooting {
   private readonly cases = new Map<string, RunningCase>();
   private readonly acceptances = new Map<string, Promise<Acceptance>>();
   private readonly pendingAdmissions = new Set<string>();
+  private readonly persistedLookups = new Map<string, Promise<Acceptance | null>>();
   private sequence = 0;
   private readonly auditBoundary?: AuditBoundary;
 
@@ -64,7 +65,10 @@ export class Troubleshooting {
       const accepted = await previous;
       if (!("view" in accepted)) return accepted;
       const running = this.cases.get(accepted.view.caseRef);
-      if (!running || running.context.principalRef !== inbound.principalRef) {
+      if (!running) {
+        return await this.persistedDuplicate(inbound, key, accepted.view.caseRef) ?? { status: "denied", reason: "denied" };
+      }
+      if (running.context.principalRef !== inbound.principalRef) {
         await this.denied(inbound, accepted.view.caseRef);
         return { status: "denied", reason: "denied" };
       }
@@ -75,6 +79,11 @@ export class Troubleshooting {
         }
         return { status: "duplicate", view: this.viewOf(running, this.configured as Ports) };
       } catch { return { status: "service_unavailable", reason: "unavailable" }; }
+    }
+    if (this.configured.admission?.lookup) {
+      const duplicate = await this.persistedDuplicate(inbound, key);
+      if (duplicate) return duplicate;
+      if (this.acceptances.has(key)) return this.accept(inbound);
     }
     const active = [...this.cases.values()].filter((item) => item.view.state === "investigating" || item.view.state === "awaiting_input").length;
     if (active + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) return { status: "service_unavailable", reason: "unavailable" };
@@ -91,6 +100,30 @@ export class Troubleshooting {
       this.acceptances.delete(key);
       return { status: "service_unavailable", reason: "unavailable" };
     } finally { if (!timedOut) this.pendingAdmissions.delete(key); }
+  }
+
+  private async persistedDuplicate(inbound: VerifiedInbound, key: string, caseRef?: string): Promise<Acceptance | null> {
+    const flightKey = JSON.stringify([key, inbound.principalRef]);
+    const previous = this.persistedLookups.get(flightKey);
+    if (previous) return previous;
+    const ports = this.configured as Ports;
+    if (!ports.clock || !ports.records || this.persistedLookups.size + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) {
+      return { status: "service_unavailable", reason: "unavailable" };
+    }
+    const deadline = ports.clock.now() + CASE_EXECUTION_MS;
+    let expired = false;
+    const work = (async (): Promise<Acceptance | null> => {
+      const found = caseRef ? { caseRef } : await ports.admission.lookup!(key);
+      if (expired || ports.clock.now() >= deadline) throw new Error("timeout");
+      if (!found) return null;
+      const saved = await ports.records.read(inbound, found.caseRef);
+      return saved ? { status: "duplicate", view: saved.view } : { status: "denied", reason: "denied" };
+    })();
+    const operation = beforeDeadline(ports.clock, deadline, () => work, undefined, () => { expired = true; })
+      .catch((): Acceptance => ({ status: "service_unavailable", reason: expired ? "timeout" : "unavailable" }));
+    this.persistedLookups.set(flightKey, operation);
+    void work.finally(() => this.persistedLookups.delete(flightKey)).catch(() => {});
+    return operation;
   }
 
   private async acceptVerified(inbound: VerifiedInbound, key: string): Promise<Acceptance> {

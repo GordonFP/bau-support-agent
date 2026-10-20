@@ -10,6 +10,7 @@ import { chmod, symlink } from "node:fs/promises";
 import { SqliteRecords } from "../../src/adapters/records/sqlite.js";
 import { createMockTroubleshooting } from "../../src/adapters/mock/troubleshooting.js";
 import type { CallContext, CaseView } from "../../src/troubleshooting/application/ports.js";
+import { ManualClock } from "../fixtures/clock.js";
 
 const actor = { principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1" };
 const context: CallContext = { ...actor, caseRef: "case-1", phaseId: 1, callId: "case-1:accept", policyVersion: "mock-policy-1",
@@ -66,6 +67,12 @@ test("A survives a completed-case restart: duplicates are not reinvestigated and
     assert.ok("view" in duplicate);
     assert.equal(duplicate.view.state, "completed");
     assert.equal(duplicate.view.caseRef, accepted.view.caseRef);
+    const replay = await restarted.receive();
+    assert.deepEqual(replay, duplicate);
+    const allows = restarted.ports.authorization.allows;
+    restarted.ports.authorization.allows = async (action, authority) => action !== "records.read" && allows(action, authority);
+    assert.deepEqual(await restarted.receive(), { status: "denied", reason: "denied" });
+    restarted.ports.authorization.allows = allows;
     assert.equal(restarted.events.some((event) => ["logs.read", "model.generate", "delivery.send"].includes(event.action)), false);
     const view = await restarted.application.get(actor, accepted.view.caseRef);
     assert.ok("state" in view);
@@ -76,6 +83,68 @@ test("A survives a completed-case restart: duplicates are not reinvestigated and
     assert.notEqual(next.view.caseRef, accepted.view.caseRef);
     await restarted.closed;
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("a persisted duplicate remains readable after restart when 32 new cases fill active capacity", { timeout: 5_000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-replay-full-"));
+  let store: SqliteRecords | undefined;
+  const hold = Promise.withResolvers<void>();
+  const boot = (waiting = false) => createMockTroubleshooting({ ...(waiting ? { agent: async () => { await hold.promise; return null; } } : {}),
+    controlPorts: (ports) => {
+      store = new SqliteRecords(directory, ports);
+      return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+    } });
+  const active: string[] = [];
+  let restarted: ReturnType<typeof createMockTroubleshooting> | undefined;
+  try {
+    const first = boot();
+    await first.receive();
+    await first.closed;
+    store!.close();
+    restarted = boot(true);
+    for (let index = 0; index < 32; index++) {
+      const accepted = await restarted.receive({ eventRef: `new-${index}` });
+      assert.equal(accepted.status, "accepted");
+      if ("view" in accepted) active.push(accepted.view.caseRef);
+    }
+    const business = () => restarted!.events.filter((event) => ["agent.run", "logs.read", "model.generate", "delivery.send"].includes(event.action)).length;
+    const before = business();
+    for (let replay = 0; replay < 2; replay++) {
+      const duplicate = await restarted.receive();
+      assert.ok(duplicate.status === "duplicate" && duplicate.view.caseRef === "case-1" && duplicate.view.state === "completed");
+    }
+    assert.equal(business(), before);
+    assert.equal((await restarted.receive({ eventRef: "overflow" })).status, "service_unavailable");
+  } finally {
+    if (restarted) for (const ref of active) await restarted.application.cancel(actor, ref);
+    hold.resolve();
+    store?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("persisted-event lookup coalesces bounded waits and a late lookup cannot start investigation after its deadline", async () => {
+  const clock = new ManualClock();
+  const mock = createMockTroubleshooting({ clock });
+  const hold = Promise.withResolvers<void>();
+  let lookups = 0;
+  mock.ports.admission.lookup = async () => { lookups++; await hold.promise; return null; };
+  const first = mock.receive();
+  const same = mock.receive();
+  const pending = Array.from({ length: 31 }, (_, index) => mock.receive({ eventRef: `lookup-${index}` }));
+  assert.equal(lookups, 32);
+  assert.deepEqual(await mock.receive({ eventRef: "overflow" }), { status: "service_unavailable", reason: "unavailable" });
+  clock.advance(180_000);
+  const timedOut = { status: "service_unavailable", reason: "timeout" };
+  assert.deepEqual(await first, timedOut);
+  assert.deepEqual(await same, timedOut);
+  for (const result of await Promise.all(pending)) assert.deepEqual(result, timedOut);
+  assert.deepEqual(await mock.receive({ eventRef: "still-full" }), { status: "service_unavailable", reason: "unavailable" });
+  hold.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(mock.events.length, 0);
+  assert.equal((await mock.receive({ eventRef: "fresh" })).status, "accepted");
+  await mock.closed;
 });
 
 test("C exports versioned sanitized model exchanges, evidence and report without raw source selectors", async () => {

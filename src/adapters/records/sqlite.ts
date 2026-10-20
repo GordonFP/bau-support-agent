@@ -6,6 +6,7 @@ import { auditRecord } from "../../troubleshooting/application/audit-record.js";
 import { SqliteSession } from "./sqlite-session.js";
 import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
 import { advancesView, contextSnapshot, recordSnapshot, sameCaseAuthority, savedContextSnapshot } from "../../troubleshooting/application/record-contract.js";
+import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
 
 type Controls = Pick<Ports, "authorization" | "sanitization" | "clock">;
 
@@ -65,6 +66,10 @@ export class SqliteRecords {
   }
 
   readonly admission = {
+    lookup: async (key: string): Promise<{ caseRef: string; principalRef: string } | null> => {
+      const row = this.session.database.prepare("SELECT case_ref, context FROM cases WHERE event_key=?").get(key);
+      return row ? { caseRef: String(row.case_ref), principalRef: (JSON.parse(String(row.context)) as SavedContext).principalRef } : null;
+    },
     allocateCaseRef: (): string => this.session.transaction(() => {
       this.session.database.prepare("UPDATE case_sequence SET value=value+1 WHERE id=1").run();
       return `case-${Number(this.session.database.prepare("SELECT value FROM case_sequence WHERE id=1").get()!.value)}`;
@@ -80,7 +85,7 @@ export class SqliteRecords {
             view: JSON.parse(String(existing.view)) as InitialCase["view"] };
         }
         const active = this.session.database.prepare("SELECT COUNT(*) AS n FROM cases WHERE json_extract(view,'$.state') IN ('investigating','awaiting_input')").get();
-        if (Number(active?.n) >= 32) return { status: "full" };
+        if (Number(active?.n) >= MAX_ACTIVE_CASES) return { status: "full" };
         const context = savedContextSnapshot(record.initial.context);
         this.session.database.prepare("INSERT INTO cases VALUES (?,?,?,?)").run(record.caseRef, record.key, JSON.stringify(context), JSON.stringify(record.initial.view));
         const input: CaseRecord = { recordRef: `${record.caseRef}:input`, schemaVersion: 1, kind: "input", payload: record.initial.input };

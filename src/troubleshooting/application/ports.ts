@@ -110,6 +110,7 @@ export interface RuntimeRequest {
 export interface Ports {
   readonly records: CaseRecords;
   readonly admission: {
+    lookup?(key: string): Promise<{ readonly caseRef: string; readonly principalRef: string } | null>;
     allocateCaseRef?(): string;
     confirm(record: { readonly key: string; readonly caseRef: string; readonly principalRef: string; readonly initial: InitialCase }): Promise<
       { readonly status: "confirmed" } | { readonly status: "duplicate"; readonly caseRef: string; readonly principalRef: string; readonly view?: CaseView } | { readonly status: "full" }>;
