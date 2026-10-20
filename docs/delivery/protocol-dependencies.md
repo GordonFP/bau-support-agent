@@ -55,3 +55,28 @@ typebox1.3.27: sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRD
 实际引入 coding-agent 根类型闭包后，TypeScript 7.0.2 strict NodeNext 全声明检查确实失败：42 个 TS1543，全部在 pi-ai providers 的 JSON 模型声明缺少 `type:"json"` 属性；没有项目源错误。#21 的较窄 import 闭包此前通过完整声明检查，这两项记录分别成立。现仅跳过第三方声明体检查（`skipLibCheck:true`），保留 strict／NodeNext／noEmitOnError 和全部项目源检查，不改包、不加 any shim／抑制注释。[消费端验证脚本](../../scripts/check-pi-types.mjs)实际证明合法 SDK 调用通过，错误 tools 参数仍报唯一 TS2322；全声明检查仍记为失败，不能改称通过。
 
 受限 Linux arm64 使用同一只读安装实际运行 coding-agent 根导入、原生会话／工具／MCP／模型闭环。Node 公共模块加载 hook 的独立清单观察到 Pi agent-core／ai／codemode／coding-agent／mcp／tui、TypeBox、OpenAI 等 JS 闭包；没有加载 Photon／quickjs-wasi 模块或 koffi／sandbox 平台制品。Pi MCP／codemode 模块存在不表示能力已启用。当前文本排障路径的实际平台兼容已验证；图像、WASM、TUI／CLI、沙箱及其他平台能力未执行，不能沿用该结果。没有为测试启用默认工具、安装脚本、额外网络或更宽容器权限。
+
+## #24 Teams 依赖检查点
+
+2026-10-21，以 `54ac570` 为基线，仅增加精确 `@microsoft/teams.apps`／`teams.api`／`teams.common` **2.1.1**，以及开发依赖 `@types/express@5.0.6`。三个 SDK 包元数据为 MIT、Node >=22.12.0；Express 类型为 MIT。实际 Teams 根声明引用 Express 但未随依赖提供类型，初次独立完整检查报四项 TS7016；补齐固定类型包后通过，没有 shim、抑制或新增类型检查例外。既有 Pi、TypeBox、MCP、Zod、Node／TypeScript／Node 类型及其锁条目均未改变。
+
+安装使用固定 Node 24.22.0、`--save-exact --ignore-scripts --no-fund --no-audit --registry=https://registry.npmjs.org`。逐一独立下载全部 **46** 个新增锁条目，SHA-512 与 lock 一致；三个 SDK 和 Express 类型另核 registry 元数据与 lock 一致：
+
+```text
+teams.apps2.1.1: sha512-/MY2nPH8njX7F5Rw18r09SbBrmQ4BsjSCmNx2+Q4S8X+m/ptzz/hyme8naRlPxgx3/Jrxnef4jUOhqhcLjs06Q==
+teams.api2.1.1: sha512-42m4z4fbvb7dq7gJFrMnOuBDDMmLk3GYQGHlIYPLWOBH0KRFtWjEh15Z5XMzkyUFp06uVjsyNnnCgOaea0FKyQ==
+teams.common2.1.1: sha512-chbBLXOJj+hHWl0Cls2VQExvq1l+UK2adxChhxkrvypcnDDamDY9frHVTrPUZxWgEZ9bzmCG+HvJJKR1EcnXRw==
+@types/express5.0.6: sha512-sKYVuV7Sv9fbPIt/442koC7+IIwK5olP1KWeD88e/idgoJqDm3JV/YUiPwkoKK92ylff2MGxSz1CSjsXelx0YA==
+```
+
+当前 lock 共 272 项，macOS 实际安装 253 项。新增项归类 MIT 44、Apache-2.0 2；limiter 1.1.5 使用旧 `licenses` 数组且随包有完整 MIT 文本，不能把缺少单数 SPDX 字段当作无许可证。新增项无安装脚本、无原生编译。Teams apps 传递引入 graph／cards 2.1.1、MSAL、JWT／JWKS、OpenTelemetry，以及实际锁定 **Axios 1.20.0、Express 5.3.0**。没有直接 Graph 依赖、Graph 调用或 roster／email 权限。不能把旧研究的 Axios 版本或行为直接套到本锁图。
+
+五个 Teams 包和新增嵌套 agent-base 6.0.2／https-proxy-agent 5.0.1 没有独立 license／notice 文件；已读取[固定 Teams 标签根 MIT](https://github.com/microsoft/teams.ts/blob/v2.1.1/LICENSE)。其与最终分发制品的适用通知仍须 #28 汇总核对，连同前述未解决通知缺口保留为交付门禁。未核验发布签名／attestation 信任链，未声称完成分发许可核准。
+
+公开依据：[apps 元数据](https://registry.npmjs.org/@microsoft%2fteams.apps/2.1.1)、[api 元数据](https://registry.npmjs.org/@microsoft%2fteams.api/2.1.1)、[common 元数据](https://registry.npmjs.org/@microsoft%2fteams.common/2.1.1)、[2.1.1 发布说明](https://github.com/microsoft/teams.ts/releases/tag/v2.1.1)。该版本收紧 Agent365 调用方验证，不等于已验证真实用户 SSO。当前完整锁图 `npm audit` 为 **0**；当日 [Teams 官方公告页](https://github.com/microsoft/teams.ts/security/advisories)没有公开公告，发布说明中的认证修正也已核对。公告空白和 audit 结果均不是安全保证或生产启用批准。
+
+[类型预检](../../scripts/check-teams-types.mjs)使用 TypeScript 7.0.2 strict／NodeNext、**Teams 独立完整第三方声明检查**，实际验证 App、公开 HTTP Adapter、JwtValidator 子模块、OAuth flow、消息发送和 plain client 选项；合法调用通过，数字 activity 的负例唯一 TS2769。项目既有 `skipLibCheck:true` 决策及 Pi 全声明检查失败记录保持不变，不能用本项较窄闭包通过覆盖它。
+
+[原生互操作预检](../../scripts/check-teams-interop.mjs)在独立进程禁用 tracer／meter 并使用丢弃 logger，只绑定合成 loopback：实际 App 服务签名路由、实际 OAuth token client 404、原生 app.send 成功／429／已消费请求后连接重置。plain AppOptions.client 让 SDK 创建匹配的 CJS client；404 返回无 token，成功有合成 receipt，每个发送恰好一个物理 POST，没有直接 ESM Client 注入。macOS／受限 Linux arm64 均通过；这证明当前安装闭包的该路径，不推导其他 SDK 重试／边界行为已完成。
+
+独立类型检查、构建、Pi 严格消费端预检和原有 **262** 项 macOS／Linux 行为测试全部通过。完整 Teams A→Pi→D、64 KiB 原始入站控制、当前用户认证／披露、补问、分段、持久未知回执及关闭生命周期尚未实现；本检查点不关闭 #24。真实租户、SSO、会话可见性与部署身份继续未验证，#15 Node 更新门禁、#28 notices 和父规格 #14 保持未完成。

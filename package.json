@@ -13,12 +13,16 @@
     "test": "npm run build && node --test dist/tests/behavior/*.test.js"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
     "@types/node": "24.10.0",
     "typescript": "7.0.2"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-coding-agent": "1.3.0",
+    "@microsoft/teams.api": "2.1.1",
+    "@microsoft/teams.apps": "2.1.1",
+    "@microsoft/teams.common": "2.1.1",
     "@modelcontextprotocol/sdk": "1.32.1",
     "typebox": "1.3.27",
     "zod": "4.6.7"
