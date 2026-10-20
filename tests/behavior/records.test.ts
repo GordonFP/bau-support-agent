@@ -147,6 +147,34 @@ test("persisted-event lookup coalesces bounded waits and a late lookup cannot st
   await mock.closed;
 });
 
+test("a new-event lookup and acceptance controls share the original 180-second host deadline", async () => {
+  const clock = new ManualClock();
+  const mock = createMockTroubleshooting({ clock });
+  const lookup = Promise.withResolvers<void>();
+  const authorization = Promise.withResolvers<void>();
+  const checking = Promise.withResolvers<void>();
+  mock.ports.admission.lookup = async () => { await lookup.promise; return null; };
+  const allows = mock.ports.authorization.allows;
+  mock.ports.authorization.allows = async (action, authority) => {
+    if (action === "accept") { checking.resolve(); await authorization.promise; }
+    return allows(action, authority);
+  };
+  let settled = false;
+  const acceptance = mock.receive().then((result) => { settled = true; return result; });
+  try {
+    clock.advance(179_000);
+    lookup.resolve();
+    await checking.promise;
+    clock.advance(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, true);
+    assert.deepEqual(await acceptance, { status: "service_unavailable", reason: "timeout" });
+  } finally { lookup.resolve(); authorization.resolve(); clock.advance(360_000); }
+  await acceptance;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(mock.events.length, 0);
+});
+
 test("C exports versioned sanitized model exchanges, evidence and report without raw source selectors", async () => {
   const directory = await mkdtemp(join(tmpdir(), "bau-artifacts-"));
   let store: SqliteRecords | undefined;

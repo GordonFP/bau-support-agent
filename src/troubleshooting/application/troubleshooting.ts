@@ -80,8 +80,11 @@ export class Troubleshooting {
         return { status: "duplicate", view: this.viewOf(running, this.configured as Ports) };
       } catch { return { status: "service_unavailable", reason: "unavailable" }; }
     }
+    let admissionPhase: ReturnType<typeof phaseWindow> | undefined;
     if (this.configured.admission?.lookup) {
-      const duplicate = await this.persistedDuplicate(inbound, key);
+      try { if (this.configured.clock) admissionPhase = phaseWindow(this.configured.clock); }
+      catch { return { status: "service_unavailable", reason: "unavailable" }; }
+      const duplicate = await this.persistedDuplicate(inbound, key, undefined, admissionPhase?.deadline);
       if (duplicate) return duplicate;
       if (this.acceptances.has(key)) return this.accept(inbound);
     }
@@ -89,7 +92,7 @@ export class Troubleshooting {
     if (active + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) return { status: "service_unavailable", reason: "unavailable" };
     this.pendingAdmissions.add(key);
     let timedOut = false;
-    const operation = this.acceptVerified(inbound, key);
+    const operation = this.acceptVerified(inbound, key, admissionPhase);
     this.acceptances.set(key, operation);
     try {
       const result = await operation;
@@ -102,7 +105,7 @@ export class Troubleshooting {
     } finally { if (!timedOut) this.pendingAdmissions.delete(key); }
   }
 
-  private async persistedDuplicate(inbound: VerifiedInbound, key: string, caseRef?: string): Promise<Acceptance | null> {
+  private async persistedDuplicate(inbound: VerifiedInbound, key: string, caseRef?: string, originalDeadline?: number): Promise<Acceptance | null> {
     const flightKey = JSON.stringify([key, inbound.principalRef]);
     const previous = this.persistedLookups.get(flightKey);
     if (previous) return previous;
@@ -110,7 +113,7 @@ export class Troubleshooting {
     if (!ports.clock || !ports.records || this.persistedLookups.size + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) {
       return { status: "service_unavailable", reason: "unavailable" };
     }
-    const deadline = ports.clock.now() + CASE_EXECUTION_MS;
+    const deadline = originalDeadline ?? ports.clock.now() + CASE_EXECUTION_MS;
     let expired = false;
     const work = (async (): Promise<Acceptance | null> => {
       const found = caseRef ? { caseRef } : await ports.admission.lookup!(key);
@@ -126,7 +129,7 @@ export class Troubleshooting {
     return operation;
   }
 
-  private async acceptVerified(inbound: VerifiedInbound, key: string): Promise<Acceptance> {
+  private async acceptVerified(inbound: VerifiedInbound, key: string, admissionPhase?: ReturnType<typeof phaseWindow>): Promise<Acceptance> {
     if (requiredPorts.some((key) => !this.configured[key]) || this.scope?.mode !== "mock") return { status: "service_unavailable", reason: "unavailable" };
     const windowSize = Date.parse(this.scope.queryWindow.to) - Date.parse(this.scope.queryWindow.from);
     if (!this.scope.snapshotRef || !Number.isFinite(windowSize) || windowSize <= 0 || windowSize > 86_400_000) {
@@ -142,7 +145,7 @@ export class Troubleshooting {
     }
     const caseRef = ports.admission.allocateCaseRef?.() ?? `case-${++this.sequence}`;
     const controller = new AbortController();
-    const phase = phaseWindow(ports.clock);
+    const phase = admissionPhase ?? phaseWindow(ports.clock);
     const now = phase.startedAt;
     const context: CallContext = Object.freeze({ caseRef, phaseId: 1, callId: `${caseRef}:accept`, principalRef: inbound.principalRef,
       tenantRef: inbound.tenantRef, destinationRef: inbound.destinationRef, policyVersion: "mock-policy-1", approvalRef: "mock-approval-1",
