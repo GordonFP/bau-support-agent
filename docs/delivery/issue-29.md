@@ -21,7 +21,7 @@ At immutable checkpoint `513581b`, exact Node24.22.0 project typecheck/build and
 
 Subsequent public RED→GREEN checks covered the confirmed category/late-settlement/phase omissions and the adjacent review accounting/failure-signal edges. All **33** targeted evaluation/CLI behavior tests and strict evaluation compilation passed on frozen source checkpoint `f41a2b7`. These checks supplement, rather than replace, the final integrated portable checks recorded below.
 
-## Final integrated checks
+## Initial integrated checks
 
 Latest integration `f289e82` was normally merged into the owned branch without conflict or changes to #28's files. Tested source merge: `d63db0f5415fa87346687bfaa8cc78209a18a309`; the remaining delivery commit changes documentation only.
 
@@ -33,3 +33,20 @@ Latest integration `f289e82` was normally merged into the owned branch without c
 - The three committed JSON files execute through the CLI with 9/12 independently per scene, category counts 4/4/4 per synthetic scene, model actual 2,400 microusd, shared initial indexing 500 microusd once, unknown labor actuals and `cannot_determine`. UTF-8/size refusal, controlled-text non-disclosure, actual failed-control retention and Agent projection pass public CLI tests. JSON parsing, local delivery references, `git diff --check` and latest-integration ancestry checks passed.
 
 No real 24-case evaluation, business rating, real permission/access validation, real deployment, native external-artifact contract rerun, Postman rerun or fresh application image build was performed for this isolated offline change. Existing local protocol paths are covered by the full portable suite; #28 owns its image/container evidence. Actual Go eligibility still requires the separate approved sample/review/control evidence and the POC owner's decision, none of which is supplied by these synthetic fixtures.
+
+## Pre-close review fixes and final verification
+
+The independent Spec review confirmed two P2 findings; the Standards axis found none. Both fixes are in immutable source checkpoint `481a1c494e3a9db7c448bf1386a15b1cc160d5a0`, after normally merging latest integration `6d5d5b8d34256be6e90bdef0b00d95a0ac8a4b53`:
+
+- A fact check cannot certify the current original report when its timestamp precedes round freeze or current-run acceptance. No accepted run also prevents certification. Missing timestamps remain invalid; missing fact checks remain pending. Public negative examples now reject pre-freeze and pre-acceptance checks. A positive example permits a current-run check before report delivery; no new post-delivery requirement or report-availability field was introduced. Controlled receipts still need to substantiate review of the original report, beyond these necessary time bounds.
+- CLI read-only open now uses `O_NONBLOCK` before the regular-file check and bounded read on the same descriptor. A writerless FIFO, its symlink and a directory yield finite exit 2; independent actual failed-control rows still appear in `stopPaths`. Public tests retain the original 1-second watchdog and fixed error/non-disclosure assertions. No new dependency, I/O framework or runtime operation was added.
+
+Both public counterexamples were observed RED before the minimal fixes; all **37** targeted evaluation/CLI tests and strict evaluation compilation then passed. Independent replay of the reviewer's unchanged original probes against `481a1c4` also reported both findings resolved: old fact timestamps returned invalid/undecidable, and the FIFO summary completed with exit 2 and retained the actual identity stop.
+
+Final exact Node24.22.0 project typecheck/build, Pi/Teams strict valid-and-invalid consumers, signed local Teams interop, and the evaluation/MCP/Kibana/management closure with `skipLibCheck:false` passed. The inherited Pi declaration exception remains unchanged. The full portable suite contains **452** tests (415 integrated baseline plus 37 evaluation/CLI tests):
+
+- macOS first run: **451 passed, 1 failed** in the existing Teams test “incoming byte progress cannot extend the absolute pre-parse read deadline,” with `raw_read_deadline_reset`. The unchanged isolated scenario passed; one identical full rerun at concurrency 2 then passed **452/452**. The first failure is retained, not reported as a clean first run.
+- Temporary public-clock schedule instrumentation in that single Teams test passed once and recorded registration at clock 0/deadline 5000, before both 4999+1 advances. That observation does **not** establish the first failure's root cause. The diagnostic wrapper was removed exactly; no Teams fixture semantics, production source, 100ms observation bound, progress bytes or zero-token/zero-event assertions were changed. No speculative synchronization fix was made.
+- Restricted Linux arm64: **452/452 passed on its first run**, using the same original fixed image, network-none/read-only checkout/root, 512 MiB memory, pids=64, 64 MiB `/tmp` and concurrency 2 profile documented above. No resource or deadline limit was weakened.
+
+The final commit after `481a1c4` changes only this delivery record. Actual cases, business ratings and a POC Go decision remain unperformed. The existing intermittent Teams timing failure remains a documented validation limitation with unproven cause; it is not represented as an evaluation fix or silently discarded.
