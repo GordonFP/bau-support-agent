@@ -12,7 +12,7 @@ import { modelBindingDigest } from "../../troubleshooting/application/model-budg
 import type { ControlledCopy } from "./controlled-copies.js";
 import { sqliteRetention } from "./sqlite-retention.js";
 import type { RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
-import type { Retention } from "../../troubleshooting/application/retention.js";
+import { isRetentionClosed, type Retention } from "../../troubleshooting/application/retention.js";
 import { SqliteBudget } from "./sqlite-budget.js";
 
 type Controls = Pick<Ports, "authorization" | "sanitization" | "clock">;
@@ -81,8 +81,7 @@ export class SqliteRecords {
         if (version < 3) this.options.fault?.("retention:migrate:before_commit");
         this.session.database.exec("PRAGMA user_version=3;");
         const retained = JSON.parse(String(this.session.database.prepare("SELECT value FROM retention WHERE id=1").get()!.value)) as RetentionState;
-        const expired = !!retained.closedAt || ["deleting", "partial", "deleted"].includes(retained.state) ||
-          !!retained.dueAt && Date.parse(controls.clock.utc()) >= Date.parse(retained.dueAt);
+        const expired = isRetentionClosed(retained, Date.parse(controls.clock.utc()));
         if (expired && !retained.closedAt) this.session.database.prepare("UPDATE retention SET value=? WHERE id=1")
           .run(JSON.stringify({ ...retained, closedAt: controls.clock.utc() }));
         for (const row of this.session.database.prepare("SELECT case_ref, context, view FROM cases").all()) {

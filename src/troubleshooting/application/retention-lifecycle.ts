@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Ports, TrustedActor } from "./ports.js";
-import type { DeletionCheck, DeletionReceipt, Retention, RetentionStatus, RetentionTrigger } from "./retention.js";
+import { isRetentionClosed, type DeletionCheck, type DeletionReceipt, type Retention, type RetentionStatus, type RetentionTrigger } from "./retention.js";
 import { beforeDeadline } from "./deadline.js";
 import { CLEANUP_MS, MAX_ACTIVE_CASES } from "./limits.js";
 
@@ -131,9 +131,8 @@ export class RetentionLifecycle implements Retention {
 
   closed(): boolean {
     const state = this.store.load();
-    if (state.closedAt || ["deleting", "partial", "deleted"].includes(state.state)) return true;
-    if (!state.dueAt || this.now() < Date.parse(state.dueAt)) return false;
-    this.store.save({ ...state, closedAt: this.controls.clock.utc() });
+    if (!isRetentionClosed(state, this.now())) return false;
+    if (!state.closedAt) this.store.save({ ...state, closedAt: this.controls.clock.utc() });
     return true;
   }
 

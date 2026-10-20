@@ -34,6 +34,12 @@ export interface RetentionStatus {
   readonly closedAt?: string;
   readonly receipt?: DeletionReceipt;
 }
+
+export function isRetentionClosed(state: RetentionStatus, currentUtc: number): boolean {
+  return !!state.closedAt || ["deleting", "partial", "deleted"].includes(state.state) ||
+    !!state.dueAt && currentUtc >= Date.parse(state.dueAt);
+}
+
 export interface Retention {
   recordTrigger(actor: TrustedActor, trigger: RetentionTrigger): Promise<RetentionStatus>;
   purgeDue(actor: TrustedActor): Promise<RetentionStatus>;
