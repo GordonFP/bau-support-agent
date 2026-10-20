@@ -34,7 +34,7 @@ test("C commits acceptance and sanitized records; restart interrupts unfinished 
     store.close();
     store = new SqliteRecords(directory, mock.ports);
     const restored = await store.records.read(actor, "case-1");
-    assert.ok(restored);
+    assert.ok(restored?.scope === "full");
     assert.equal(restored.view.state, "stopped");
     assert.equal(restored.view.stopReason, "interrupted");
     assert.ok(restored.records.some((record) => record.kind === "view" && (record.payload as CaseView).stopReason === "interrupted"));
@@ -186,7 +186,7 @@ test("C exports versioned sanitized model exchanges, evidence and report without
     await mock.receive();
     await mock.closed;
     const saved = await store!.records.export(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     for (const kind of ["input", "model_input", "model_output", "evidence", "report"]) {
       assert.ok(saved.records.some((record) => record.kind === kind && record.schemaVersion === 1), kind);
     }
@@ -259,7 +259,7 @@ test("a failed acceptance transaction leaves no partial case or event and the sa
     broken = false;
     assert.equal((await store.admission.confirm(record)).status, "confirmed");
     const saved = await store.records.read(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     assert.equal(saved.records.filter((item) => item.kind === "input").length, 1);
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
 });
@@ -325,7 +325,7 @@ test("C append requires current owner authorization and a stable record referenc
     await store.records.append(context, record);
     await assert.rejects(store.records.append(context, { ...record, payload: { ...view, state: "stopped", stopReason: "cancelled" } }), { message: "unavailable" });
     const saved = await store.records.read(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     assert.equal(saved.view.state, "awaiting_input");
     assert.equal(saved.records.filter((item) => item.recordRef === record.recordRef).length, 1);
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
@@ -342,7 +342,7 @@ test("C audit carries bounded scope, authorization, completeness and settlement 
     await mock.receive();
     await mock.closed;
     const saved = await store!.records.export(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     const log = saved.audits.find((entry) => entry.action === "logs.read" && entry.stage === "complete")!;
     assert.deepEqual(log.authorization, { decision: "allowed", reason: "policy_allowed" });
     assert.deepEqual(log.scope, { sourceRef: "simulator-source", from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z", pageSize: 100 });
@@ -379,7 +379,7 @@ test("a crash after platform send preserves the original segment as delivery_unk
     assert.ok("view" in duplicate);
     assert.equal(duplicate.view.deliveryStatus, "unknown");
     const saved = await store!.records.read(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     assert.equal(saved.deliveries.length, 1);
     assert.equal(saved.deliveries[0]!.deliveryKey, "case-1:report:1");
     assert.equal(saved.deliveries[0]!.segment, 1);
@@ -410,7 +410,7 @@ for (const failure of ["audit:logs.read:intent", "audit:logs.read:complete", "au
       assert.equal(mock.events.filter((event) => event.action === "delivery.send").length, failure.includes("delivery") ? 1 : 0);
       assert.equal(mock.events.filter((event) => event.action === "delivery.fault").length, failure.endsWith("intent") ? 0 : 1);
       const saved = await store!.records.read(actor, "case-1");
-      assert.ok(saved);
+      assert.ok(saved?.scope === "full");
       assert.equal(saved.view.stopReason, "audit_unavailable");
       if (failure.includes("delivery")) assert.equal(saved.deliveries[0]!.status, "unknown");
     } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
@@ -439,7 +439,7 @@ for (const adapter of ["mock", "sqlite"] as const) {
       assert.equal(await records.read(actor, "case-1"), null);
       denyActions.length = 0;
       const saved = await records.export(actor, "case-1");
-      assert.ok(saved);
+      assert.ok(saved?.scope === "full");
       if (adapter === "sqlite") assert.ok(saved.audits.filter((entry) => entry.action === "authorization.denied" && entry.stage === "complete").length >= 4);
       else assert.ok(mock.events.filter((entry) => entry.action === "audit:authorization.denied:complete").length >= 4);
     } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
@@ -467,7 +467,7 @@ test("a delayed earlier view append cannot overwrite a later terminal view", asy
     release.resolve();
     await old;
     const saved = await store.records.read(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     assert.equal(saved.view.state, "stopped");
     assert.equal(saved.view.stopReason, "cancelled");
   } finally { release.resolve(); store?.close(); await rm(directory, { recursive: true, force: true }); }
@@ -478,7 +478,7 @@ test("Mock C retains the same versioned input and auditable model settlement con
   await mock.receive();
   await mock.closed;
   const saved = await mock.ports.records.export(actor, "case-1");
-  assert.ok(saved);
+  assert.ok(saved?.scope === "full");
   assert.ok(saved.records.some((entry) => entry.kind === "input" && entry.schemaVersion === 1));
   const model = saved.audits.find((entry) => entry.action === "model.generate" && entry.stage === "complete")!;
   assert.ok(model);
@@ -545,7 +545,7 @@ test("C append captures owner and payload before asynchronous authorization", as
     release.resolve();
     await writing;
     const saved = await store.records.read(actor, "case-1");
-    assert.ok(saved);
+    assert.ok(saved?.scope === "full");
     assert.equal((saved.records.find((entry) => entry.recordRef === "case-1:snapshot")!.payload as { question: string }).question, "Original authorized input");
   } finally { release.resolve(); store?.close(); await rm(directory, { recursive: true, force: true }); }
 });

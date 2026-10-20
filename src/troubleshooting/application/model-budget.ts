@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { CallContext } from "./ports.js";
 import { savedContextSnapshot } from "./record-contract.js";
 
@@ -37,4 +38,5 @@ export function reconcileCharge(previous: { actual: number | null; estimated: nu
     source: previous.actual !== null ? previous.source : known ? source : estimated !== null ? "estimated" : "unknown",
     ended: previous.ended || settlement?.execution === "ended" || (!settlement && known) };
 }
-export const modelCallBinding = (context: CallContext) => JSON.stringify({ ...savedContextSnapshot(context), operationRef: context.operationRef ?? context.callId });
+export const modelBindingDigest = (canonical: string) => createHash("sha256").update(canonical).digest("hex");
+export const modelCallBinding = (context: CallContext) => modelBindingDigest(JSON.stringify({ ...savedContextSnapshot(context), operationRef: context.operationRef ?? context.callId }));

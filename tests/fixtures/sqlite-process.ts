@@ -3,11 +3,12 @@ import { createMockTroubleshooting } from "../../src/adapters/mock/troubleshooti
 import { existsSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
-const [directory, mode] = process.argv.slice(2);
+const [directory, mode, ...requestedMarkers] = process.argv.slice(2);
 if (!directory) throw new Error("invalid_request");
 if (mode === "scan") {
-  const found = ["records.sqlite", "records.sqlite-journal", "records.sqlite-wal", "records.sqlite-shm", "runtime-lock.sqlite"]
-    .some((name) => existsSync(join(directory, name)) && readFileSync(join(directory, name)).includes(Buffer.from("SYNTHETIC-SECRET")));
+  const markers = requestedMarkers.length ? requestedMarkers : ["SYNTHETIC-SECRET"];
+  const found = ["records.sqlite", "records.sqlite-journal", "records.sqlite-wal", "records.sqlite-shm", "runtime-lock.sqlite", "runtime-lock.sqlite-journal"]
+    .some((name) => existsSync(join(directory, name)) && markers.some((marker) => readFileSync(join(directory, name)).includes(Buffer.from(marker))));
   writeSync(1, found ? "sensitive-marker-found\n" : "clean\n");
   process.exit(found ? 1 : 0);
 }

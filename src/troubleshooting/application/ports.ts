@@ -1,7 +1,9 @@
 import type { Completeness, DiagnosticReport, EvidenceReference, SimulatorObservation } from "../domain/simulator.js";
-import type { AuditDetails, CaseRecords, InitialCase } from "./records.js";
+import type { AuditDetails, CaseRecords, InitialCase, RecordGrant, RecordRole, SavedContext } from "./records.js";
 import type { BudgetSettlement, BudgetStatus } from "./model-budget.js";
 import type { ModelEnvelope, ModelResponse } from "./model-contract.js";
+
+import type { Retention } from "./retention.js";
 
 export type SafeReason = "denied" | "invalid_request" | "contract_unverified" | "schema_mismatch" |
   "unavailable" | "timeout" | "cancelled" | "rate_limited" | "budget_exhausted" | "version_unknown" |
@@ -24,6 +26,7 @@ export interface CallContext {
   readonly phaseId: number;
   readonly callId: string;
   readonly operationRef?: string;
+  readonly auditRole?: RecordRole | "lifecycle";
   readonly principalRef: string;
   readonly tenantRef: string;
   readonly destinationRef: string;
@@ -111,6 +114,7 @@ export interface RuntimeRequest {
   readonly diagnose: () => DiagnosticReport;
 }
 export interface Ports {
+  readonly retention?: Retention;
   readonly records: CaseRecords;
   readonly admission: {
     lookup?(key: string): Promise<{ readonly caseRef: string; readonly principalRef: string } | null>;
@@ -120,7 +124,7 @@ export interface Ports {
     release(caseRef: string): Promise<void>;
   };
   readonly clock: { now(): number; utc(): string; schedule?(deadline: number, callback: () => void): () => void };
-  readonly authorization: { allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
+  readonly authorization: { recordGrant?(actor: TrustedActor, owner: SavedContext): Promise<RecordGrant | null>; allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
   readonly sanitization: { sanitize<T>(value: T, caseRef: string): T; safe(value: unknown): boolean; clear(caseRef: string): void };
   readonly audit: { intent(context: CallContext, action: string, details?: AuditDetails): Promise<string>;
     complete(context: CallContext, action: string, outcome: string, details?: AuditDetails): Promise<void> };

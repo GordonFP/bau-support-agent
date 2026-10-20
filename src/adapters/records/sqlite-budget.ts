@@ -12,7 +12,7 @@ export class SqliteBudget {
   private readonly rateClock: ModelRateClock;
 
   constructor(private readonly session: SqliteSession, private readonly controls: Pick<Ports, "clock" | "sanitization">,
-    private readonly beforeReserveCommit?: () => void) {
+    private readonly beforeReserveCommit?: () => void, private readonly closed: () => boolean = () => false) {
     this.rateClock = new ModelRateClock(controls.clock, Number(session.database.prepare("SELECT rate_ms FROM budget_clock WHERE id=1").get()!.rate_ms));
     this.queue = new ModelBudgetQueue(controls.clock, () => this.rateClock.now(), (context, amount) => this.admit(context, amount));
   }
@@ -23,11 +23,13 @@ export class SqliteBudget {
   }
 
   private admit(context: CallContext, amount: number): ModelAdmission {
+    const closed = this.closed();
     return this.session.transaction<ModelAdmission>(() => {
       const db = this.session.database;
       const binding = modelCallBinding(context);
       const existing = db.prepare("SELECT reserved,case_ref,binding FROM budget WHERE call_id=?").get(context.callId);
       if (existing) return { status: String(existing.case_ref) === context.caseRef && Number(existing.reserved) === amount && existing.binding === binding ? "admitted" : "rejected" };
+      if (closed) return { status: "rejected" };
       const totals = db.prepare(`SELECT COALESCE(SUM(COALESCE(actual,reserved)),0) AS global_amount,
         COALESCE(SUM(CASE WHEN case_ref=? THEN COALESCE(actual,reserved) ELSE 0 END),0) AS case_amount,
         COUNT(CASE WHEN case_ref=? THEN 1 END) AS attempts, COUNT(CASE WHEN ended=0 THEN 1 END) AS unsettled,

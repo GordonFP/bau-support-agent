@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CallContext, Ports, TrustedActor } from "../../troubleshooting/application/ports.js";
-import type { AuditDetails, CaseRecord, CaseRecords, DeliveryRecord, InitialCase, SavedContext, StoredCase } from "../../troubleshooting/application/records.js";
+import type { AuditDetails, CaseRecord, CaseRecords, DeliveryRecord, InitialCase, SavedContext, StoredCase, RecordDisclosure } from "../../troubleshooting/application/records.js";
 import { auditRecord } from "../../troubleshooting/application/audit-record.js";
 import { SqliteSession } from "./sqlite-session.js";
 import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
 import { advancesView, contextSnapshot, recordSnapshot, sameCaseAuthority, savedContextSnapshot } from "../../troubleshooting/application/record-contract.js";
 import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
+import { recordAccessContext, recordActor, recordDisclosure, recordRole } from "../../troubleshooting/application/record-access.js";
+import { modelBindingDigest } from "../../troubleshooting/application/model-budget.js";
+import type { ControlledCopy } from "./controlled-copies.js";
+import { sqliteRetention } from "./sqlite-retention.js";
+import type { RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
+import type { Retention } from "../../troubleshooting/application/retention.js";
 import { SqliteBudget } from "./sqlite-budget.js";
 
 type Controls = Pick<Ports, "authorization" | "sanitization" | "clock">;
@@ -15,8 +21,9 @@ export class SqliteRecords {
   private readonly session: SqliteSession;
   readonly records: CaseRecords;
   readonly budget: SqliteBudget;
+  readonly retention: Retention;
 
-  constructor(directory: string, private readonly controls: Controls, private readonly options: { readonly fault?: (checkpoint: string) => void } = {}) {
+  constructor(directory: string, private readonly controls: Controls, private readonly options: { readonly fault?: (checkpoint: string) => void; readonly controlledCopies?: readonly ControlledCopy[] } = {}) {
     try { this.session = new SqliteSession(directory); } catch { throw new Error("unavailable"); }
     try {
       const db = this.session.database;
@@ -24,15 +31,17 @@ export class SqliteRecords {
       const application = Number(db.prepare("PRAGMA application_id").get()!.application_id);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map((row) => String(row.name));
       const fresh = version === 0 && application === 0 && tables.length === 0;
-      if (!fresh && (![1, 2].includes(version) || application !== 0x42415531 ||
+      if (!fresh && (![1, 2, 3].includes(version) || application !== 0x42415531 ||
         !["cases", "records", "audit", "case_sequence", "budget", "deliveries"].every((name) => tables.includes(name)) ||
-        (version === 2 && !tables.includes("budget_clock")) ||
+        (version >= 2 && !tables.includes("budget_clock")) ||
+        (version === 3 && !["retention", "event_tombstones"].every((name) => tables.includes(name))) ||
         !db.prepare("SELECT value FROM case_sequence WHERE id=1").get())) throw new Error("unavailable");
-      if (version === 2) {
+      if (version >= 2) {
         db.prepare("SELECT ended,started_at,estimated,binding FROM budget LIMIT 0");
         const rate = db.prepare("SELECT rate_ms FROM budget_clock WHERE id=1").get();
         if (!rate || !Number.isSafeInteger(rate.rate_ms) || Number(rate.rate_ms) < 0) throw new Error("unavailable");
       }
+      if (version === 3 && !db.prepare("SELECT value FROM retention WHERE id=1").get()) throw new Error("unavailable");
       this.session.transaction(() => {
         this.session.database.exec(`
           CREATE TABLE IF NOT EXISTS cases(case_ref TEXT PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, context TEXT NOT NULL, view TEXT NOT NULL) STRICT;
@@ -45,6 +54,8 @@ export class SqliteRecords {
           CREATE TABLE IF NOT EXISTS deliveries(delivery_key TEXT NOT NULL, segment INTEGER NOT NULL, case_ref TEXT NOT NULL, call_id TEXT NOT NULL, value TEXT NOT NULL,
             PRIMARY KEY(delivery_key,segment)) STRICT;
           CREATE TABLE IF NOT EXISTS budget_clock(id INTEGER PRIMARY KEY CHECK(id=1), rate_ms INTEGER NOT NULL) STRICT;
+          CREATE TABLE IF NOT EXISTS event_tombstones(event_key TEXT PRIMARY KEY, case_ref TEXT NOT NULL) STRICT;
+          CREATE TABLE IF NOT EXISTS retention(id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL) STRICT;
           PRAGMA application_id=1111577905;
         `);
         if (fresh || version === 1) {
@@ -58,15 +69,25 @@ export class SqliteRecords {
             const saved = JSON.parse(String(row.context)) as SavedContext;
             const phase = /:phase-(\d+):/.exec(String(row.call_id));
             this.session.database.prepare("UPDATE budget SET binding=? WHERE call_id=?")
-              .run(JSON.stringify({ ...savedContextSnapshot({ ...saved, phaseId: phase ? Number(phase[1]) : saved.phaseId }), operationRef: String(row.call_id) }), String(row.call_id));
+              .run(modelBindingDigest(JSON.stringify({ ...savedContextSnapshot({ ...saved, phaseId: phase ? Number(phase[1]) : saved.phaseId }), operationRef: String(row.call_id) })), String(row.call_id));
           }
           if (version === 1) this.options.fault?.("budget:migrate:before_commit");
         }
         this.session.database.prepare("INSERT INTO budget_clock VALUES(1,0) ON CONFLICT(id) DO NOTHING").run();
-        this.session.database.exec("PRAGMA user_version=2;");
+        if (version === 2) for (const row of this.session.database.prepare("SELECT call_id,binding FROM budget WHERE binding IS NOT NULL").all()) {
+          this.session.database.prepare("UPDATE budget SET binding=? WHERE call_id=?").run(modelBindingDigest(String(row.binding)), String(row.call_id));
+        }
+        if (version < 3) this.session.database.prepare("INSERT INTO retention VALUES(1,?)").run(JSON.stringify({ scope: "poc", state: "untriggered", triggers: [], events: [] }));
+        if (version < 3) this.options.fault?.("retention:migrate:before_commit");
+        this.session.database.exec("PRAGMA user_version=3;");
+        const retained = JSON.parse(String(this.session.database.prepare("SELECT value FROM retention WHERE id=1").get()!.value)) as RetentionState;
+        const expired = !!retained.closedAt || ["deleting", "partial", "deleted"].includes(retained.state) ||
+          !!retained.dueAt && Date.parse(controls.clock.utc()) >= Date.parse(retained.dueAt);
+        if (expired && !retained.closedAt) this.session.database.prepare("UPDATE retention SET value=? WHERE id=1")
+          .run(JSON.stringify({ ...retained, closedAt: controls.clock.utc() }));
         for (const row of this.session.database.prepare("SELECT case_ref, context, view FROM cases").all()) {
           const view = JSON.parse(String(row.view)) as InitialCase["view"];
-          if (view.state === "investigating" || view.state === "awaiting_input") {
+          if (!expired && (view.state === "investigating" || view.state === "awaiting_input")) {
             const now = controls.clock.utc();
             const unknown = this.session.database.prepare("SELECT 1 AS present FROM deliveries WHERE case_ref=? AND json_extract(value,'$.status')='unknown'").get(String(row.case_ref));
             const interrupted = { ...view, state: "stopped", stopReason: "interrupted", ...(unknown ? { deliveryStatus: "unknown" } : {}), elapsedMs: Math.max(view.elapsedMs, Date.parse(now) - Date.parse(view.receivedAt)),
@@ -84,7 +105,11 @@ export class SqliteRecords {
         }
       });
     } catch { this.session.close(); throw new Error("unavailable"); }
-    this.budget = new SqliteBudget(this.session, controls, () => this.options.fault?.("budget:reserve:before_commit"));
+    try {
+      this.retention = sqliteRetention(this.session, this.session.directory, controls, this.options.fault, this.options.controlledCopies);
+      this.budget = new SqliteBudget(this.session, controls, () => this.options.fault?.("budget:reserve:before_commit"), () => this.retention.closed());
+      this.retention.onClose(async () => this.budget.close());
+    } catch { this.session.close(); throw new Error("unavailable"); }
     this.records = { append: async (context, record) => {
       try { await this.append(context, record); }
       catch (error) { throw new Error(error instanceof Error && ["denied", "invalid_request", "unsafe_content"].includes(error.message) ? error.message : "unavailable"); }
@@ -93,15 +118,20 @@ export class SqliteRecords {
 
   readonly admission = {
     lookup: async (key: string): Promise<{ caseRef: string; principalRef: string } | null> => {
+      if (this.retention.closed()) return null;
       const row = this.session.database.prepare("SELECT case_ref, context FROM cases WHERE event_key=?").get(key);
       return row ? { caseRef: String(row.case_ref), principalRef: (JSON.parse(String(row.context)) as SavedContext).principalRef } : null;
     },
-    allocateCaseRef: (): string => this.session.transaction(() => {
+    allocateCaseRef: (): string => {
+      if (this.retention.closed()) throw new Error("denied");
+      return this.session.transaction(() => {
       this.session.database.prepare("UPDATE case_sequence SET value=value+1 WHERE id=1").run();
       return `case-${Number(this.session.database.prepare("SELECT value FROM case_sequence WHERE id=1").get()!.value)}`;
-    }),
+      });
+    },
     confirm: async (record: { key: string; caseRef: string; principalRef: string; initial: InitialCase }): Promise<
       { status: "confirmed" } | { status: "duplicate"; caseRef: string; principalRef: string; view: InitialCase["view"] } | { status: "full" }> => {
+      if (this.retention.closed()) throw new Error("denied");
       this.safe(record.initial);
       return this.session.transaction(() => {
         const existing = this.session.database.prepare("SELECT case_ref, context, view FROM cases WHERE event_key=?").get(record.key);
@@ -133,6 +163,7 @@ export class SqliteRecords {
   }
 
   private auditWrite(context: CallContext, action: string, stage: string, outcome: string, details?: AuditDetails): string {
+    if (this.retention.closed()) { this.retention.recordDeniedAccess(context, action); throw new Error("denied"); }
     return this.session.transaction(() => {
       const receipt = this.auditInsert(context, action, stage, outcome, details);
       this.options.fault?.(`audit:${action}:${stage}`);
@@ -172,6 +203,7 @@ export class SqliteRecords {
   private async append(context: CallContext, record: CaseRecord): Promise<void> {
     context = contextSnapshot(context);
     record = recordSnapshot(context, record);
+    if (this.retention.closed()) throw new Error("denied");
     const row = this.session.database.prepare("SELECT context FROM cases WHERE case_ref=?").get(context.caseRef);
     const saved = row ? JSON.parse(String(row.context)) as SavedContext : undefined;
     if (!saved || !sameCaseAuthority(context, saved) ||
@@ -180,6 +212,7 @@ export class SqliteRecords {
       throw new Error("denied");
     }
     this.safe(record);
+    if (this.retention.closed()) throw new Error("denied");
     this.session.transaction(() => {
       const existing = this.session.database.prepare("SELECT case_ref,value FROM records WHERE record_ref=?").get(record.recordRef);
       if (existing) {
@@ -194,17 +227,18 @@ export class SqliteRecords {
     });
   }
 
-  private async read(actor: TrustedActor, caseRef: string, action: string): Promise<StoredCase | null> {
-    actor = structuredClone(actor);
+  private async read(actor: TrustedActor, caseRef: string, action: string): Promise<RecordDisclosure | null> {
+    actor = recordActor(actor);
+    if (this.retention.closed()) { this.retention.recordDeniedAccess(actor, action); return null; }
     const row = this.session.database.prepare("SELECT context, view FROM cases WHERE case_ref=?").get(caseRef);
     if (!row) { await recordDenial(this.audit, deniedContext(actor, caseRef, this.controls)); return null; }
     const saved = JSON.parse(String(row.context)) as SavedContext;
-    if (!actor || actor.principalRef !== saved.principalRef || actor.tenantRef !== saved.tenantRef || actor.destinationRef !== saved.destinationRef ||
-      !await this.controls.authorization.allows(action, saved)) {
+    const role = await recordRole(this.controls.authorization, actor, saved, action);
+    if (!role) {
       await recordDenial(this.audit, deniedContext(actor, caseRef, this.controls));
       return null;
     }
-    const context: CallContext = { ...saved, callId: `${caseRef}:${action}:${randomUUID()}`, deadline: this.controls.clock.now(), signal: new AbortController().signal };
+    const context = recordAccessContext(actor, saved, role, `${caseRef}:${action}:${randomUUID()}`, this.controls.clock.now());
     await this.audit.intent(context, action);
     const records = this.session.database.prepare("SELECT value FROM records WHERE case_ref=? ORDER BY rowid").all(caseRef)
       .map((entry) => JSON.parse(String(entry.value)) as CaseRecord);
@@ -213,10 +247,18 @@ export class SqliteRecords {
     const deliveries = this.session.database.prepare("SELECT value FROM deliveries WHERE case_ref=? ORDER BY delivery_key,segment").all(caseRef)
       .map((entry) => JSON.parse(String(entry.value)) as DeliveryRecord);
     await this.audit.complete(context, action, "allowed");
-    return { view: JSON.parse(String(row.view)) as InitialCase["view"], records, audits, deliveries };
+    const currentRole = await recordRole(this.controls.authorization, actor, saved, action);
+    if (this.retention.closed()) { this.retention.recordDeniedAccess(actor, action); return null; }
+    if (currentRole !== role) {
+      await recordDenial(this.audit, deniedContext(actor, caseRef, this.controls));
+      return null;
+    }
+    const result: StoredCase = { scope: "full", view: JSON.parse(String(row.view)) as InitialCase["view"], records, audits, deliveries };
+    this.safe(result);
+    return recordDisclosure(result, role);
   }
 
-  private async access(actor: TrustedActor, caseRef: string, action: string): Promise<StoredCase | null> {
+  private async access(actor: TrustedActor, caseRef: string, action: string): Promise<RecordDisclosure | null> {
     try { return await this.read(actor, caseRef, action); } catch { throw new Error("unavailable"); }
   }
 

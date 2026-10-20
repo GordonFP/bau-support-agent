@@ -122,6 +122,8 @@ export class TroubleshootingCase {
     this.awaiting = false;
   }
 
+  forget(): void { this.stop(); this.evidence.clear(); this.selectedTarget = undefined; }
+
   acceptEvidence(evidence: EvidenceReference): void {
     if (this.ended || this.awaiting || evidence.caseRef !== this.caseRef || this.evidence.has(evidence.evidenceRef)) {
       throw new Error("invalid_request");

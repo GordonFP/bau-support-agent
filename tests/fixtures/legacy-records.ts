@@ -23,3 +23,25 @@ export function legacyRecords(directory: string, context: CallContext): void {
     db.prepare("INSERT INTO budget VALUES(?,?,?,NULL,'unknown')").run("orphan:phase-1:unknown", "orphan", 180_000);
   } finally { db.close(); chmodSync(path, 0o600); }
 }
+
+// Closed #19 schema-2 sample with the former full canonical binding, for migration only.
+export function legacyBudget2(directory: string, context: CallContext): void {
+  legacyRecords(directory, context);
+  const db = new DatabaseSync(join(directory, "records.sqlite"));
+  try {
+    db.exec(`ALTER TABLE budget ADD COLUMN ended INTEGER NOT NULL DEFAULT 0 CHECK(ended IN(0,1));
+      ALTER TABLE budget ADD COLUMN started_at INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE budget ADD COLUMN estimated INTEGER CHECK(estimated>=0);
+      ALTER TABLE budget ADD COLUMN binding TEXT;
+      UPDATE budget SET ended=1 WHERE actual IS NOT NULL;
+      CREATE TABLE budget_clock(id INTEGER PRIMARY KEY CHECK(id=1),rate_ms INTEGER NOT NULL) STRICT;
+      INSERT INTO budget_clock VALUES(1,0); PRAGMA user_version=2;`);
+    for (const operation of ["known", "unknown"]) {
+      const callId = `case-1:phase-1:${operation}`;
+      const binding = { caseRef: context.caseRef, phaseId: context.phaseId, principalRef: context.principalRef, tenantRef: context.tenantRef,
+        destinationRef: context.destinationRef, policyVersion: context.policyVersion, approvalRef: context.approvalRef, resourceRefs: context.resourceRefs,
+        snapshotRef: context.snapshotRef, budgetRef: context.budgetRef, operationRef: callId };
+      db.prepare("UPDATE budget SET binding=? WHERE call_id=?").run(JSON.stringify(binding), callId);
+    }
+  } finally { db.close(); }
+}

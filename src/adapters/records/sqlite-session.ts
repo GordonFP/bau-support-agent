@@ -4,12 +4,14 @@ import { isAbsolute, join } from "node:path";
 
 export class SqliteSession {
   readonly database: DatabaseSync;
+  readonly directory: string;
   private readonly lock: DatabaseSync;
   private closed = false;
 
   constructor(directory: string) {
     if (!isAbsolute(directory) || lstatSync(directory).isSymbolicLink()) throw new Error("unavailable");
     const root = realpathSync(directory);
+    this.directory = root;
     const stat = lstatSync(root);
     if (!stat.isDirectory() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new Error("unavailable");
     const lockPath = join(root, "runtime-lock.sqlite");

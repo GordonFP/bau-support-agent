@@ -47,6 +47,8 @@ export class MockModelBudget {
     this.queue.changed();
   }
 
+  close(): void { this.queue.close(); }
+
   cost(callId: string) {
     const charge = this.charges.get(callId);
     return charge ? { reserved: charge.reserved, actual: charge.actual, source: charge.source } : undefined;

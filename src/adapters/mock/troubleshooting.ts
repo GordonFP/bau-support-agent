@@ -7,7 +7,9 @@ import { auditRecord } from "../../troubleshooting/application/audit-record.js";
 import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
-import type { InitialCase, CaseRecord, DeliveryRecord } from "../../troubleshooting/application/records.js";
+import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole } from "../../troubleshooting/application/records.js";
+import { RetentionLifecycle, type RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
+import { recordAccessContext, recordActor, recordDisclosure, recordRole } from "../../troubleshooting/application/record-access.js";
 import { MockModelBudget } from "./model-budget.js";
 import { mockModelPolicy, validateModelEnvelope } from "../../troubleshooting/application/model-envelope.js";
 import type { ModelPolicy } from "../../troubleshooting/application/model-contract.js";
@@ -22,7 +24,9 @@ export const simulatorFixture: SimulatorObservation = {
 
 export interface MockOptions {
   readonly modelPolicy?: ModelPolicy | null;
-  readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "audit" | "budget">>;
+  readonly lifecycleActors?: readonly TrustedActor[];
+  readonly recordGrants?: readonly { readonly actor: TrustedActor; readonly role: RecordRole; readonly caseRefs: readonly string[]; readonly resourceRefs: readonly string[] }[];
+  readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "audit" | "budget" | "retention">>;
   readonly authorizedActors?: readonly TrustedActor[];
   readonly observation?: SimulatorObservation | null;
   readonly completeness?: "complete" | "partial" | "unknown";
@@ -54,6 +58,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   let modelBudget: MockModelBudget;
   const audits: Readonly<Record<string, unknown>>[] = [];
   const costFor = (callId: string) => modelBudget.cost(callId);
+  const expiredEvents = new Map<string, string>();
   const admissions = new Map<string, { caseRef: string; principalRef: string; active: boolean }>();
   const cases = new Map<string, { initial: InitialCase; records: CaseRecord[]; deliveries: DeliveryRecord[] }>();
   const authorizedActors = structuredClone(options.authorizedActors ?? [
@@ -77,28 +82,40 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     text: "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
     code: { repositoryRef: "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
       snapshotRef: "simulator-snapshot-1", indexedAt: "2026-10-19T08:00:00.000Z", receiptRef: "synthetic-snapshot-receipt-1" } };
-  const readRecord = async (actor: TrustedActor, caseRef: string, action: string) => {
-    actor = structuredClone(actor);
+  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string) => {
+    actor = recordActor(actor);
+    if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
     const saved = cases.get(caseRef);
     const owner = saved?.initial.context;
-    if (!saved || !owner || !actor || actor.principalRef !== owner.principalRef || actor.tenantRef !== owner.tenantRef ||
-      actor.destinationRef !== owner.destinationRef || !await ports.authorization.allows(action, owner)) {
+    const role = saved && owner ? await recordRole(ports.authorization, actor, owner, action) : null;
+    if (!saved || !owner || !role) {
       await recordDenial(ports.audit, deniedContext(actor, caseRef, ports));
       return null;
     }
-    const context = { ...owner, callId: `${caseRef}:${action}:${randomUUID()}`, deadline: ports.clock.now(), signal: new AbortController().signal };
+    const context = recordAccessContext(actor, owner, role, `${caseRef}:${action}:${randomUUID()}`, ports.clock.now());
     await ports.audit.intent(context, action);
-    const result = structuredClone({ view: saved.initial.view, records: saved.records, audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
+    const result = structuredClone({ scope: "full" as const, view: saved.initial.view, records: saved.records,
+      audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
     await ports.audit.complete(context, action, "allowed");
-    return result;
+    const currentRole = await recordRole(ports.authorization, actor, owner, action);
+    if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
+    if (currentRole !== role) {
+      await recordDenial(ports.audit, deniedContext(actor, caseRef, ports));
+      return null;
+    }
+    return recordDisclosure(result, role);
+  };
+  const readRecord = async (actor: TrustedActor, caseRef: string, action: string) => {
+    try { return await authorizedRecord(actor, caseRef, action); } catch { throw new Error("unavailable"); }
   };
   const ports: Ports = {
     records: {
       async append(context, record) {
         context = contextSnapshot(context);
         record = recordSnapshot(context, record);
+        if (ports.retention?.closed()) throw new Error("denied");
         const saved = cases.get(context.caseRef);
-        if (!saved || !sameCaseAuthority(context, saved.initial.context) || !await ports.authorization.allows("records.append", context)) {
+        if (!saved || !sameCaseAuthority(context, saved.initial.context) || !await ports.authorization.allows("records.append", context) || ports.retention?.closed()) {
           await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
           throw new Error("denied");
         }
@@ -116,6 +133,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     },
     admission: {
       async confirm(record) {
+        if (ports.retention?.closed()) throw new Error("denied");
         events.push({ action: "admission.confirm", input: { key: record.key, caseRef: record.caseRef, principalRef: record.principalRef } });
         const existing = admissions.get(record.key);
         if (existing) return { status: "duplicate", caseRef: existing.caseRef, principalRef: existing.principalRef };
@@ -129,11 +147,22 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       async release(caseRef) { for (const item of admissions.values()) if (item.caseRef === caseRef) item.active = false; },
     },
     clock: options.clock ?? { now: () => 0, utc: () => "2026-10-19T09:00:00.000Z" },
-    authorization: { async allows(action, context) {
-      return authorizedActors.some((actor) => actor.tenantRef === context.tenantRef && actor.principalRef === context.principalRef &&
-        actor.destinationRef === context.destinationRef) && context.resourceRefs.every((ref) => ref === "simulator-source") &&
-        !options.denyActions?.includes(action);
-    } },
+    authorization: {
+      async recordGrant(actor, owner) {
+        const grant = options.recordGrants?.find((entry) => entry.actor.principalRef === actor.principalRef && entry.actor.tenantRef === actor.tenantRef &&
+          entry.actor.destinationRef === actor.destinationRef && entry.caseRefs.includes(owner.caseRef));
+        if (grant) return { role: grant.role, caseRef: owner.caseRef, resourceRefs: [...grant.resourceRefs] };
+        return { role: "requester", caseRef: owner.caseRef, resourceRefs: owner.resourceRefs };
+      },
+      async allows(action, context) {
+        if (action.startsWith("retention.")) return options.lifecycleActors?.some((actor) => actor.principalRef === context.principalRef &&
+          actor.tenantRef === context.tenantRef && actor.destinationRef === context.destinationRef) === true && !options.denyActions?.includes(action);
+        const trusted = authorizedActors.some((actor) => actor.tenantRef === context.tenantRef && actor.principalRef === context.principalRef && actor.destinationRef === context.destinationRef);
+        const review = ["records.read", "records.export"].includes(action) && options.recordGrants?.some((grant) => grant.actor.principalRef === context.principalRef &&
+          grant.actor.tenantRef === context.tenantRef && grant.actor.destinationRef === context.destinationRef && context.resourceRefs.every((ref) => grant.resourceRefs.includes(ref)));
+        return (trusted || review === true) && context.resourceRefs.every((ref) => ref === "simulator-source") && !options.denyActions?.includes(action);
+      },
+    },
     sanitization: {
       sanitize<T>(value: T, caseRef: string): T {
         if (++sanitizationCount === options.sanitizeFailsAt) throw new Error("synthetic-sensitive-upstream-error");
@@ -146,6 +175,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     },
     audit: {
       async intent(context, action, details) {
+        if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(context, action); throw new Error("denied"); }
         if (options.auditFails === `${action}:intent`) throw new Error("synthetic-audit-failure");
         events.push({ action: `audit:${action}:intent`, input: structuredClone({ ...context, signal: undefined, details }) });
         audits.push(structuredClone(auditRecord(context, action, "intent", "pending", ports.clock.utc(), details, costFor(context.callId))));
@@ -156,6 +186,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         return `${context.callId}:intent`;
       },
       async complete(context, action, outcome, details) {
+        if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(context, action); throw new Error("denied"); }
         if (options.auditFails === `${action}:complete`) throw new Error("synthetic-audit-failure");
         events.push({ action: `audit:${action}:complete`, input: { callId: context.callId, outcome, details } });
         audits.push(structuredClone(auditRecord(context, action, "complete", outcome, ports.clock.utc(), details, costFor(context.callId))));
@@ -212,7 +243,16 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       return "delivered";
     } },
   };
+  let retentionState: RetentionState = { scope: "poc", state: "untriggered", triggers: [], events: [] };
+  Object.assign(ports, { retention: new RetentionLifecycle(ports, { load: () => structuredClone(retentionState),
+    save: (state) => { retentionState = structuredClone(state); },
+    purge: async () => {
+      for (const [key, value] of admissions) expiredEvents.set(key, value.caseRef);
+      cases.clear(); admissions.clear(); audits.length = 0;
+      return [{ scope: "mock_records", result: "deleted" as const, verification: "controlled record maps cleared; minimal event digests retained" }];
+    } }) });
   modelBudget = new MockModelBudget(ports);
+  ports.retention?.onClose(async () => modelBudget.close());
   Object.assign(ports, options.controlPorts?.(ports));
   const configured: Partial<Ports> = { ...ports };
   for (const key of options.unavailableControls ?? []) delete configured[key];

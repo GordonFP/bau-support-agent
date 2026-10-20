@@ -1,6 +1,6 @@
 import type { CallContext, CaseView, TrustedActor, VerifiedInbound } from "./ports.js";
 
-export type SavedContext = Omit<CallContext, "signal" | "deadline" | "callId" | "operationRef">;
+export type SavedContext = Omit<CallContext, "signal" | "deadline" | "callId" | "operationRef" | "auditRole">;
 export interface InitialCase {
   readonly context: SavedContext;
   readonly view: CaseView;
@@ -12,12 +12,24 @@ export interface CaseRecord {
   readonly kind: "input" | "view" | "model_input" | "model_output" | "tool_result" | "evidence" | "report";
   readonly payload: unknown;
 }
+export type RecordRole = "requester" | "business_reviewer" | "technical";
+export interface RecordGrant {
+  readonly role: RecordRole;
+  readonly caseRef: string;
+  readonly resourceRefs: readonly string[];
+}
 export interface StoredCase {
+  readonly scope: "full";
   readonly view: CaseView;
   readonly records: readonly CaseRecord[];
   readonly audits: readonly Readonly<Record<string, unknown>>[];
   readonly deliveries: readonly DeliveryRecord[];
 }
+export interface BusinessRecords extends Omit<StoredCase, "scope" | "view"> {
+  readonly scope: "report_evidence";
+  readonly view?: never;
+}
+export type RecordDisclosure = StoredCase | BusinessRecords;
 export interface DeliveryRecord {
   readonly schemaVersion: 1;
   readonly caseRef: string;
@@ -28,8 +40,8 @@ export interface DeliveryRecord {
 }
 export interface CaseRecords {
   append(context: CallContext, record: CaseRecord): Promise<void>;
-  read(actor: TrustedActor, caseRef: string): Promise<StoredCase | null>;
-  export(actor: TrustedActor, caseRef: string): Promise<StoredCase | null>;
+  read(actor: TrustedActor, caseRef: string): Promise<RecordDisclosure | null>;
+  export(actor: TrustedActor, caseRef: string): Promise<RecordDisclosure | null>;
 }
 
 export interface AuditDetails {

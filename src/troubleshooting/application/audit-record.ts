@@ -16,7 +16,7 @@ export function auditRecord(context: CallContext, action: string, stage: string,
     !["complete", "partial", "unknown"].includes(details.result.completeness) || typeof details.result.truncated !== "boolean" ||
     !Number.isSafeInteger(details.result.evidenceCount) || details.result.evidenceCount < 0)) throw new Error("invalid_request");
   if (details?.delivery && Object.keys(details.delivery).some((key) => !["deliveryKey", "segment", "status"].includes(key))) throw new Error("invalid_request");
-  return { schemaVersion: 1, occurredAt, principalRef: context.principalRef, role: action === "authorization.denied" ? "unresolved" : "requester",
+  return { schemaVersion: 1, occurredAt, principalRef: context.principalRef, role: action === "authorization.denied" ? "unresolved" : context.auditRole ?? "requester",
     tenantRef: context.tenantRef, destinationRef: context.destinationRef, caseRef: context.caseRef, phaseId: context.phaseId, callId: context.callId, operationId: context.operationRef ?? context.callId,
     resourceRefs: context.resourceRefs, policyVersion: context.policyVersion, approvalRef: context.approvalRef, snapshotRef: context.snapshotRef,
     toolSchemaVersion: "mock-schema-1", artifactVersion: "offline-simulator-1", sanitizationVersion: "mock-sanitization-1", sanitizationStatus: "validated_metadata",
