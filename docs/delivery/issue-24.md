@@ -43,3 +43,13 @@ docker run --rm --pull=never --network none --read-only \
 受限 Linux 首轮为 **330／331**：既有 MCP 250ms deadline 测试预期 timeout，实际 unavailable；该失败不记通过。未修改时限、资源配置或断言，随后精确隔离复测及完整 **331／331** 复测通过。差异、协议 mock 脚本语法及本地文档链接检查通过。
 
 真实租户服务／用户 SSO、撤权传播、历史受众可见性、实际平台上限与部署身份／网络／卷／加密条件属于未执行 G3。当前会话注册表和本地 JWT 只是合成协议证明，不能据此打开真实路由或关闭父规格 #14。Node 更新门禁、最终 notices／签名／镜像分发证明仍待完成。未推送或操作 tracker。
+
+## 评审后收尾
+
+在最新集成 `52008de` 上处理两项非阻塞观察。Spec 轴最终没有确认规格偏差；单独调用应用 `close()` 与已开始的持久查询之间的响应窗口属于契约一致性观察，不是授权绕过、G3 结果或正常宿主 `stop()` 失败。实际签名 HTTP＋SQLite 关闭／重开回归先复现：最终 C 资源授权被持有，应用关闭后释放授权，旧查询仍返回案件元数据。A.get 现在在 C.read 完成后再次检查关闭门，回归返回有限 denied；当前 C 角色／证明回调／资源授权流程保留，正常宿主停止仍确认 closed。
+
+Standards P3 重复代码观察由测试专用 `postmanSimulation(cli, configuration, basePath)` 处理，Teams／Kibana／Responses 三个 fixture 只绑定各自配置和路径。抽取前逐一规范化比较三份原实现一致，抽取保留原 NDJSON／stderr 限量、就绪与请求等待、进程组 SIGINT／SIGKILL 和监听器关闭验证；没有新增依赖或运行时框架。
+
+本次重新执行：构建／类型检查、Pi 严格消费端、Teams 独立完整声明及原生互操作预检通过；Kibana／CBM Adapter 和管理源码闭包的独立 `--skipLibCheck false` 检查通过。macOS 和原受限 Linux 配置的完整行为集均 **340／340**（最新集成原有 339 项＋关闭一致性回归）；未重跑不受影响的外部 CBM 原生控制器或真实环境。初始回归失败及一次修正中 `CaseView | undefined` 的类型错误均未记为通过；修正后完整检查通过。
+
+抽取 fixture 后，以上命令重新运行全部四项实际客户端 Postman 契约：Teams、Kibana 及两项 Responses，**4／4** 通过，包含各自原生客户端和原监听器关闭验证。差异与交付文档本地链接检查通过。G3 和此前记录的分发／部署门禁没有新增通过项。

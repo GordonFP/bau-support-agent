@@ -551,7 +551,10 @@ export class Troubleshooting {
     const running = this.cases.get(caseRef);
     const ports = this.configured as Ports;
     if (!running) {
-      try { const saved = await ports.records.read(actor, caseRef, beforeDisclose); return saved?.view ?? { status: "denied" }; }
+      try {
+        const saved = await ports.records.read(actor, caseRef, beforeDisclose);
+        return !this.retentionClosed() && saved?.view ? saved.view : { status: "denied" };
+      }
       catch { return { status: "denied" }; }
     }
     if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
