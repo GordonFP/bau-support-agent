@@ -112,7 +112,7 @@ export class SqliteRecords {
     this.records = { append: async (context, record) => {
       try { await this.append(context, record); }
       catch (error) { throw new Error(error instanceof Error && ["denied", "invalid_request", "unsafe_content"].includes(error.message) ? error.message : "unavailable"); }
-    }, read: (actor, ref) => this.access(actor, ref, "records.read"), export: (actor, ref) => this.access(actor, ref, "records.export") };
+    }, read: (actor, ref, beforeDisclose) => this.access(actor, ref, "records.read", beforeDisclose), export: (actor, ref) => this.access(actor, ref, "records.export") };
   }
 
   readonly admission = {
@@ -184,13 +184,13 @@ export class SqliteRecords {
         return String(previous.receipt);
       }
     }
-    if (action === "delivery.send" && details?.delivery) {
+    if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery) {
       const delivery = details.delivery;
       if (!Number.isSafeInteger(delivery.segment) || delivery.segment < 1 || !delivery.deliveryKey.startsWith(`${context.caseRef}:`)) throw new Error("invalid_request");
       const previous = this.session.database.prepare("SELECT call_id FROM deliveries WHERE delivery_key=? AND segment=?").get(delivery.deliveryKey, delivery.segment);
       if (previous && String(previous.call_id) !== context.callId) throw new Error("invalid_request");
       const record: DeliveryRecord = { schemaVersion: 1, caseRef: context.caseRef, callId: context.callId,
-        deliveryKey: delivery.deliveryKey, segment: delivery.segment, status: stage === "complete" && outcome === "ok" ? delivery.status ?? "unknown" : "unknown" };
+        deliveryKey: delivery.deliveryKey, segment: delivery.segment, ...(delivery.receiptRef ? { receiptRef: delivery.receiptRef } : {}), status: stage === "complete" && outcome === "ok" ? delivery.status ?? "unknown" : "unknown" };
       this.session.database.prepare("INSERT INTO deliveries VALUES(?,?,?,?,?) ON CONFLICT(delivery_key,segment) DO UPDATE SET value=excluded.value")
         .run(delivery.deliveryKey, delivery.segment, context.caseRef, context.callId, JSON.stringify(record));
     }
@@ -226,7 +226,7 @@ export class SqliteRecords {
     });
   }
 
-  private async read(actor: TrustedActor, caseRef: string, action: string): Promise<RecordDisclosure | null> {
+  private async read(actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>): Promise<RecordDisclosure | null> {
     actor = recordActor(actor);
     if (this.retention.closed()) { this.retention.recordDeniedAccess(actor, action); return null; }
     const row = this.session.database.prepare("SELECT context, view FROM cases WHERE case_ref=?").get(caseRef);
@@ -246,6 +246,8 @@ export class SqliteRecords {
     const deliveries = this.session.database.prepare("SELECT value FROM deliveries WHERE case_ref=? ORDER BY delivery_key,segment").all(caseRef)
       .map((entry) => JSON.parse(String(entry.value)) as DeliveryRecord);
     await this.audit.complete(context, action, "allowed");
+    try { await beforeDisclose?.(); }
+    catch { await recordDenial(this.audit, context); return null; }
     const currentRole = await recordRole(this.controls.authorization, actor, saved, action);
     if (this.retention.closed()) { this.retention.recordDeniedAccess(actor, action); return null; }
     if (currentRole !== role) {
@@ -257,8 +259,8 @@ export class SqliteRecords {
     return recordDisclosure(result, role);
   }
 
-  private async access(actor: TrustedActor, caseRef: string, action: string): Promise<RecordDisclosure | null> {
-    try { return await this.read(actor, caseRef, action); } catch { throw new Error("unavailable"); }
+  private async access(actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>): Promise<RecordDisclosure | null> {
+    try { return await this.read(actor, caseRef, action, beforeDisclose); } catch { throw new Error("unavailable"); }
   }
 
   close(): void { this.budget.close(); this.session.close(); }

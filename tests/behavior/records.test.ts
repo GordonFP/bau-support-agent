@@ -380,11 +380,13 @@ test("a crash after platform send preserves the original segment as delivery_unk
     assert.equal(duplicate.view.deliveryStatus, "unknown");
     const saved = await store!.records.read(actor, "case-1");
     assert.ok(saved?.scope === "full");
-    assert.equal(saved.deliveries.length, 1);
-    assert.equal(saved.deliveries[0]!.deliveryKey, "case-1:report:1");
-    assert.equal(saved.deliveries[0]!.segment, 1);
-    assert.equal(saved.deliveries[0]!.status, "unknown");
-    assert.match(saved.deliveries[0]!.callId, /case-1:phase-1:delivery.send:/);
+    const reportDeliveries = saved.deliveries.filter((item) => item.deliveryKey === "case-1:report:1");
+    assert.ok(saved.deliveries.some((item) => item.deliveryKey === "case-1:status:1" && item.status === "delivered"));
+    assert.equal(reportDeliveries.length, 1);
+    assert.equal(reportDeliveries[0]!.deliveryKey, "case-1:report:1");
+    assert.equal(reportDeliveries[0]!.segment, 1);
+    assert.equal(reportDeliveries[0]!.status, "unknown");
+    assert.match(reportDeliveries[0]!.callId, /case-1:phase-1:delivery.send:/);
     assert.equal(restarted.events.some((event) => ["logs.read", "model.generate", "delivery.send"].includes(event.action)), false);
     confirm.resolve();
     await first.closed;

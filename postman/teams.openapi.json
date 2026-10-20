@@ -1,0 +1,119 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Synthetic Teams Connector reviewed subset",
+    "version": "1.0.0",
+    "description": "Only local native App.send creation to the fixed synthetic private conversation; final serialized activity at most24576 UTF-8 bytes. JSON Schema maxLength alone is not a byte proof. Service JWT/JWKS and separate user proof are tested by the owned native Node host; no real tenant/SSO/visibility claim."
+  },
+  "paths": {
+    "/v3/conversations/synthetic-conversation/activities": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "text",
+                  "textFormat",
+                  "from",
+                  "conversation"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "message"
+                    ]
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 24576
+                  },
+                  "textFormat": {
+                    "type": "string",
+                    "enum": [
+                      "plain"
+                    ]
+                  },
+                  "from": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "role"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "enum": [
+                          "synthetic-app"
+                        ]
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "bot"
+                        ]
+                      }
+                    }
+                  },
+                  "conversation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "enum": [
+                          "synthetic-conversation"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded synthetic receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed shape rejected"
+          },
+          "413": {
+            "description": "Serialized activity exceeds local byte policy"
+          },
+          "501": {
+            "description": "Unmodeled method or path; no forwarding"
+          }
+        }
+      }
+    }
+  }
+}
