@@ -269,11 +269,13 @@ for (const failure of ["revoked", "expired"]) test(`${failure} while query audit
   const service = await teamsServices(); const mock = createMockTroubleshooting();
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   const complete = mock.ports.audit.complete;
-  mock.ports.audit.complete = async (context, action, outcome, details) => { await complete(context, action, outcome, details); if (action === "get") { held.resolve(); await release.promise; } };
+  let holdQuery = false;
+  mock.ports.audit.complete = async (context, action, outcome, details) => { await complete(context, action, outcome, details); if (action === "get" && holdQuery) { held.resolve(); await release.promise; } };
   const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
   const post = (body: unknown) => fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
   try {
     await host.start(); await post(service.activity()); await mock.closed;
+    holdQuery = true;
     const querying = post({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-1" })), id: "held-query" });
     await held.promise; service.setTokenMode(failure); release.resolve();
     assert.deepEqual(await (await querying).json(), { status: "denied" });

@@ -42,8 +42,14 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
     const result = await current.run(lease, () => route({ body: parsed.data, headers })); // Never supply request.token.
     if (lease.response && typeof lease.response === "object" && "caseRef" in lease.response && lease.mapping) {
       try {
-        const currentProof = lease.responseGate ?? await wire.prove(lease.mapping, services.ports.clock.now() + 5_000, lease.signal);
-        currentProof();
+        if (!lease.responseGate) {
+          if (typeof lease.response.caseRef !== "string") throw new Error("denied");
+          const view = await services.application.get(lease.mapping.actor, lease.response.caseRef, async () => {
+            lease.responseGate = await wire.prove(lease.mapping!, services.ports.clock.now() + 5_000, lease.signal);
+          });
+          if (!("state" in view) || !lease.responseGate) throw new Error("denied");
+        }
+        lease.responseGate();
       } catch { await deny(lease); }
     }
     return { status: result.status, body: lease.response ?? { status: "denied" } };

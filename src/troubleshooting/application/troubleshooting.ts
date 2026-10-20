@@ -32,8 +32,6 @@ interface RunningCase {
   readonly replyFlights: Map<string, Promise<InformationResult>>;
   readonly replyEvents: Set<string>;
   readonly coverageWindows: Set<string>;
-  readonly modelHistory: unknown[];
-  readonly modelTools: unknown[];
   readonly acceptedMono: number;
   finishedMono?: number;
   recordSequence: number;
@@ -95,7 +93,7 @@ export class Troubleshooting {
         running.investigation.stop(); running.investigation.forget(); running.controller.abort(); running.cancelDeadline?.();
         try { ports.sanitization.clear(running.context.caseRef); } catch { cleanupFailed = true; }
         running.inbound = { ...running.inbound, input: { question: "" } };
-        delete running.candidates; running.modelHistory.length = 0; running.modelTools.length = 0;
+        delete running.candidates;
       }
       this.cases.clear(); this.acceptances.clear(); this.pendingAdmissions.clear(); this.persistedLookups.clear();
       while (this.controlWork.size) await Promise.allSettled([...this.controlWork]);
@@ -259,7 +257,7 @@ export class Troubleshooting {
     const investigation = new TroubleshootingCase(caseRef);
     const running: RunningCase = { inbound: structuredClone(inbound), context, controller, view, investigation,
       replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), aborts: new Map(), work: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
-      modelHistory: [], modelTools: [], recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
+      recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
     let admitted = false;
     try {
       const confirmation = await ports.admission.confirm({ key, caseRef, principalRef: context.principalRef,
@@ -454,8 +452,6 @@ export class Troubleshooting {
       try { ports.sanitization.clear(running.context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
       delete running.candidates;
-      running.modelHistory.length = 0;
-      running.modelTools.length = 0;
       void ports.admission.release(running.context.caseRef).catch(() => {});
     }
     const context = running.context;
@@ -656,10 +652,7 @@ export class Troubleshooting {
         try { await ports.audit.complete(context, action, "ok", completeDetails); } catch { throw new Error("audit_unavailable"); }
         check();
         await acceptResult?.(result, auditRef);
-        if (["logs.read", "code.search", "code.snippet", "code.trace"].includes(action)) {
-          check();
-          running.modelTools.push(structuredClone({ tool: action, callId: context.callId, result }));
-        }
+        if (["logs.read", "code.search", "code.snippet", "code.trace"].includes(action)) check();
         return result;
       };
       const start = () => {
@@ -867,7 +860,7 @@ export class Troubleshooting {
               validateModelResponse(response);
               if (!ports.sanitization.safe(response)) throw new Error("unsafe_content");
               return response;
-            }, (response) => { running.modelHistory.push(structuredClone({ role: "assistant", content: response.candidate })); },
+            }, undefined,
               { ...identity, recoverable: (error) => identity.retryable && error === networkFailure });
             return response;
           });
