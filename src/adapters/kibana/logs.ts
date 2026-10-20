@@ -40,6 +40,7 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
       manifestSha256: digest(profile.value.manifest), sanitizationVersion: SANITIZATION_VERSION },
       scope: { sourceRef: "simulator-source", from: query.from, to: query.to, pageSize: 100 } };
     let context = caller;
+    let auditStage = "none" as "none" | "intent" | "complete";
     try {
       return await boundary.run({ ...caller, deadline: Math.min(caller.deadline, ports.clock.now() + TOOL_CALL_MS) }, "kibana.logs", endpoint, authorize, async (operation) => {
         context = operation.context;
@@ -56,7 +57,7 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
         const key = `${query.from}/${query.to}`, span = tally.windows.has(key) ? 0 : Date.parse(query.to) - Date.parse(query.from);
         if (tally.coverage + span > 604_800_000 || tally.rows + 100 > MAX_LOG_RECORDS) failure("budget_exhausted");
         tally.coverage += span; tally.windows.add(key);
-        try { await ports.audit.intent(context, "mcp.logs.read", details); } catch { return failure("audit_unavailable"); }
+        try { await ports.audit.intent(context, "mcp.logs.read", details); auditStage = "intent"; } catch { return failure("audit_unavailable"); }
         await verifyModules(profile); operation.current();
         if (createHash("sha256").update(readFileSync(child)).digest("hex") !== endpoint.artifact.sha256) failure("contract_unverified");
         const connected = await operation.connect();
@@ -113,13 +114,16 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
         if (conflict) warnings.push("Conflicting native business observations; no authoritative shop set selected.");
         const result: ReadResult<SimulatorObservation | null> = { value: conflict ? null : observations[0] ?? null, evidence, completeness: "unknown", truncated,
           warnings: operation.sanitize([...new Set(warnings)]) };
-        try { await ports.audit.complete(context, "mcp.logs.read", "ok", { ...details, result: { completeness: "unknown", truncated, evidenceCount: evidence.length } }); } catch { return failure("audit_unavailable"); }
+        try { await ports.audit.complete(context, "mcp.logs.read", "ok", { ...details, result: { completeness: "unknown", truncated, evidenceCount: evidence.length } }); auditStage = "complete"; } catch { return failure("audit_unavailable"); }
         operation.current(); return result;
       });
     } catch (error) {
       const reason = error instanceof McpFailure ? error.reason : "unavailable";
       if (reason !== "audit_unavailable") try {
-        if (reason === "denied") await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
+        if (reason === "denied") {
+          if (auditStage === "intent") { await ports.audit.complete(context, "mcp.logs.read", "denied", details); auditStage = "complete"; }
+          await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
+        }
         else await ports.audit.complete(context, "mcp.logs.read", reason, details);
       } catch { return failure("audit_unavailable"); }
       return failure(reason);

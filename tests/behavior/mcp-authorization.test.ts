@@ -56,3 +56,95 @@ for (const profileName of ["kibana", "synthetic"] as const) test(`${profileName}
     assert.equal(server.requests.length, requests);
   } finally { await artifact.close(); await server.close(); }
 });
+
+type Profile = "kibana" | "synthetic_logs" | "synthetic_code";
+async function postcall(profileName: Profile, persistence: "mock" | "sqlite", mode: "foreign" | "revoked" | "audit_failure", verify: (result: {
+  mock: ReturnType<typeof createMockTroubleshooting>; pending: Promise<unknown>; physicalCalls(): Promise<number>;
+  action: string; auditCalls: string[];
+}) => Promise<void>) {
+  const { SqliteRecords } = await import("../../src/adapters/records/sqlite.js");
+  const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { logRow, esBody } = await import("../fixtures/kibana.js");
+  const directory = await mkdtemp(join(tmpdir(), "bau-mcp-postcall-")), receipt = join(directory, "source-calls");
+  let store: InstanceType<typeof SqliteRecords> | undefined;
+  const mock = createMockTroubleshooting({ controlPorts: (ports) => {
+    if (persistence === "mock") return {};
+    store = new SqliteRecords(directory, ports);
+    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+  } });
+  const server = await kibanaServer((_body, response) => {
+    const row = logRow(); if (mode !== "revoked") row._source.application_id = "foreign-application";
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: esBody([row]) }));
+  }), artifact = await kibanaProfile(server.url);
+  try {
+    await mock.receive(); await mock.closed;
+    const action = profileName === "synthetic_code" ? "mcp.code.search" : "mcp.logs.read";
+    const auditCalls: string[] = [];
+    const intent = mock.ports.audit.intent, complete = mock.ports.audit.complete, allows = mock.ports.authorization.allows;
+    let revoked = false;
+    mock.ports.authorization.allows = (operation, actor) => operation === action && revoked ? Promise.resolve(false) : allows(operation, actor);
+    mock.ports.audit.intent = async (...args) => { auditCalls.push(`${args[1]}:intent`); return intent(...args); };
+    mock.ports.audit.complete = async (...args) => {
+      auditCalls.push(`${args[1]}:complete:${args[2]}`);
+      if (mode === "audit_failure" && args[1] === action) throw new Error("synthetic-audit-failure");
+      await complete(...args);
+      if (mode === "revoked" && args[1] === action && args[2] === "ok") revoked = true;
+    };
+    const ctx = { ...context, callId: "postcall", operationRef: "case-1:original-postcall" };
+    let pending: Promise<unknown>;
+    if (profileName === "kibana") {
+      const adapter = kibanaLogPorts(mock.ports, { profile: await loadKibanaProfile(artifact), resolveIdentifier }, new McpBoundary(mock.ports));
+      pending = adapter.logs.read(ctx, query);
+    } else {
+      const fixtureMode = mode === "revoked" ? "normal" : profileName === "synthetic_code" ? "cross_repository" : "foreign_target";
+      const source = { ...endpoint, args: [service, fixtureMode, receipt] };
+      const adapter = mcpEvidencePorts(mock.ports, { logs: source, code: source, resolveIdentifier });
+      pending = profileName === "synthetic_code" ? adapter.code.search(ctx, { repositoryRef: "simulator-source", snapshotRef: context.snapshotRef }) : adapter.logs.read(ctx, query);
+    }
+    await verify({ mock, pending, action, auditCalls, physicalCalls: async () => profileName === "kibana" ? server.requests.length
+      : (await readFile(receipt, "utf8")).split("\n").filter((line) => line === (profileName === "synthetic_code" ? "search_code" : "read_logs")).length });
+  } finally { store?.close(); await artifact.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+}
+
+for (const profileName of ["kibana", "synthetic_logs", "synthetic_code"] as const) {
+  for (const persistence of ["mock", "sqlite"] as const) test(`${profileName} post-call refusal completes the original intent and exports a denied decision through C ${persistence}`, async () => {
+    await postcall(profileName, persistence, "foreign", async ({ mock, pending, action, physicalCalls }) => {
+      const before = mock.events.filter((event) => ["model.generate", "delivery.send"].includes(event.action)).length;
+      await assert.rejects(pending, /^Error: denied$/); assert.equal(await physicalCalls(), 1);
+      const retained = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(retained?.scope === "full");
+      const original = retained.audits.filter((row) => row.action === action && row.callId === "postcall");
+      assert.deepEqual(original.map((row) => [row.stage, row.outcome]), [["intent", "pending"], ["complete", "denied"]]);
+      assert.ok(original.every((row) => row.operationId === "case-1:original-postcall"));
+      assert.deepEqual(original[0]!.authorization, { decision: "allowed", reason: "policy_allowed" });
+      const denial = retained.audits.find((row) => row.action === "authorization.denied" && row.stage === "complete");
+      assert.ok(denial); assert.deepEqual(denial.authorization, { decision: "denied", reason: "denied" });
+      assert.equal(mock.events.filter((event) => ["model.generate", "delivery.send"].includes(event.action)).length, before);
+      assert.doesNotMatch(JSON.stringify(retained), /foreign-application|SYNTHETIC-SECRET|127\.0\.0\.1/);
+    });
+  });
+
+  test(`${profileName} late authorization refusal preserves its completed original result without a second completion`, async () => {
+    await postcall(profileName, "sqlite", "revoked", async ({ mock, pending, action, physicalCalls }) => {
+      await assert.rejects(pending, /^Error: denied$/); assert.equal(await physicalCalls(), 1);
+      const retained = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(retained?.scope === "full");
+      const original = retained.audits.filter((row) => row.action === action && row.callId === "postcall");
+      assert.deepEqual(original.map((row) => [row.stage, row.outcome, row.operationId]), [
+        ["intent", "pending", "case-1:original-postcall"], ["complete", "ok", "case-1:original-postcall"],
+      ]);
+      assert.ok(retained.audits.some((row) => row.action === "authorization.denied" && row.stage === "complete" &&
+        (row.authorization as { decision: string }).decision === "denied"));
+    });
+  });
+
+  test(`${profileName} post-call result audit failure stops before a denial audit or retry`, async () => {
+    await postcall(profileName, "sqlite", "audit_failure", async ({ mock, pending, action, physicalCalls, auditCalls }) => {
+      await assert.rejects(pending, /^Error: audit_unavailable$/); assert.equal(await physicalCalls(), 1);
+      const sourceCalls = auditCalls.filter((call) => !call.startsWith("records."));
+      assert.deepEqual(sourceCalls, [`${action}:intent`, `${action}:complete:denied`]);
+      const retained = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(retained?.scope === "full");
+      assert.equal(retained.audits.some((row) => row.action === "authorization.denied"), false);
+    });
+  });
+}

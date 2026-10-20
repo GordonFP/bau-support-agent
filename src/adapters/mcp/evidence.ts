@@ -56,6 +56,7 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
       artifactVersion: endpoint.manifest.artifactVersion, manifestSha256: digest(endpoint.manifest), sanitizationVersion: SANITIZATION_VERSION },
       scope: kind === "logs" ? { sourceRef: "simulator-source", from: (query as LogQuery).from, to: (query as LogQuery).to, pageSize: 100 }
         : { repositoryRef: "simulator-source", snapshotRef: context.snapshotRef } };
+    let auditStage = "none" as "none" | "intent" | "complete";
     try {
       const completed = await boundary.run(context, kind, endpoint, (bound) => authorize(bound, action), async (operation) => {
         context = operation.context;
@@ -92,7 +93,7 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
           if (tally.records >= MAX_LOG_RECORDS || tally.coverage + coverage > 604_800_000) throw new McpFailure("budget_exhausted");
           tally.windows.add(key); tally.coverage += coverage;
         }
-        try { await ports.audit.intent(context, action, details); } catch { throw new McpFailure("audit_unavailable"); }
+        try { await ports.audit.intent(context, action, details); auditStage = "intent"; } catch { throw new McpFailure("audit_unavailable"); }
         await authorize(context, action);
         if (!isAbsolute(endpoint.command) || !isAbsolute(endpoint.artifact.path) || !/^[a-f0-9]{64}$/.test(endpoint.artifact.sha256) ||
           createHash("sha256").update(await readFile(endpoint.artifact.path)).digest("hex") !== endpoint.artifact.sha256) throw new McpFailure("contract_unverified");
@@ -157,7 +158,7 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
           completeness: pages.some((page) => page.completeness === "unknown" || page.evidence.some((item) => item.completeness === "unknown")) ? "unknown"
             : pages.some((page) => page.completeness === "partial" || page.evidence.some((item) => item.completeness === "partial")) ? "partial" : "complete",
           truncated: pages.some((page) => page.truncated || page.evidence.some((item) => item.truncated)), warnings: pages.flatMap((page) => page.warnings) };
-        try { await ports.audit.complete(context, action, "ok", { ...details, result: { completeness: result.completeness, truncated: result.truncated, evidenceCount: evidence.length } }); }
+        try { await ports.audit.complete(context, action, "ok", { ...details, result: { completeness: result.completeness, truncated: result.truncated, evidenceCount: evidence.length } }); auditStage = "complete"; }
         catch { throw new McpFailure("audit_unavailable"); }
         await authorize(context, action);
         operation.current();
@@ -174,7 +175,10 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
       const reason = reasonOf(error);
       if (reason !== "audit_unavailable") {
         try {
-          if (reason === "denied") await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
+          if (reason === "denied") {
+            if (auditStage === "intent") { await ports.audit.complete(context, action, "denied", details); auditStage = "complete"; }
+            await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
+          }
           else await ports.audit.complete(context, action, reason, details);
         } catch { throw new McpFailure("audit_unavailable"); }
       }
