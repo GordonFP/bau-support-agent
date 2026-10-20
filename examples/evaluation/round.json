@@ -1,0 +1,584 @@
+{
+  "schemaVersion": "evaluation-round-1",
+  "roundId": "synthetic-round-1",
+  "kind": "synthetic",
+  "frozenAt": "2026-10-01T00:00:00.000Z",
+  "previousRoundRef": null,
+  "archiveRef": null,
+  "ownerId": "owner-1",
+  "versions": {
+    "application": "app-1",
+    "artifact": "artifact-1",
+    "skill": "skill-1",
+    "prompt": "prompt-1",
+    "manifest": "manifest-1",
+    "policy": "policy-1",
+    "modelRoute": "model-1",
+    "dependencies": "deps-1"
+  },
+  "reviewers": [
+    {
+      "id": "reviewer-1",
+      "qualified": true,
+      "scenes": [
+        "simulator",
+        "psp"
+      ]
+    },
+    {
+      "id": "reviewer-2",
+      "qualified": true,
+      "scenes": [
+        "simulator",
+        "psp"
+      ]
+    },
+    {
+      "id": "owner-1",
+      "qualified": true,
+      "scenes": [
+        "simulator",
+        "psp"
+      ]
+    }
+  ],
+  "businessReviewers": {
+    "simulator": "reviewer-1",
+    "psp": "reviewer-1"
+  },
+  "sampling": {
+    "seed": "precommitted-synthetic-seed",
+    "basisRef": "seed-receipt-1",
+    "committedAt": "2026-10-01T00:00:00.000Z"
+  },
+  "cases": [
+    {
+      "caseId": "simulator-1",
+      "runId": "run-simulator-1",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-1",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-2",
+      "runId": "run-simulator-2",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-2",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-3",
+      "runId": "run-simulator-3",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-3",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-4",
+      "runId": "run-simulator-4",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-4",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-5",
+      "runId": "run-simulator-5",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-5",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-6",
+      "runId": "run-simulator-6",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-6",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-7",
+      "runId": "run-simulator-7",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-7",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-8",
+      "runId": "run-simulator-8",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-8",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-9",
+      "runId": "run-simulator-9",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-9",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-10",
+      "runId": "run-simulator-10",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-10",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-11",
+      "runId": "run-simulator-11",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-11",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "simulator-12",
+      "runId": "run-simulator-12",
+      "scene": "simulator",
+      "category": "common",
+      "referenceId": "reference-simulator-12",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-1",
+      "runId": "run-psp-1",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-1",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-2",
+      "runId": "run-psp-2",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-2",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-3",
+      "runId": "run-psp-3",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-3",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-4",
+      "runId": "run-psp-4",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-4",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-5",
+      "runId": "run-psp-5",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-5",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-6",
+      "runId": "run-psp-6",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-6",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-7",
+      "runId": "run-psp-7",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-7",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-8",
+      "runId": "run-psp-8",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-8",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-9",
+      "runId": "run-psp-9",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-9",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-10",
+      "runId": "run-psp-10",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-10",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-11",
+      "runId": "run-psp-11",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-11",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    },
+    {
+      "caseId": "psp-12",
+      "runId": "run-psp-12",
+      "scene": "psp",
+      "category": "common",
+      "referenceId": "reference-psp-12",
+      "source": "synthetic",
+      "sampleApprovalRef": null,
+      "materials": "ready",
+      "input": {
+        "question": "Synthetic troubleshooting question",
+        "supplements": [
+          "Synthetic supplement"
+        ],
+        "resourceRefs": [
+          "synthetic-source"
+        ],
+        "logWindow": null,
+        "snapshotRef": "snapshot-1",
+        "indexRef": "index-1"
+      }
+    }
+  ]
+}

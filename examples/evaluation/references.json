@@ -1,0 +1,270 @@
+{
+  "schemaVersion": "evaluation-references-1",
+  "roundId": "synthetic-round-1",
+  "answers": [
+    {
+      "caseId": "simulator-1",
+      "referenceId": "reference-simulator-1",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-2",
+      "referenceId": "reference-simulator-2",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-3",
+      "referenceId": "reference-simulator-3",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-4",
+      "referenceId": "reference-simulator-4",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-5",
+      "referenceId": "reference-simulator-5",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-6",
+      "referenceId": "reference-simulator-6",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-7",
+      "referenceId": "reference-simulator-7",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-8",
+      "referenceId": "reference-simulator-8",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-9",
+      "referenceId": "reference-simulator-9",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-10",
+      "referenceId": "reference-simulator-10",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-11",
+      "referenceId": "reference-simulator-11",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "simulator-12",
+      "referenceId": "reference-simulator-12",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-1",
+      "referenceId": "reference-psp-1",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-2",
+      "referenceId": "reference-psp-2",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-3",
+      "referenceId": "reference-psp-3",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-4",
+      "referenceId": "reference-psp-4",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-5",
+      "referenceId": "reference-psp-5",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-6",
+      "referenceId": "reference-psp-6",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-7",
+      "referenceId": "reference-psp-7",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-8",
+      "referenceId": "reference-psp-8",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-9",
+      "referenceId": "reference-psp-9",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-10",
+      "referenceId": "reference-psp-10",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-11",
+      "referenceId": "reference-psp-11",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    },
+    {
+      "caseId": "psp-12",
+      "referenceId": "reference-psp-12",
+      "conclusion": "CONTROLLED SYNTHETIC ANSWER — never Agent input",
+      "keyChecks": [
+        {
+          "checkId": "check-1",
+          "description": "CONTROLLED required synthetic check"
+        }
+      ]
+    }
+  ]
+}

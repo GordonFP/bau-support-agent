@@ -1,0 +1,58 @@
+# Offline evaluation records (version 1)
+
+This is the S7 evaluation-record tool for [#29](https://github.com/GordonFP/bau-support-agent/issues/29), following [decision #9](https://github.com/GordonFP/bau-support-agent/issues/9) and the agreed A–D boundaries. It does not add an Agent tool, runtime permission, review rating service, dashboard, or access to real resources. All committed examples and tests are synthetic. Actual approved cases, qualified business review and the owner's decision remain #32/G4 work; #30, #31 and parent #14 remain open.
+
+## Run locally
+
+Use the locked dependencies and Node **24.22.0**, then `npm run build`. No extra dependency or package script is required:
+
+```sh
+node dist/src/evaluation/cli.js summary examples/evaluation/round.json examples/evaluation/references.json examples/evaluation/results.json
+node dist/src/evaluation/cli.js inputs examples/evaluation/round.json
+```
+
+`summary` reads exactly three explicitly selected local JSON files. `inputs` reads only the frozen-round file and projects the allowlisted case input. Each file must be a regular UTF-8 file of at most 2 MiB. The CLI has no network or source execution. It returns JSON on stdout, exit 0 for a valid record set (including pending or No-Go outcomes), and exit 2 for invalid arguments/files/records. Parse/validation errors use fixed codes, without raw input, reference text, source exceptions or paths. A valid actual safety-failure row remains in `stopPaths` even if another file cannot be read or validated.
+
+The public offline functions are `evaluate(unknown)` and `agentInputs(unknown)` in `src/evaluation/index.ts`. Objects are closed at every level, arrays/text are bounded, scores/money/tokens are finite integers, and timestamps require real UTC calendar dates (`YYYY-MM-DDTHH:mm:ss[.SSS]Z`, years 2000–9999). Version-1 deliberately does not accept ambiguous local times or offsets; convert an original offset to UTC while retaining its source evidence outside these interchange files.
+
+## Three separate records
+
+| File/schemaVersion | Contents |
+| --- | --- |
+| `round.json` / `evaluation-round-1` | Frozen round/run/case codes, synthetic/formal kind, owner and qualified scene reviewers; application, artifact, Skill, prompt, manifest, policy, model-route and dependency versions; precommitted sampling seed/receipt; 12 Simulator and 12 PSP slots, category (`common`, `abnormal`, `evidence_gap`), actual/synthetic provenance, approval/material status; question, necessary supplements, authorized resource aliases, log window, code snapshot and index references; separate controlled-reference IDs. |
+| `references.json` / `evaluation-references-1` | Controlled reference conclusion and named/described key checks per case. These contents are for business review only. |
+| `results.json` / `evaluation-results-1` | One original frozen run per case and matching versions; delivery/diagnostic/failure state, original report reference/digest and optional separate edited reference; critical-fact inventory plus semantic support/evidence/reviewer checks; primary/secondary scores, reasons, checked reference keys and disagreement resolution; original sampling pool/draw receipt; safety/dependency/deployment validations; time streams, all attempt/usage/fee records, separate labor fees, shared indexing jobs and limitations. |
+
+These are an interchange format, not a new immutable storage or authorization system. External controlled records must substantiate approvals, qualified reviewers, completeness of the fact/attempt inventory, original report digest, real deliveries, actual fee sources, recorded seeds and validation receipts. A declaration of `actual` is not verification of its truth. Preserve the frozen source files, original report and C-export/host ledgers in their authorized store; don't overwrite them with edited answers or better reruns. A retest uses a new round, `previousRoundRef` plus `archiveRef`, and a `priorRunRef` on each new frozen run. Missing slots or run/reference records are pending, never smaller denominators. Duplicate/foreign/replacement runs and mixed versions are rejected.
+
+Reference answers must never be put in the Agent input file. `agentInputs` copies only `caseId`, `runId`, `scene` and `input`; it omits reference IDs/answers/checks, categories, ratings, approvals and reviewer information. The controlled file is neither read by that projection nor imported by the production application. The operator must also keep answer text out of the original question/supplements; a structural projection cannot recognize an answer deliberately embedded in user input. Summary output never echoes the questions, controlled answers/check descriptions, rating reasons or free-text limitations.
+
+## Arithmetic and review order
+
+Each scene always uses **12** as denominator. A delivered report is initially business-qualified only with an integer score 4 or 5 and no critical factual error, misleading advice, missing evidence or missing necessary content. The primary review pool is frozen before second review. Every initially unqualified or disputed delivered report needs a different qualified second reviewer; no-report cases receive no invented score or report review. Randomly selected initially qualified reports also require second review. Missing required reviews/reference checks and unresolved disagreement cannot count as finally useful. An honest `insufficient_evidence` report can be useful; it is not counted as a located cause.
+
+Version 1 provides a reproducible local sampling method: before execution, record a seed and receipt at or before round freeze; after every primary review, rank the original initially qualified case IDs by SHA-256 of UTF-8 `seed + "\n" + caseId` (hexadecimal ascending, case ID as tie breaker), then record a prefix of at least `ceil(pool / 4)` with draw timestamp and receipt. The selected array may be in any order, but its set must equal that prefix. Sampling the whole pool is allowed. This is an auditable seeded selection method, **not proof that a human actually drew randomly or performed review**. Seed choice/precommitment and reviewer actions need independent controlled receipts in a real round. Second review cannot change the original pool or its denominator. Different scores/quality flags, or an explicit dispute, require a recorded qualified resolution selecting the primary or secondary assessment. Missing semantic fact checks stay pending; a citation alone is not support. The complete critical-fact inventory must be reviewed against actual evidence; zero facts produce N/A, never 100%.
+
+Independent worked examples (not historical results):
+
+| Inputs | Required result |
+| --- | --- |
+| Simulator 8 useful, PSP 10 useful | Simulator fails; combined 18/24 cannot rescue it. |
+| 9/12 in each scene | Both count thresholds pass, subject to every other requirement. |
+| Initial qualified pool 1, 9, 12 | Random second-review minimum 1, 3, 3 respectively. |
+| 18 initially qualified, one unresolved rating disagreement | Original pool remains 18, random minimum 5; that case is not useful. |
+| 23 supported out of 24 critical facts | Coverage 23/24; a complete formal round is No-Go. |
+| Zero critical facts | N/A; no invented 100% or real eligibility. |
+| Timeout/no report among 12 | Retain the case/run/failure, no score, same denominator 12. |
+
+Decision precedence is conservative: `stopPaths` independently lists every recorded actual failed control path. Invalid/incomplete records, missing actual samples/approvals/materials/required validations/reviews, synthetic-only evidence or an all-round zero fact denominator yield `cannot_determine`. A complete formal round below either 9/12 threshold, below 100% factual support or with an actual failed gate yields `no_go`. Complete passing records yield only `eligible_for_owner_decision`; the software never emits Go. The POC owner must verify the underlying records and record the actual decision separately. A passing synthetic example cannot satisfy G4. Expected safe refusals in synthetic control tests are not actual safety incidents.
+
+## Time and cost interpretation
+
+Retain `receivedAt` and `acceptedAt` separately. Durations start at acceptance. A first effective clue needs a safe delivery receipt plus later qualified semantic support; generation time or an unsafe/unsupported clue cannot substitute. A final report may supply that clue's delivery time when justified by the evidence. Missing clue/report durations are `null`, not zero. End-to-end report time includes human clarification and all waiting. Phases must be ordered and nonoverlapping; model/tool waits fit their phase and clarification fits between phases. Per-kind wait duration uses interval union. Streams can overlap across kinds and **must not be added to end-to-end time**. Human operation/read/verify/edit work, scoring and second review are separate person-time streams; a person's intervals cannot overlap even across cases, while different people can work concurrently. An empty interval list explicitly records no such work/wait; omit or mark a record pending when observation is unavailable rather than asserting an empty list. The summary gives per-case values and per-scene min/median/max with a valid count and missing count out of 12. There is no efficiency comparison or time-success threshold.
+
+Every model attempt, including retry/failure/cancelled/unknown execution, appears in both `attemptIds` and `attempts`; retry lineage retains the earlier attempt. Actual token usage has its own source and is distinct from billing. Each fee record separates nullable actual microusd plus its actual charge-source reference, nullable estimate and nonnegative held reserve. Zero actual charge requires an actual source; unknown is `null`. Partial known sums carry unknown-fee counts, estimates carry their own count, and complete-actual totals remain null if any fee/ledger is unknown. The tool neither prices tokens nor estimates hourly labor. A billing source must identify the charged portion, not duplicate an aggregate invoice across cases.
+
+Manual operation, primary scoring and second-review fee records are separate from model charges and from their person-time. Shared indexing initial/update jobs have one cost ID and scope, separate job durations/fees; cases link IDs without repeating or amortizing charges. The sum of index job milliseconds is work across jobs, not wall-clock elapsed time. There is no combined model+index+labor “total cost”, ROI, budget reset or new budget cap. Actual unknown fees do not become zero or estimates; the existing actual budget/control validation still needs its own evidence.
+
+The committed 24-case example has 9 useful reports in each scene, 24/24 supported facts, 240,000 ms accepted-to-report per case, no recorded effective clue, model actual 2,400 microusd and shared initial indexing actual 500 microusd **once**. Labor actual fees are unknown. These are synthetic arithmetic declarations, not measured results; output is `cannot_determine`.

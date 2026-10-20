@@ -1,0 +1,3206 @@
+{
+  "schemaVersion": "evaluation-results-1",
+  "roundId": "synthetic-round-1",
+  "runs": [
+    {
+      "caseId": "simulator-1",
+      "runId": "run-simulator-1",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-1",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-2",
+      "runId": "run-simulator-2",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-2",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-3",
+      "runId": "run-simulator-3",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-3",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-4",
+      "runId": "run-simulator-4",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-4",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-5",
+      "runId": "run-simulator-5",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-5",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-6",
+      "runId": "run-simulator-6",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-6",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-7",
+      "runId": "run-simulator-7",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-7",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-8",
+      "runId": "run-simulator-8",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-8",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-9",
+      "runId": "run-simulator-9",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-9",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-10",
+      "runId": "run-simulator-10",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-10",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "insufficient_evidence",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-11",
+      "runId": "run-simulator-11",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-11",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "insufficient_evidence",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "simulator-12",
+      "runId": "run-simulator-12",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-simulator-12",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "insufficient_evidence",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-1",
+      "runId": "run-psp-1",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-1",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-2",
+      "runId": "run-psp-2",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-2",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-3",
+      "runId": "run-psp-3",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-3",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-4",
+      "runId": "run-psp-4",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-4",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-5",
+      "runId": "run-psp-5",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-5",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-6",
+      "runId": "run-psp-6",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-6",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-7",
+      "runId": "run-psp-7",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-7",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-8",
+      "runId": "run-psp-8",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-8",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-9",
+      "runId": "run-psp-9",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-9",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "lead",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 4,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": false,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-10",
+      "runId": "run-psp-10",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-10",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "insufficient_evidence",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-11",
+      "runId": "run-psp-11",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-11",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "insufficient_evidence",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    },
+    {
+      "caseId": "psp-12",
+      "runId": "run-psp-12",
+      "versions": {
+        "application": "app-1",
+        "artifact": "artifact-1",
+        "skill": "skill-1",
+        "prompt": "prompt-1",
+        "manifest": "manifest-1",
+        "policy": "policy-1",
+        "modelRoute": "model-1",
+        "dependencies": "deps-1"
+      },
+      "priorRunRef": null,
+      "status": "completed",
+      "failureRef": null,
+      "report": {
+        "originalRef": "report-psp-12",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "editedRef": null,
+        "deliveredAt": "2026-10-02T00:05:00.000Z",
+        "diagnostic": "insufficient_evidence",
+        "criticalFactIds": [
+          "fact-1"
+        ]
+      },
+      "factChecks": [
+        {
+          "factId": "fact-1",
+          "evidenceRefs": [
+            "evidence-1"
+          ],
+          "support": "supported",
+          "reviewerId": "reviewer-1",
+          "checkedAt": "2026-10-02T00:09:00.000Z"
+        }
+      ],
+      "primary": {
+        "reviewerId": "reviewer-1",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:10:00.000Z"
+      },
+      "secondary": {
+        "reviewerId": "reviewer-2",
+        "score": 3,
+        "reason": "Synthetic rating rationale",
+        "criticalError": false,
+        "misleading": false,
+        "missingEvidence": false,
+        "missingNecessaryContent": true,
+        "checkedKeys": [
+          "check-1"
+        ],
+        "reviewedAt": "2026-10-02T00:12:00.000Z"
+      },
+      "disputed": false,
+      "resolution": null,
+      "timeline": {
+        "receivedAt": "2026-10-02T00:00:00.000Z",
+        "acceptedAt": "2026-10-02T00:01:00.000Z",
+        "finishedAt": "2026-10-02T00:05:00.000Z",
+        "clue": null,
+        "phases": [
+          {
+            "id": "phase-1",
+            "startedAt": "2026-10-02T00:01:00.000Z",
+            "endedAt": "2026-10-02T00:05:00.000Z"
+          }
+        ],
+        "waits": [],
+        "humanWork": []
+      },
+      "attemptIds": [
+        "attempt-1"
+      ],
+      "attempts": [
+        {
+          "attemptId": "attempt-1",
+          "retryOf": null,
+          "status": "succeeded",
+          "startedAt": "2026-10-02T00:01:00.000Z",
+          "endedAt": "2026-10-02T00:04:00.000Z",
+          "usage": {
+            "sourceRef": "usage-1",
+            "inputTokens": 100,
+            "outputTokens": 20
+          },
+          "fee": {
+            "actualMicrousd": 100,
+            "actualSourceRef": "invoice-1",
+            "estimatedMicrousd": 120,
+            "reservedMicrousd": 0
+          }
+        }
+      ],
+      "indexCostRefs": [
+        "index-cost-1"
+      ],
+      "humanFees": {
+        "manual": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "scoring": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        },
+        "secondReview": {
+          "actualMicrousd": null,
+          "actualSourceRef": null,
+          "estimatedMicrousd": null,
+          "reservedMicrousd": 0
+        }
+      },
+      "limitations": []
+    }
+  ],
+  "sampling": {
+    "poolCaseIds": [
+      "simulator-1",
+      "simulator-2",
+      "simulator-3",
+      "simulator-4",
+      "simulator-5",
+      "simulator-6",
+      "simulator-7",
+      "simulator-8",
+      "simulator-9",
+      "psp-1",
+      "psp-2",
+      "psp-3",
+      "psp-4",
+      "psp-5",
+      "psp-6",
+      "psp-7",
+      "psp-8",
+      "psp-9"
+    ],
+    "selectedCaseIds": [
+      "simulator-6",
+      "psp-7",
+      "simulator-1",
+      "simulator-3",
+      "psp-8",
+      "psp-3",
+      "simulator-2",
+      "psp-2",
+      "simulator-7",
+      "simulator-4",
+      "psp-1",
+      "psp-5",
+      "psp-9",
+      "psp-6",
+      "psp-4",
+      "simulator-8",
+      "simulator-5",
+      "simulator-9"
+    ],
+    "drawnAt": "2026-10-02T00:11:00.000Z",
+    "basisRef": "draw-receipt-1"
+  },
+  "gates": [
+    {
+      "gate": "identity",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "authorization",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "read_only",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "sanitization",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "isolation",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "audience",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "audit",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "versions",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "budget",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "dependencies",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    },
+    {
+      "gate": "deployment",
+      "status": "passed",
+      "basis": "synthetic",
+      "evidenceRef": "validation-1"
+    }
+  ],
+  "indexing": [
+    {
+      "costId": "index-cost-1",
+      "kind": "initial",
+      "scopeRef": "shared-index-1",
+      "startedAt": "2026-10-01T01:00:00.000Z",
+      "endedAt": "2026-10-01T01:10:00.000Z",
+      "fee": {
+        "actualMicrousd": 500,
+        "actualSourceRef": "index-invoice-1",
+        "estimatedMicrousd": null,
+        "reservedMicrousd": 0
+      }
+    }
+  ],
+  "limitations": []
+}
