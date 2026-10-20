@@ -38,7 +38,7 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
       if (!bound.caseRef || !Number.isSafeInteger(bound.phaseId) || bound.phaseId < 1 || !bound.callId || !bound.approvalRef || !bound.policyVersion ||
         !bound.snapshotRef || bound.snapshotRef !== query.snapshotRef || canonical([...bound.resourceRefs].sort()) !== canonical([...approved].sort()) ||
         requested.some((resource) => !repositories.includes(resource))) throw new McpFailure("denied");
-      for (const resourceRef of approved) {
+      for (const resourceRef of repositories) {
         if (!await ports.authorization.allows(action, { ...bound, resourceRefs: [resourceRef] })) throw new McpFailure("denied");
       }
     };

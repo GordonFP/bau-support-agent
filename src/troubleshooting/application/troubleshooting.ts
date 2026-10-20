@@ -44,6 +44,7 @@ interface RunningCase {
   candidates?: ApplicationCandidates["candidates"];
   pspCandidates?: PspTargetCandidates["candidates"];
   pspCustomerId?: string;
+  pspBoundAt?: string;
   targetSubmittedOn?: string;
   view: CaseView;
 }
@@ -98,6 +99,7 @@ export class Troubleshooting {
         delete running.candidates;
         delete running.pspCandidates;
         delete running.pspCustomerId;
+        delete running.pspBoundAt;
       }
       this.cases.clear(); this.acceptances.clear(); this.pendingAdmissions.clear(); this.persistedLookups.clear();
       while (this.controlWork.size) await Promise.allSettled([...this.controlWork]);
@@ -387,6 +389,7 @@ export class Troubleshooting {
       running.inbound = { ...running.inbound, input: { applicationId: candidate.applicationId, question: running.inbound.input.question,
         ...(psp && "shopId" in candidate ? { scenario: "psp", shopId: candidate.shopId, bindingId: candidate.bindingId } : {}) } };
       if ("customerId" in candidate) running.pspCustomerId = candidate.customerId;
+      if ("boundAt" in candidate) running.pspBoundAt = candidate.boundAt;
       if ("submittedAt" in candidate) running.targetSubmittedOn = candidate.submittedAt.slice(0, 10);
       const { question: _question, waitingStartedAt: _waiting, ...view } = running.view;
       running.view = { ...view, phaseId, state: "investigating", phaseStartedAt: startedAt,
@@ -464,7 +467,7 @@ export class Troubleshooting {
       running.controller.abort();
       try { ports.sanitization.clear(running.context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
-      delete running.candidates; delete running.pspCandidates; delete running.pspCustomerId;
+      delete running.candidates; delete running.pspCandidates; delete running.pspCustomerId; delete running.pspBoundAt;
       void ports.admission.release(running.context.caseRef).catch(() => {});
     }
     const context = running.context;
@@ -590,6 +593,7 @@ export class Troubleshooting {
     const phaseController = running.controller;
     const phaseInbound = running.inbound;
     const phasePspCustomerId = running.pspCustomerId;
+    const phasePspBoundAt = running.pspBoundAt;
     const psp = phaseInbound.input.scenario === "psp";
     const sourceRef = psp ? this.pspResources!.sourceRef : "simulator-source";
     const repositoryRef = psp ? this.pspResources!.repositoryRef : "simulator-source";
@@ -608,6 +612,7 @@ export class Troubleshooting {
     let selectedShopRef: string | undefined;
     let selectedBindingRef: string | undefined;
     let selectedCustomerRef: string | undefined;
+    let selectedBoundAt = phasePspBoundAt;
     const assertCurrent = (allowEnded = false) => {
       if (this.retentionClosed()) throw new Error("cancelled");
       if (this.auditBoundary?.hasLost(phaseContext.caseRef)) throw new Error("audit_unavailable");
@@ -784,6 +789,7 @@ export class Troubleshooting {
             selectedShopId = rawPspCandidates[0]!.shopId; selectedShopRef = targets[0]!.shopId;
             selectedBindingId = rawPspCandidates[0]!.bindingId; selectedBindingRef = targets[0]!.bindingId;
             selectedCustomerRef = targets[0]!.customerId;
+            selectedBoundAt = targets[0]!.boundAt;
             investigation.selectTarget(selectedApplicationRef);
             return invoke("logs.read", null);
           }
@@ -815,7 +821,8 @@ export class Troubleshooting {
         if (psp && read.value) {
           const value = read.value as PspObservation;
           if (value.kind !== "psp_observation" || !selectedShopRef || !selectedBindingRef || value.target.shopRef !== selectedShopRef || value.target.bindingRef !== selectedBindingRef ||
-            (selectedCustomerRef !== undefined && value.customerRef !== selectedCustomerRef)) throw new Error("invalid_request");
+            (selectedCustomerRef !== undefined && value.customerRef !== selectedCustomerRef) ||
+            (selectedBoundAt !== undefined && Date.parse(value.target.boundAt) !== Date.parse(selectedBoundAt))) throw new Error("invalid_request");
           investigation.selectPspTarget(value);
         }
         await acceptEvidence(read, "log", logAuditRef);

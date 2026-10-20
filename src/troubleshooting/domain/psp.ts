@@ -56,9 +56,11 @@ export function diagnosePsp(caseRef: string, observation: PspObservation | null,
     event.observedAt !== null && Number.isFinite(Date.parse(event.observedAt)) && Date.parse(event.observedAt) <= Date.parse(formedAt) && item.observedAt === event.observedAt).map((item) => item.evidenceRef);
   const bindingRefs = observation ? refs({ eventRef: observation.target.recordRef, observedAt: observation.target.boundAt }) : [];
   const bound = bindingRefs.length ? observation : null;
+  const targetRefs = (event: { readonly eventRef: string | null; readonly observedAt: string | null }) => bound && event.observedAt &&
+    Date.parse(event.observedAt) >= Date.parse(bound.target.boundAt) ? refs(event) : [];
   const unknown: Checkpoint = { status: "unknown", evidenceRefs: [], observedAt: null };
   const point = (value: PspPoint | undefined): Checkpoint => {
-    const evidenceRefs = value && bound ? refs(value) : [];
+    const evidenceRefs = value && bound ? targetRefs(value) : [];
     return value && evidenceRefs.length ? { status: value.status, evidenceRefs, observedAt: value.observedAt } : unknown;
   };
   const first = point(bound?.first);
@@ -70,34 +72,40 @@ export function diagnosePsp(caseRef: string, observation: PspObservation | null,
   const second: PspReport["psp"]["second"] = support.status === "unsupported" ? { status: "not_applicable", transaction: unknown, tailThree: unknown }
     : support.status === "supported" ? { status: "observed", transaction: point(bound?.second.transaction), tailThree: point(bound?.second.tailThree) }
     : { status: "unknown", transaction: unknown, tailThree: unknown };
-  const finalRefs = bound ? refs(bound.final) : [];
+  const finalRefs = bound ? targetRefs(bound.final) : [];
   const final: PspReport["psp"]["final"] = bound && finalRefs.length ? { status: bound.final.status, evidenceRefs: finalRefs, observedAt: bound.final.observedAt }
     : { status: "unknown", evidenceRefs: [], observedAt: null };
   const conflicts: ObservedFact[] = evidence.filter((item) => item.kind === "code" && item.targetRef === bound?.applicationRef && item.code?.pspRule?.prerequisite === "all_shops_passed")
     .map((item) => ({ statement: "Frozen synthetic code requires all shops; the reviewed PSP business policy requires one passed shop. Neither resolves the policy conflict automatically.",
       evidenceRefs: [item.evidenceRef], scope: bound!.target.bindingRef, observedAt: null, limitations: ["Code is not proof this branch executed."] }));
   const groups = new Map<string, PspObservation["linkedShops"][number][]>();
+  const linkedHistory: PspObservation["linkedShops"][number][] = [];
   for (const shop of bound?.linkedShops ?? []) {
     if (shop.applicationRef !== bound!.applicationRef || shop.customerRef !== bound!.customerRef || !shop.shopRef || !shop.bindingRef || !refs(shop).length) continue;
+    if (shop.shopRef === bound!.target.shopRef && shop.bindingRef === bound!.target.bindingRef && !targetRefs(shop).length) continue;
+    linkedHistory.push(shop);
     const key = JSON.stringify([shop.shopRef, shop.bindingRef]);
     groups.set(key, [...(groups.get(key) ?? []), shop]);
   }
+  if (bound && finalRefs.length) {
+    const key = JSON.stringify([bound.target.shopRef, bound.target.bindingRef]);
+    groups.set(key, [...(groups.get(key) ?? []), { applicationRef: bound.applicationRef, customerRef: bound.customerRef,
+      shopRef: bound.target.shopRef, bindingRef: bound.target.bindingRef,
+      status: final.status === "controlled" ? "passed" : final.status === "uncontrolled" ? "not_passed" : "unknown",
+      eventRef: bound.final.eventRef, observedAt: final.observedAt }]);
+  }
   const passed: PspObservation["linkedShops"][number][] = [];
-  let targetConflict = false;
   for (const shops of groups.values()) {
     const latest = Math.max(...shops.map((shop) => Date.parse(shop.observedAt!)));
     const current = shops.filter((shop) => Date.parse(shop.observedAt!) === latest);
     const sourceConflict = new Set(current.map((shop) => shop.status)).size > 1;
-    const target = current[0]!.shopRef === bound!.target.shopRef && current[0]!.bindingRef === bound!.target.bindingRef;
-    const contradictsFinal = target && current.some((shop) => shop.status === "not_passed") && final.status === "controlled" && latest >= Date.parse(final.observedAt!);
-    if (sourceConflict || contradictsFinal) {
-      targetConflict ||= target;
+    if (sourceConflict) {
       conflicts.push({ statement: "Conflicting current PSP shop outcomes require human source reconciliation; this shop cannot establish the prerequisite.",
-        evidenceRefs: [...new Set([...current.flatMap(refs), ...(contradictsFinal ? finalRefs : [])])], scope: current[0]!.bindingRef,
+        evidenceRefs: [...new Set(current.flatMap(refs))], scope: current[0]!.bindingRef,
         observedAt: current[0]!.observedAt, limitations: ["No current authoritative outcome selected."] });
     } else if (current[0]!.status === "passed") passed.push(current[0]!);
   }
-  const prerequisiteEvidenceRefs = [...new Set([...(final.status === "controlled" && !targetConflict ? finalRefs : []), ...passed.flatMap(refs)])];
+  const prerequisiteEvidenceRefs = [...new Set(passed.flatMap(refs))];
   const branches: PspReport["psp"]["branches"] = (bound?.executions ?? []).flatMap((execution) => {
     const logRefs = refs(execution);
     const codeRefs = evidence.filter((item) => item.kind === "code" && item.targetRef === bound!.applicationRef &&
@@ -111,6 +119,11 @@ export function diagnosePsp(caseRef: string, observation: PspObservation | null,
     "Point observations do not cover every customer shop or establish credit approval or amount.", ...warnings];
   if (evidence.some((item) => item.completeness !== "complete" || item.truncated)) limitations.push("Source completeness is limited; per-evidence completeness and truncation remain explicit.");
   if (!bound) limitations.push("Target shop and PSP binding evidence is unavailable; no verification path can be established.");
+  if (bound && [bound.first, bound.second.transaction, bound.second.tailThree, bound.final,
+    ...bound.linkedShops.filter((shop) => shop.shopRef === bound.target.shopRef && shop.bindingRef === bound.target.bindingRef)]
+    .some((event) => event.observedAt && Date.parse(event.observedAt) < Date.parse(bound.target.boundAt))) {
+    limitations.push("Target outcomes observed before this binding cannot establish its current verification or prerequisite.");
+  }
   if (support.status === "unknown") limitations.push("Second-step support is unknown; missing logs or a missing version do not establish unsupported applicability.");
   if ((bound?.executions?.length ?? 0) > branches.length) limitations.push("An execution claim lacks matching frozen code, correlation or applicability; no concrete branch is established for that claim.");
   const facts: ObservedFact[] = [];
@@ -124,8 +137,11 @@ export function diagnosePsp(caseRef: string, observation: PspObservation | null,
   if (second.status === "not_applicable") fact("Second step: not applicable, not executed passed.", support.evidenceRefs, support.observedAt);
   for (const [name, value] of [["transaction", second.transaction], ["tail-three", second.tailThree]] as const) if (value.status !== "unknown") fact(`Observed second-step ${name} check: ${value.status}.`, value.evidenceRefs, value.observedAt);
   if (final.status !== "unknown") fact(`Observed final shop status: ${final.status}.`, final.evidenceRefs, final.observedAt);
-  for (const shop of passed) fact(`Linked shop ${shop.shopRef} passed at the cited observation time.`, refs(shop), shop.observedAt);
-  if (prerequisiteEvidenceRefs.length) fact("At least one linked passed shop satisfies the PSP initiation prerequisite only; approval and amount are unverified.", prerequisiteEvidenceRefs, final.observedAt ?? passed[0]?.observedAt ?? null);
+  for (const shop of linkedHistory) facts.push({ statement: `Linked shop ${shop.shopRef} was observed ${shop.status} at the cited observation time.`,
+    evidenceRefs: refs(shop), scope: shop.bindingRef, observedAt: shop.observedAt,
+    limitations: ["Historical point observation; the current prerequisite uses the latest consistent outcome for this binding."] });
+  for (const shop of passed) facts.push({ statement: "At least one linked passed shop satisfies the PSP initiation prerequisite only; approval and amount are unverified.",
+    evidenceRefs: refs(shop), scope: shop.bindingRef, observedAt: shop.observedAt, limitations: [] });
   for (const branch of branches) fact(`Correlated synthetic ${branch.stage} branch executed: ${branch.outcome}; this is not a universal fallback rule.`, branch.evidenceRefs, branch.observedAt);
   return { schemaVersion: 1, reportRef: `${caseRef}:report:1`, caseRef, scene: "psp", draftVersion, problem,
     targetSummary: bound ? `${bound.applicationRef}/${bound.target.shopRef}/${bound.target.bindingRef}` : "unresolved", facts, possibleCauses: [], evidence,

@@ -6,12 +6,17 @@ import { loadKibanaProfile, kibanaLogPorts } from "../../src/adapters/kibana/log
 import { kibanaProfile, kibanaServer, esBody } from "../fixtures/kibana.js";
 import { pspFixture } from "../fixtures/psp.js";
 import type { CallContext } from "../../src/troubleshooting/application/ports.js";
+import type { PspObservation } from "../../src/troubleshooting/domain/psp.js";
+import { Troubleshooting } from "../../src/troubleshooting/application/troubleshooting.js";
+import { mockModelPolicy } from "../../src/troubleshooting/application/model-envelope.js";
 
-export const pspNativeRows = () => [
-  { eventRef: pspFixture.target.recordRef, observedAt: pspFixture.target.boundAt }, pspFixture.first, pspFixture.support, pspFixture.final,
-].map((point) => ({ _id: point.eventRef!, _index: "synthetic-psp", _score: null, _source: { event_id: point.eventRef!, event_time: point.observedAt!,
-  application_id: pspFixture.applicationRef, customer_id: pspFixture.customerRef, shop_id: pspFixture.target.shopRef, binding_id: pspFixture.target.bindingRef,
-  verification: pspFixture } }));
+export const pspNativeRows = (value: PspObservation = pspFixture) => [
+  { eventRef: value.target.recordRef, observedAt: value.target.boundAt }, value.first, value.support,
+  value.second.transaction, value.second.tailThree, value.final, ...value.linkedShops, ...(value.executions ?? []),
+].filter((point) => point.eventRef && point.observedAt).map((point) => ({ _id: point.eventRef!, _index: "synthetic-psp", _score: null,
+  _source: { event_id: point.eventRef!, event_time: point.observedAt!, application_id: value.applicationRef, customer_id: value.customerRef,
+    shop_id: value.target.shopRef, binding_id: value.target.bindingRef, verification: value } }))
+  .sort((a, b) => Date.parse(a._source.event_time) - Date.parse(b._source.event_time) || a._id.localeCompare(b._id));
 
 test("B binds native PSP queries to approved application/shop/binding and preserves point facts with unknown completeness", async () => {
   const server = await kibanaServer((_body, response) => response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: { ...esBody(), hits: { hits: pspNativeRows(), total: { value: 4, relation: "eq" } } } })));
@@ -29,5 +34,31 @@ test("B binds native PSP queries to approved application/shop/binding and preser
     const body = server.requests[0]!.body.params.body as { query: { bool: { filter: unknown[] } } };
     assert.deepEqual(body.query.bool.filter.slice(0, 3), [{ term: { application_id: pspFixture.applicationRef } }, { term: { shop_id: pspFixture.target.shopRef } }, { term: { binding_id: pspFixture.target.bindingRef } }]);
     assert.doesNotMatch(JSON.stringify(result), /SYNTHETIC-SECRET|127\.0\.0\.1/);
+  } finally { await artifact.close(); await server.close(); }
+});
+
+test("native PSP rows preserve independent support and another shop's pass before the target binding", async () => {
+  const observation: PspObservation = { ...pspFixture, support: { ...pspFixture.support, observedAt: "2026-10-18T09:00:00.000Z" },
+    final: { ...pspFixture.final, status: "uncontrolled" }, linkedShops: [
+      { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: "independent-shop", bindingRef: "independent-binding",
+        status: "passed", eventRef: "independent-pass", observedAt: "2026-10-18T09:15:00.000Z" },
+    ] };
+  const rows = pspNativeRows(observation);
+  const server = await kibanaServer((_body, response) => response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: { ...esBody(), hits: { hits: rows, total: { value: rows.length, relation: "eq" } } } })));
+  const artifact = await kibanaProfile(server.url, (value) => { value.index = "synthetic-psp"; });
+  const resources = ["simulator-source", "psp-log-source", "psp-code"];
+  const mock = createMockTroubleshooting({ pspObservation: observation, resourceRefs: resources });
+  try {
+    Object.assign(mock.ports, kibanaLogPorts(mock.ports, { profile: await loadKibanaProfile(artifact), sourceRef: "psp-log-source",
+      approvedCaseResourceRefs: resources, resolveIdentifier: (_context, identifier) => identifier }, new McpBoundary(mock.ports)));
+    const application = new Troubleshooting(mock.ports, { mode: "mock", modelPolicy: mockModelPolicy, resourceRefs: resources, snapshotRef: "simulator-snapshot-1",
+      psp: { sourceRef: "psp-log-source", repositoryRef: "psp-code" }, queryWindow: { from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z" } });
+    await application.accept({ ...mock.inbound, input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef,
+      bindingId: observation.target.bindingRef, question: "Keep independent observation times." } }); await mock.closed;
+    const view = await application.get(mock.inbound, "case-1"); assert.ok("state" in view); assert.equal(view.state, "completed", JSON.stringify(view));
+    const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp");
+    assert.equal(report.psp.support.status, "unsupported"); assert.equal(report.psp.prerequisite, "met");
+    assert.equal(report.facts.find((fact) => fact.statement.startsWith("At least one"))!.observedAt, "2026-10-18T09:15:00.000Z");
+    assert.ok(report.evidence.every((item) => item.kind !== "log" || item.completeness === "unknown"));
   } finally { await artifact.close(); await server.close(); }
 });

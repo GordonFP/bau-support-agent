@@ -32,6 +32,70 @@ test("an independently evidenced unsupported combination reports second-step not
   assert.ok(report.facts.every((fact) => fact.evidenceRefs.every((ref) => report.evidence.some((item) => item.evidenceRef === ref))));
 });
 
+test("target outcomes before its PSP binding cannot establish current checks or the prerequisite", async () => {
+  const observation = { ...pspFixture, first: { ...pspFixture.first, observedAt: "2026-10-18T09:00:00.000Z" },
+    final: { ...pspFixture.final, observedAt: "2026-10-18T09:00:01.000Z" }, linkedShops: [
+      { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: pspFixture.target.shopRef,
+        bindingRef: pspFixture.target.bindingRef, status: "passed" as const, eventRef: "before-binding-pass", observedAt: "2026-10-18T09:00:02.000Z" },
+    ] };
+  const mock = createMockTroubleshooting({ pspObservation: observation });
+  await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef,
+    bindingId: observation.target.bindingRef, question: "Which observations belong to this binding?" } }); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp");
+  assert.equal(report.psp.first.status, "unknown"); assert.equal(report.psp.final.status, "unknown");
+  assert.equal(report.psp.prerequisite, "unknown"); assert.deepEqual(report.psp.prerequisiteEvidenceRefs, []);
+  assert.equal(report.psp.support.status, "unsupported"); assert.match(report.limitations.join(" "), /before.*binding/i);
+});
+
+test("a later uncontrolled target outcome supersedes its historical linked pass without retimestamping that fact", async () => {
+  const observation = { ...pspFixture, final: { ...pspFixture.final, status: "uncontrolled" as const, observedAt: "2026-10-18T12:10:00.000Z" }, linkedShops: [
+    { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: pspFixture.target.shopRef,
+      bindingRef: pspFixture.target.bindingRef, status: "passed" as const, eventRef: "historical-target-pass", observedAt: "2026-10-18T12:00:00.000Z" },
+  ] };
+  const mock = createMockTroubleshooting({ pspObservation: observation });
+  await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef,
+    bindingId: observation.target.bindingRef, question: "Does the old pass still establish the prerequisite?" } }); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp");
+  assert.equal(report.psp.final.status, "uncontrolled"); assert.equal(report.psp.prerequisite, "unknown");
+  assert.deepEqual(report.psp.prerequisiteEvidenceRefs, []);
+  const oldPass = report.evidence.find((item) => item.locator === "historical-target-pass")!;
+  const historical = report.facts.find((fact) => fact.evidenceRefs.includes(oldPass.evidenceRef))!;
+  assert.equal(historical.observedAt, "2026-10-18T12:00:00.000Z"); assert.match(historical.statement, /passed/);
+  assert.match(historical.limitations.join(" "), /historical|current/i);
+});
+
+test("simultaneous target-final and linked-shop contradictions stay unknown instead of choosing a pass", async () => {
+  const observation = { ...pspFixture, final: { ...pspFixture.final, status: "uncontrolled" as const }, linkedShops: [
+    { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: pspFixture.target.shopRef,
+      bindingRef: pspFixture.target.bindingRef, status: "passed" as const, eventRef: "contradicting-target-pass", observedAt: pspFixture.final.observedAt },
+  ] };
+  const mock = createMockTroubleshooting({ pspObservation: observation });
+  await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef,
+    bindingId: observation.target.bindingRef, question: "Reconcile the current source disagreement." } }); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp");
+  assert.equal(report.psp.prerequisite, "unknown"); assert.deepEqual(report.psp.prerequisiteEvidenceRefs, []);
+  const conflict = report.psp.conflicts.find((fact) => fact.statement.includes("Conflicting"))!;
+  assert.equal(conflict.observedAt, pspFixture.final.observedAt);
+  assert.deepEqual(conflict.evidenceRefs.map((ref) => report.evidence.find((item) => item.evidenceRef === ref)!.locator).sort(), ["contradicting-target-pass", "source-final"]);
+});
+
+test("independently versioned support and another shop's earlier pass survive the target binding epoch with their own times", async () => {
+  const observation = { ...pspFixture, support: { ...pspFixture.support, observedAt: "2026-10-18T09:00:00.000Z" },
+    final: { ...pspFixture.final, status: "uncontrolled" as const }, linkedShops: [
+      { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: "independent-shop", bindingRef: "independent-binding",
+        status: "passed" as const, eventRef: "independent-pass", observedAt: "2026-10-18T09:15:00.000Z" },
+    ] };
+  const mock = createMockTroubleshooting({ pspObservation: observation, completeness: "unknown" });
+  await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef,
+    bindingId: observation.target.bindingRef, question: "Keep independent source observation times." } }); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp");
+  assert.equal(report.psp.support.status, "unsupported"); assert.equal(report.psp.support.observedAt, "2026-10-18T09:00:00.000Z");
+  assert.equal(report.psp.prerequisite, "met");
+  assert.deepEqual(report.psp.prerequisiteEvidenceRefs.map((ref) => report.evidence.find((item) => item.evidenceRef === ref)!.locator), ["independent-pass"]);
+  const prerequisite = report.facts.find((fact) => fact.statement.startsWith("At least one"))!;
+  assert.equal(prerequisite.observedAt, "2026-10-18T09:15:00.000Z"); assert.equal(prerequisite.scope, "independent-binding");
+});
+
 test("one observed passed shop linked to the same customer satisfies the PSP prerequisite while target and other shops stay unknown or uncontrolled", async () => {
   const observation = { ...pspFixture, final: { ...pspFixture.final, status: "uncontrolled" as const }, linkedShops: [
     { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: "other-passed-shop", bindingRef: "other-binding",
@@ -262,6 +326,28 @@ test("a uniquely located PSP target keeps the customer linkage from its trusted 
       shopId: pspFixture.target.shopRef, bindingId: pspFixture.target.bindingRef, boundAt: pspFixture.target.boundAt }] } }; };
   await mock.receive({ input: { scenario: "psp", applicationId: pspFixture.applicationRef, shopId: pspFixture.target.shopRef, question: "Resolve this binding." } }); await mock.closed;
   const view = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in view); assert.equal(view.state, "stopped"); assert.equal(view.stopReason, "invalid_request");
+  assert.equal(mock.events.some((event) => event.action === "model.generate" || event.action === "delivery.send"), false);
+});
+
+for (const selection of ["unique", "reply"] as const) test(`a ${selection} trusted PSP selection cannot accept a changed binding date`, async () => {
+  const mock = createMockTroubleshooting({ pspObservation: { ...pspFixture,
+    target: { ...pspFixture.target, boundAt: "2026-10-18T11:00:00.000Z" } } });
+  const read = mock.ports.logs.read;
+  const candidate = { applicationId: pspFixture.applicationRef, customerId: pspFixture.customerRef,
+    shopId: pspFixture.target.shopRef, bindingId: pspFixture.target.bindingRef, boundAt: pspFixture.target.boundAt };
+  mock.ports.logs.read = async (context, query) => { const result = await read(context, query); return query.bindingId ? result : { ...result,
+    value: { kind: "psp_target_candidates", candidates: selection === "unique" ? [candidate]
+      : [{ ...candidate, bindingId: "older-binding", boundAt: "2026-10-17T10:00:00.000Z" }, candidate] } }; };
+  await mock.receive({ input: { scenario: "psp", applicationId: pspFixture.applicationRef, shopId: pspFixture.target.shopRef,
+    question: "Resolve this binding." } }); await mock.phaseClosed(1);
+  if (selection === "reply") {
+    const waiting = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in waiting); assert.equal(waiting.state, "awaiting_input");
+    assert.equal((await mock.application.provideInformation({ ...mock.inbound, eventRef: "select-binding-date",
+      reply: { caseRef: "case-1", questionId: waiting.question!.questionId }, content: { candidateRef: "candidate-2" } })).status, "resumed");
+    await mock.phaseClosed(2);
+  }
+  const view = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in view);
+  assert.equal(view.state, "stopped"); assert.equal(view.stopReason, "invalid_request");
   assert.equal(mock.events.some((event) => event.action === "model.generate" || event.action === "delivery.send"), false);
 });
 

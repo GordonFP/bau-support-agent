@@ -7,7 +7,7 @@ import { auditRecord } from "../../troubleshooting/application/audit-record.js";
 import { codeQuery } from "../../troubleshooting/application/code-query.js";
 import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
-import type { PspObservation } from "../../troubleshooting/domain/psp.js";
+import { pspEvents, type PspObservation } from "../../troubleshooting/domain/psp.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
 import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole } from "../../troubleshooting/application/records.js";
 import { RetentionLifecycle, type RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
@@ -227,8 +227,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       const observation = query.sourceRef === "psp-log-source" ? options.pspObservation ?? null : options.observation === undefined ? simulatorFixture : options.observation;
       if (query.sourceRef === "psp-log-source" && options.pspObservation) {
         const value = options.pspObservation;
-        const points = [{ eventRef: value.target.recordRef, observedAt: value.target.boundAt, target: value.target }, value.first, value.support,
-          value.second.transaction, value.second.tailThree, value.final, ...value.linkedShops, ...(value.executions ?? [])];
+        const points = pspEvents(value);
         const seen = new Set<string>();
         const evidence = points.filter((point) => point.eventRef && point.observedAt && !seen.has(point.eventRef) && seen.add(point.eventRef)).map((point) =>
           ({ ...structuredClone(log), sourceRef: "psp-log-source", locator: point.eventRef!, observedAt: point.observedAt, text: `Synthetic PSP observation: ${JSON.stringify(point)}` }));

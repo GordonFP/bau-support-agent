@@ -97,7 +97,7 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
           if (typeof page.total === "object" && page.total.relation === "gte") { truncated = true; warnings.push("Native total is a lower bound."); }
           for (const hit of page.hits) {
             const row = hit._source;
-            if (hit._index !== profile.value.index || row.application_id !== raw || hit._id !== row.event_id || Date.parse(row.event_time) < Date.parse(query.from) || Date.parse(row.event_time) >= Date.parse(query.to) || ("submitted_at" in row ? Date.parse(row.submitted_at) > Date.parse(row.event_time) : row.shop_id !== shop || row.binding_id !== binding || Date.parse(row.verification.target.boundAt) > Date.parse(row.event_time))) failure("denied");
+            if (hit._index !== profile.value.index || row.application_id !== raw || hit._id !== row.event_id || Date.parse(row.event_time) < Date.parse(query.from) || Date.parse(row.event_time) >= Date.parse(query.to) || ("submitted_at" in row ? Date.parse(row.submitted_at) > Date.parse(row.event_time) : row.shop_id !== shop || row.binding_id !== binding)) failure("denied");
             const signature = canonical(row);
             if (seen.has(row.event_id)) { truncated = true; warnings.push("Duplicate or conflicting native events prevent consistent pagination."); } else seen.set(row.event_id, signature);
             const time = Date.parse(row.event_time);

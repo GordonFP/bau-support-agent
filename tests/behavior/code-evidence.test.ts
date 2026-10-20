@@ -88,3 +88,28 @@ test("C retains a native B preflight authorization until the original wait settl
   await new Promise(setImmediate);
   assert.equal((await mock.ports.retention!.purgeDue(actor)).state, "deleted");
 });
+
+test("B authorizes every collection repository without demanding code permission on the PSP log-only alias", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises"); const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "bau-psp-code-auth-"));
+  const resources = ["simulator-source", "estimate-source", "psp-source", "psp-log-source"];
+  const mock = createMockTroubleshooting({ pspObservation: null, resourceRefs: resources });
+  const checked: string[][] = []; let deniedRepository: string | undefined, starts = 0;
+  const allows = mock.ports.authorization.allows;
+  mock.ports.authorization.allows = async (action, context) => {
+    if (action === "mcp.code.search") { checked.push([...context.resourceRefs]); return context.resourceRefs.every((ref) => ref !== "psp-log-source" && ref !== deniedRepository); }
+    return allows(action, context);
+  };
+  const adapter = codebaseMemoryPorts(mock.ports, new McpBoundary(mock.ports), { approvedCaseResourceRefs: resources, collection: new SnapshotCollection(root), resolveTarget: () => "synthetic-target",
+    service: () => ({ endpoint: { command: process.execPath, args: [], artifact: { path: process.execPath, sha256: "0".repeat(64) }, close: async () => {} }, start: async () => { starts++; } }) });
+  const context: CallContext = { caseRef: "case-1", phaseId: 1, callId: "repository-only-code", principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1",
+    policyVersion: "synthetic-policy", approvalRef: "synthetic-approval", resourceRefs: resources, snapshotRef: "snapshot-1", budgetRef: "case-1", deadline: 30000, signal: new AbortController().signal };
+  try {
+    await assert.rejects(adapter.code.search(context, { repositoryRef: "psp-source", snapshotRef: context.snapshotRef }), /^Error: version_unknown$/);
+    assert.ok(resources.filter((ref) => ref !== "psp-log-source").every((ref) => checked.some((set) => set.length === 1 && set[0] === ref)));
+    assert.equal(checked.some((set) => set.includes("psp-log-source")), false);
+    deniedRepository = "estimate-source";
+    await assert.rejects(adapter.code.search({ ...context, callId: "denied-collection-member" }, { repositoryRef: "psp-source", snapshotRef: context.snapshotRef }), /^Error: denied$/);
+    assert.equal(starts, 0);
+  } finally { mock.ports.sanitization.clear("case-1"); await rm(root, { recursive: true, force: true }); }
+});
