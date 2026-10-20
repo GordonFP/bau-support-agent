@@ -44,6 +44,69 @@ test("independent MCP client and local synthetic services produce the complete S
   assert.equal(toolAudit.sanitizationVersion, "host-reviewed-sanitization-1");
 });
 
+for (const invalidDate of ["2026-99-99", "2026-04-31", "2026-02-29", "1900-02-29"]) {
+  test(`native MCP rejects nonexistent calendar date ${invalidDate} before model, evidence retention or report delivery`, async () => {
+    for (const field of ["submittedOn", "completeThrough"]) {
+      const mock = setup(`calendar:${field}:${invalidDate}`);
+      await mock.receive(); await mock.closed;
+      const state = await mock.application.get(mock.inbound, "case-1");
+      assert.ok("state" in state);
+      assert.equal(state.state, "stopped");
+      assert.equal(state.stopReason, "schema_mismatch");
+      assert.equal(mock.events.some((event) => event.action === "model.generate" || event.action === "delivery.send"), false);
+      const records = await mock.ports.records.export(mock.inbound, "case-1");
+      assert.ok(records);
+      assert.equal(records.records.some((record) => ["evidence", "tool_result", "model_input", "report"].includes(record.kind)), false);
+      assert.equal(JSON.stringify(records).includes(invalidDate), false);
+    }
+  });
+}
+
+for (const validDate of ["2024-02-29", "2000-02-29"]) {
+  test(`native MCP preserves valid Gregorian leap day ${validDate} through the complete report`, async () => {
+    const mock = setup(`calendar:all:${validDate}`);
+    await mock.receive();
+    const { report } = await mock.delivery.next();
+    assert.equal(report.simulator.submittedOn, validDate);
+    assert.deepEqual(report.simulator.dataReadiness, { satisfied: 10, missing: 0, unknown: 0 });
+    assert.ok(report.simulator.shops.every((shop) => shop.targetDate === validDate && shop.completeThrough === validDate));
+  });
+}
+
+test("native MCP null coverage remains unknown rather than becoming a calendar or readiness success", async () => {
+  const mock = setup("null_coverage");
+  await mock.receive();
+  const { report } = await mock.delivery.next();
+  assert.deepEqual(report.simulator.dataReadiness, { satisfied: 0, missing: 0, unknown: 10 });
+  assert.ok(report.simulator.shops.every((shop) => shop.completeThrough === null && shop.readiness === "unknown"));
+});
+
+test("native MCP evidence and candidate datetimes also reject nonexistent calendar dates", async () => {
+  for (const field of ["observedAt", "acquiredAt", "indexedAt", "candidateSubmittedAt"]) {
+    const mock = setup(`calendar:${field}:2026-02-29`);
+    const read = field === "indexedAt" ? mock.ports.code.search(context(), { repositoryRef: "simulator-source", snapshotRef: "simulator-snapshot-1" })
+      : mock.ports.logs.read(context(), field === "candidateSubmittedAt" ? { sourceRef: "simulator-source", customerId: "SYNTHETIC-SECRET-CUSTOMER",
+        from: query.from, to: query.to, pageSize: 100 } : query);
+    await assert.rejects(read, /^Error: schema_mismatch$/);
+    assert.equal(mock.events.some((event) => event.action === "model.generate" || event.action === "delivery.send"), false);
+  }
+});
+
+test("nonexistent query-window dates are rejected before the independent source process starts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-mcp-calendar-"));
+  const receipt = join(directory, "operations");
+  try {
+    const mock = createMockTroubleshooting();
+    const endpointConfig = { ...endpoint(), args: [service, "normal", receipt] };
+    const configured = mcpEvidencePorts(mock.ports, { logs: endpointConfig, code: endpointConfig, resolveIdentifier: (_ctx, value) => value });
+    for (const invalid of [ { ...query, from: "2026-02-29T00:00:00.000Z", to: "2026-03-02T00:00:00.000Z" },
+      { ...query, from: "2026-02-28T00:00:00.000Z", to: "2026-02-29T00:00:00.000Z" } ]) {
+      await assert.rejects(configured.logs.read(context(), invalid), /^Error: invalid_request$/);
+      await assert.rejects(readFile(receipt), { code: "ENOENT" });
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("progress does not extend the absolute deadline; cancellation closes only its owned case connection", { timeout: 5000 }, async () => {
   const start = performance.now();
   const clock = { now: () => performance.now() - start, utc: () => "2026-10-19T09:00:00.000Z" };

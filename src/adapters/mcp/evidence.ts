@@ -9,7 +9,7 @@ import { beforeDeadline } from "../../troubleshooting/application/deadline.js";
 import { MAX_ACTIVE_CASES, MAX_INBOUND_BYTES, MAX_LOG_RECORDS } from "../../troubleshooting/application/limits.js";
 import { BoundedStdio, type StdioEndpoint } from "./stdio.js";
 import { CASE_EVIDENCE_BYTES, EVIDENCE_SCHEMA, FRAGMENT_BYTES, SANITIZATION_VERSION, canonical, digest, syntheticManifest, type EvidenceManifest } from "./manifest.js";
-import { parsePayload, type Payload } from "./schema.js";
+import { parsePayload, validTimestamp, type Payload } from "./schema.js";
 
 type Endpoint = StdioEndpoint & { readonly manifest: EvidenceManifest };
 export interface McpEvidenceOptions {
@@ -105,7 +105,7 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions): Pi
         const request = query as LogQuery;
         exact(request, ["sourceRef", "applicationId", "customerId", "from", "to", "pageSize"]);
         if (request.sourceRef !== "simulator-source" || request.pageSize !== 100 || !!request.applicationId === !!request.customerId ||
-          !Number.isFinite(Date.parse(request.from)) || !Number.isFinite(Date.parse(request.to)) ||
+          !validTimestamp(request.from) || !validTimestamp(request.to) ||
           Date.parse(request.to) <= Date.parse(request.from) || Date.parse(request.to) - Date.parse(request.from) > 86_400_000) throw new McpFailure("invalid_request");
         const identifier = request.applicationId ?? request.customerId!;
         let raw: string;

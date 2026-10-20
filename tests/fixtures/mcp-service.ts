@@ -57,6 +57,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         : { log: { from: args.from, to: args.to, queryRef: "synthetic-query-1" } }) }],
     completeness: "complete", truncated: false, warnings: [] } };
   const item = result.structuredContent.evidence[0]!;
+  if (mode.startsWith("calendar:") && !code) {
+    const [, field, date] = mode.split(":");
+    result.structuredContent.value = { ...simulatorFixture,
+      submittedOn: field === "submittedOn" || field === "all" ? date! : simulatorFixture.submittedOn,
+      shops: simulatorFixture.shops.map((shop) => ({ ...shop,
+        completeThrough: field === "completeThrough" || field === "all" ? date! : shop.completeThrough })),
+    };
+  }
+  if (mode.startsWith("calendar:")) {
+    const [, field, date] = mode.split(":");
+    const datetime = `${date}T12:00:00.000Z`;
+    if (field === "observedAt") item.observedAt = datetime;
+    if (field === "acquiredAt") item.acquiredAt = datetime;
+    if (field === "indexedAt" && "code" in item) item.code.indexedAt = datetime;
+    if (field === "candidateSubmittedAt" && args.customerId) return { ...result, structuredContent: { ...result.structuredContent,
+      value: { kind: "application_candidates", customerRef: String(args.customerId), candidates: [
+        { applicationId: "SYNTHETIC-SECRET-APPLICATION", submittedAt: datetime },
+      ] }, evidence: [{ ...item, targetRef: String(args.customerId) }] } };
+  }
+  if (mode === "null_coverage" && !code) result.structuredContent.value = { ...simulatorFixture,
+    shops: simulatorFixture.shops.map((shop) => ({ ...shop, completeThrough: null })) };
   if (mode === "candidates" && args.customerId) return { ...result, structuredContent: { ...result.structuredContent,
     value: { kind: "application_candidates", customerRef: String(args.customerId), candidates: [
       { applicationId: "SYNTHETIC-SECRET-APPLICATION", submittedAt: "2026-10-18T10:00:00.000Z" },

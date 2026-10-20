@@ -24,8 +24,8 @@
 
 ```text
 manifest.ts: 7cbe966a59ca2405caf45a29cff77e5a79da2b82a1d089b08538d29f100f73c1
-mcp-service.ts: f5232667d4f1cd86963fe756027250701cfd35adf2936279fc7cd46dfee780b2
-compiled mcp-service.js: fcc6d44621c7d9e2aeee20c72e25a851d538d7a99012f5200b92146dae7bfe9f
+mcp-service.ts: fc6f80992ea37f1382ec7dacbf5b2c600ce57810a8bdd79ce988d1deeb3a90d5
+compiled mcp-service.js: f4854ae226e402aaa10ea1dbe8d5916fa211b5de441ff1c92ac7b9b7cb0bce5f
 ```
 
 测试使用显式合成服务制品摘要；修改摘要会在子进程启动前失败。测试服务的可选独立 receipt 只写 `started`、`tools/list` 和工具名，用来验证实际零调用／单次调用，不写参数、身份或正文；临时目录在测试结束删除。
@@ -34,8 +34,8 @@ compiled mcp-service.js: fcc6d44621c7d9e2aeee20c72e25a851d538d7a99012f5200b92146
 
 使用 Node 24.22.0、TypeScript 7.0.2、@types/node 24.10.0，完整严格类型检查与构建通过。TDD 实测发现并修复：来源标签字节遗漏、结构化观察未计累计、SDK 吞掉 progress 回调异常／schema 错误、非致命 UTF-8 替换、补问代号无法反解、取消后异步初始化、内层审计故障未锁定，以及保留清理尚未确认的运行工作。
 
-- macOS arm64：全部 215 项行为测试通过，包括本票实际 MCP 客户端／服务、A→B→Mock 模型→D 报告和 C 导出。
-- Linux arm64：同一编译产物全部 215 项行为测试通过，网络关闭、只读代码／根目录、临时可写目录、512 MiB／pids=64；保持 #20 已验证的测试文件并行度 2，用例内部并发仍执行。
+- macOS arm64：全部 224 项行为测试通过，包括本票实际 MCP 客户端／服务、A→B→Mock 模型→D 报告和 C 导出。
+- Linux arm64：同一编译产物全部 224 项行为测试通过，网络关闭、只读代码／根目录、临时可写目录、512 MiB／pids=64；保持 #20 已验证的测试文件并行度 2，用例内部并发仍执行。
 - 验证涵盖精确 1 MiB 与超一字节、空白／Unicode 转义／分页累计、严格 UTF-8／JSON／schema、progress／注入／资源／异常、16 KiB／256 KiB、当前授权／跨案／快照／路径／制品漂移、补问映射、取消／deadline、晚到尾流、未确认清理及记录／报告原值扫描。独立 source receipt 证实拒绝及意图审计失败为零实际进程启动，获准调用仅一次实际工具请求。
 - `git diff --check`、交付文档本地引用与记录的源文件摘要检查通过。
 
@@ -54,3 +54,11 @@ docker run --rm --pull=never --network none --read-only \
 ```
 
 尚未执行／不在本票声明通过：HTTP／SSE／gzip／OAuth／自动重连、真实 Kibana／CBM 软件及底层 ACL、真实 Pi 会话、模型、Teams 租户、生产／GitLab 访问和收费验证。独立本地进程、工具名、readonly 注解或合成通过都不证明生产凭据的只读权限。#15 所记 Node 安全更新核验及分发 notices／签名信任链仍由后续启用／镜像门禁处理；没有声称完成这些项。本地协议通过不关闭真实联调票或父规格 #14。
+
+## 评审修订：实际日历日期
+
+规格评审在 `e1b2f5e` 通过公开本地 MCP → 应用 → 报告复现：`submittedOn`／`completeThrough` 只校验字符串形状，`2026-99-99`、四月三十一日和非闰年二月二十九日仍可被写成已验证完整覆盖。先增加实际协议回归观察到完成报告，再将日期字段改为精确锁定 Zod 的 `z.iso.date()`，不新增自制日期解析器。无效值现在以 `schema_mismatch` 拒绝，模型、证据保留和报告交付均为零。
+
+既有 `z.iso.datetime()` 已含 Gregorian 日历校验；原生 MCP 回归确认 observation／acquisition／index 时间及候选申请时间拒绝不存在日期。日志查询窗口此前使用 Date.parse，也会把非法二月二十九日归一化；现复用同一严格 datetime 校验，在实际来源进程启动前以 `invalid_request` 拒绝。2024／2000 年二月二十九日仍可完成报告，1900 年不被当成闰年，覆盖日期 null 仍为 unknown。
+
+精确 Node 24.22.0 下类型检查、构建、全部 224 项 macOS 测试及相同受限 Linux arm64 环境的 224 项测试通过；本次新增 9 项公开行为测试，包含逐字段原生协议、A／C／D 出口与独立来源 receipt。差异、文档引用和更新后的合成服务制品摘要检查通过。合并最新集成 `e1b2f5e`，结果 already up to date。没有访问真实服务或关闭 Issue。

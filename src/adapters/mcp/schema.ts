@@ -2,8 +2,9 @@ import { McpFailure } from "./failure.js";
 import { z } from "zod/v4";
 import { EVIDENCE_SCHEMA } from "./manifest.js";
 const string = z.string().min(1);
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const date = z.iso.date();
 const time = z.iso.datetime();
+export function validTimestamp(value: unknown): value is string { return time.safeParse(value).success; }
 const complete = z.enum(["complete", "partial", "unknown"]);
 const observation = z.strictObject({ applicationRef: string, submittedOn: date,
   shops: z.array(z.strictObject({ shopRef: string, authorization: z.enum(["active", "cancelled", "unknown"]),
