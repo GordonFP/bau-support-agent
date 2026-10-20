@@ -44,6 +44,9 @@ test("the public artifact verifier refuses missing/corrupt blobs, wrong descript
       }
       await writeFile(join(root, "index.json"), JSON.stringify(index));
       await assert.rejects(verify(root), (error: unknown) => { assert.equal((error as {stderr: string}).stderr.trim(), "image_artifact_unverified"); return true; });
+      if (kind === "size") await assert.rejects(execute("python3", [script, "verify", root], {
+        env: { ...process.env, PYTHONOPTIMIZE: "1" }, maxBuffer: 1048576, timeout: 20000,
+      }), (error: unknown) => { assert.equal((error as {stderr: string}).stderr.trim(), "image_artifact_unverified"); return true; });
     } finally { await rm(root, { recursive: true, force: true }); }
   }
   await verify(source); // Negative copies never modified the original linked blobs.

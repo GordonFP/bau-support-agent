@@ -15,6 +15,11 @@ LAYER = "application/vnd.oci.image.layer.v1.tar"
 INDEX = "application/vnd.oci.image.index.v1+json"
 
 
+def require(condition):
+    if not condition:
+        raise ValueError("unverified")
+
+
 def sha_file(path):
     digest = hashlib.sha256()
     with open(path, "rb") as source:
@@ -48,28 +53,28 @@ def layer_diff(path, compressed):
 
 def verify(root):
     root = Path(root)
-    assert json.loads((root / "oci-layout").read_bytes()) == {"imageLayoutVersion": "1.0.0"}
+    require(json.loads((root / "oci-layout").read_bytes()) == {"imageLayoutVersion": "1.0.0"})
     index = json.loads((root / "index.json").read_bytes())
-    assert index["schemaVersion"] == 2 and index["mediaType"] == INDEX and len(index["manifests"]) == 1
+    require(index["schemaVersion"] == 2 and index["mediaType"] == INDEX and len(index["manifests"]) == 1)
 
     def check(item, media):
-        assert item["mediaType"] in media and re.fullmatch(r"sha256:[a-f0-9]{64}", item["digest"])
+        require(item["mediaType"] in media and re.fullmatch(r"sha256:[a-f0-9]{64}", item["digest"]))
         path = root / "blobs" / "sha256" / item["digest"][7:]
-        assert path.is_file() and not path.is_symlink()
-        assert path.stat().st_size == item["size"] and sha_file(path) == item["digest"]
+        require(path.is_file() and not path.is_symlink())
+        require(path.stat().st_size == item["size"] and sha_file(path) == item["digest"])
         return path
 
     selected = index["manifests"][0]
-    assert selected["platform"] == {"os": "linux", "architecture": "arm64"}
+    require(selected["platform"] == {"os": "linux", "architecture": "arm64"})
     manifest_path = check(selected, [MANIFEST])
     manifest = json.loads(manifest_path.read_bytes())
-    assert manifest["schemaVersion"] == 2 and manifest["mediaType"] == MANIFEST
+    require(manifest["schemaVersion"] == 2 and manifest["mediaType"] == MANIFEST)
     config_path = check(manifest["config"], [CONFIG])
     config = json.loads(config_path.read_bytes())
-    assert config["os"] == "linux" and config["architecture"] == "arm64" and config["rootfs"]["type"] == "layers"
-    assert 0 < len(manifest["layers"]) <= 256
+    require(config["os"] == "linux" and config["architecture"] == "arm64" and config["rootfs"]["type"] == "layers")
+    require(0 < len(manifest["layers"]) <= 256)
     diffs = [layer_diff(check(item, [LAYER, LAYER + "+gzip"]), item["mediaType"].endswith("+gzip")) for item in manifest["layers"]]
-    assert diffs == config["rootfs"]["diff_ids"]
+    require(diffs == config["rootfs"]["diff_ids"])
     return {"schemaVersion": 1, "platform": "linux/arm64", "imageManifestDigest": selected["digest"],
             "indexDigest": sha_file(root / "index.json"), "dockerConfigId": manifest["config"]["digest"],
             "orderedDiffIds": diffs, "blobCount": len(manifest["layers"]) + 2,
@@ -77,42 +82,42 @@ def verify(root):
 
 
 def convert(archive, output, expected):
-    assert re.fullmatch(r"sha256:[a-f0-9]{64}", expected)
+    require(re.fullmatch(r"sha256:[a-f0-9]{64}", expected))
     root = Path(output)
     root.mkdir(mode=0o700)  # Never overwrite an unknown prior layout.
     (root / "blobs" / "sha256").mkdir(parents=True)
     with tarfile.open(archive, "r:*") as saved:
         members = saved.getmembers()
-        assert len(members) <= 10000 and len({item.name for item in members}) == len(members)
+        require(len(members) <= 10000 and len({item.name for item in members}) == len(members))
         for item in members:
             parts = PurePosixPath(item.name).parts
-            assert not item.name.startswith("/") and ".." not in parts and "\\" not in item.name
-            assert item.isfile() or item.isdir()
+            require(not item.name.startswith("/") and ".." not in parts and "\\" not in item.name)
+            require(item.isfile() or item.isdir())
 
         def read_json(name):
             item = saved.getmember(name)
-            assert item.isfile() and item.size <= 1048576
+            require(item.isfile() and item.size <= 1048576)
             return saved.extractfile(item).read()
 
         images = json.loads(read_json("manifest.json"))
-        assert isinstance(images, list) and len(images) == 1
+        require(isinstance(images, list) and len(images) == 1)
         image = images[0]
         config_bytes = read_json(image["Config"])
-        assert "sha256:" + hashlib.sha256(config_bytes).hexdigest() == expected
+        require("sha256:" + hashlib.sha256(config_bytes).hexdigest() == expected)
         config_path = blob(root, config_bytes)
         config = json.loads(config_bytes)
-        assert config["os"] == "linux" and config["architecture"] == "arm64"
-        assert len(image["Layers"]) == len(config["rootfs"]["diff_ids"]) and 0 < len(image["Layers"]) <= 256
+        require(config["os"] == "linux" and config["architecture"] == "arm64")
+        require(len(image["Layers"]) == len(config["rootfs"]["diff_ids"]) and 0 < len(image["Layers"]) <= 256)
         layers = []
         for number, member in enumerate(image["Layers"]):
             entry = saved.getmember(member)
-            assert entry.isfile() and entry.size <= 1073741824
+            require(entry.isfile() and entry.size <= 1073741824)
             pending = root / "blobs" / "sha256" / "pending"
             with saved.extractfile(entry) as source, pending.open("wb") as target:
                 shutil.copyfileobj(source, target, length=65536)
             with pending.open("rb") as header:
                 compressed = header.read(2) == b"\x1f\x8b"
-            assert layer_diff(pending, compressed) == config["rootfs"]["diff_ids"][number]
+            require(layer_diff(pending, compressed) == config["rootfs"]["diff_ids"][number])
             layer = descriptor(pending, LAYER + ("+gzip" if compressed else ""))
             pending.replace(root / "blobs" / "sha256" / layer["digest"][7:])
             layers.append(layer)
@@ -130,7 +135,7 @@ if __name__ == "__main__":
     try:
         if len(sys.argv) == 3 and sys.argv[1] == "verify":
             result = verify(sys.argv[2])
-        elif len(sys.argv) == 5:
+        elif len(sys.argv) == 4:
             result = convert(*sys.argv[1:])
         else:
             raise ValueError("arguments")
