@@ -1,13 +1,16 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { TroubleshootingCase } from "../domain/simulator.js";
 import { boundedBody, CASE_EXECUTION_MS, CLEANUP_MS, MAX_ACTIVE_CASES, MAX_LOG_RECORDS, MAX_MODEL_ATTEMPTS, MODEL_CALL_MS, MODEL_RESERVATION_MICROUSD, TOOL_CALL_MS, phaseWindow } from "./limits.js";
 import { beforeDeadline, schedule } from "./deadline.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
 import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationReply, InformationResult, Ports, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
+import type { AuditDetails, CaseRecord } from "./records.js";
+import { AuditBoundary } from "./audit-boundary.js";
+import { deniedContext, recordDenial } from "./authorization-audit.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
   "timeout", "cancelled", "rate_limited", "budget_exhausted", "version_unknown", "version_mismatch", "unsafe_content", "audit_unavailable"]);
-const requiredPorts = ["admission", "clock", "authorization", "sanitization", "audit", "budget", "logs", "code", "agent", "model", "delivery"] as const;
+const requiredPorts = ["admission", "records", "clock", "authorization", "sanitization", "audit", "budget", "logs", "code", "agent", "model", "delivery"] as const;
 const safeReason = (error: unknown): SafeReason => error instanceof Error && reasons.has(error.message as SafeReason)
   ? error.message as SafeReason : "unavailable";
 
@@ -22,6 +25,7 @@ interface RunningCase {
   readonly coverageWindows: Set<string>;
   readonly acceptedMono: number;
   finishedMono?: number;
+  recordSequence: number;
   cleanupDeadline?: number;
   readonly closures: Map<number, Promise<void>>;
   readonly stopping: Map<number, Promise<void>>;
@@ -42,8 +46,14 @@ export class Troubleshooting {
   private readonly acceptances = new Map<string, Promise<Acceptance>>();
   private readonly pendingAdmissions = new Set<string>();
   private sequence = 0;
+  private readonly auditBoundary?: AuditBoundary;
 
-  constructor(private readonly configured: Partial<Ports>, private readonly scope?: OfflineScope) {}
+  constructor(private readonly configured: Partial<Ports>, private readonly scope?: OfflineScope) {
+    if (configured.audit) {
+      this.auditBoundary = new AuditBoundary(configured.audit, (context, action, stage) => this.auditFailure(context, action, stage));
+      this.configured = { ...configured, audit: this.auditBoundary.port };
+    }
+  }
 
   async accept(inbound: VerifiedInbound): Promise<Acceptance> {
     if (!boundedBody(inbound?.input)) return { status: "denied", reason: "invalid_request" };
@@ -54,9 +64,15 @@ export class Troubleshooting {
       const accepted = await previous;
       if (!("view" in accepted)) return accepted;
       const running = this.cases.get(accepted.view.caseRef);
-      if (!running || running.context.principalRef !== inbound.principalRef) return { status: "denied", reason: "denied" };
+      if (!running || running.context.principalRef !== inbound.principalRef) {
+        await this.denied(inbound, accepted.view.caseRef);
+        return { status: "denied", reason: "denied" };
+      }
       try {
-        if (!await this.configured.authorization!.allows("accept", running.context)) return { status: "denied", reason: "denied" };
+        if (!await this.configured.authorization!.allows("accept", running.context)) {
+          await recordDenial(this.configured.audit!, running.context);
+          return { status: "denied", reason: "denied" };
+        }
         return { status: "duplicate", view: this.viewOf(running, this.configured as Ports) };
       } catch { return { status: "service_unavailable", reason: "unavailable" }; }
     }
@@ -91,7 +107,7 @@ export class Troubleshooting {
         typeof inbound.input.question !== "string" || !Number.isFinite(Date.parse(inbound.receivedAt))) {
       return { status: "denied", reason: "invalid_request" };
     }
-    const caseRef = `case-${++this.sequence}`;
+    const caseRef = ports.admission.allocateCaseRef?.() ?? `case-${++this.sequence}`;
     const controller = new AbortController();
     const phase = phaseWindow(ports.clock);
     const now = phase.startedAt;
@@ -123,11 +139,13 @@ export class Troubleshooting {
     const caseRef = context.caseRef;
     const now = phase.startedAt;
     const check = () => { if (controller.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("timeout"); };
+    let safeInput: VerifiedInbound["input"];
     try {
       const allowed = await ports.authorization.allows("accept", context);
       check();
-      if (!allowed) return { status: "denied", reason: "denied" };
-      if (!ports.sanitization.safe(ports.sanitization.sanitize(inbound.input, caseRef))) {
+      if (!allowed) { await recordDenial(ports.audit, context); return { status: "denied", reason: "denied" }; }
+      safeInput = ports.sanitization.sanitize(inbound.input, caseRef);
+      if (!ports.sanitization.safe(safeInput)) {
         ports.sanitization.clear(caseRef);
         return { status: "denied", reason: "unsafe_content" };
       }
@@ -143,13 +161,18 @@ export class Troubleshooting {
       phases: [{ phaseId: 1, startedAt: now }], inputWaits: [] };
     const investigation = new TroubleshootingCase(caseRef);
     const running: RunningCase = { inbound: structuredClone(inbound), context, controller, view, investigation,
-      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(), acceptedMono: context.deadline - CASE_EXECUTION_MS };
+      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(), recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
     let admitted = false;
     try {
-      const confirmation = await ports.admission.confirm({ key, caseRef, principalRef: context.principalRef });
+      const confirmation = await ports.admission.confirm({ key, caseRef, principalRef: context.principalRef,
+        initial: { context, view, input: safeInput } });
       if (confirmation.status === "full") return { status: "service_unavailable", reason: "unavailable" };
       if (confirmation.status === "duplicate") {
         const existing = this.cases.get(confirmation.caseRef);
+        if (!existing && confirmation.principalRef === context.principalRef) {
+          const saved = await ports.records.read(inbound, confirmation.caseRef);
+          if (saved) return { status: "duplicate", view: saved.view };
+        }
         return existing && confirmation.principalRef === context.principalRef && this.owns(inbound, existing) &&
           await ports.authorization.allows("accept", existing.context)
           ? { status: "duplicate", view: this.viewOf(existing, ports) } : { status: "service_unavailable", reason: "unavailable" };
@@ -188,7 +211,10 @@ export class Troubleshooting {
     try { reply = structuredClone(reply); } catch { return { status: "denied", reason: "invalid_request" }; }
     const running = this.cases.get(reply?.reply?.caseRef);
     if (!running || reply.principalRef !== running.context.principalRef || reply.tenantRef !== running.context.tenantRef ||
-      reply.destinationRef !== running.context.destinationRef) return { status: "denied", reason: "denied" };
+      reply.destinationRef !== running.context.destinationRef) {
+      await this.denied(reply, reply?.reply?.caseRef ?? "unresolved");
+      return { status: "denied", reason: "denied" };
+    }
     const previous = running.replyFlights.get(reply.eventRef);
     if (previous) {
       await previous;
@@ -206,7 +232,7 @@ export class Troubleshooting {
 
   private async resumeFromInformation(running: RunningCase, reply: InformationReply, ports: Ports): Promise<InformationResult> {
     try {
-      if (!await ports.authorization.allows("provideInformation", running.context)) return { status: "denied", reason: "denied" };
+      if (!await ports.authorization.allows("provideInformation", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied", reason: "denied" }; }
       if (running.replyEvents.has(reply.eventRef)) return { status: "duplicate", view: this.viewOf(running, ports) };
       if (running.view.state === "completed" || running.view.state === "stopped") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
       if (reply.content && ("applicationId" in reply.content || "customerId" in reply.content)) {
@@ -251,6 +277,7 @@ export class Troubleshooting {
         inputWaits: view.inputWaits.map((wait) => wait.questionId === reply.reply.questionId
           ? { ...wait, endedAt: startedAt, replyEventRef: reply.eventRef, replyReceivedAt: reply.receivedAt } : wait) };
       running.replyEvents.add(reply.eventRef);
+      await this.saveView(running, ports);
       this.armDeadline(running, ports);
       void this.investigate(running, ports);
       return { status: "resumed", view: this.viewOf(running, ports) };
@@ -260,6 +287,34 @@ export class Troubleshooting {
   private viewOf(running: RunningCase, ports: Ports): CaseView {
     const initialDelay = Math.max(0, Date.parse(running.view.acceptedAt) - Date.parse(running.view.receivedAt));
     return structuredClone({ ...running.view, elapsedMs: initialDelay + (running.finishedMono ?? ports.clock.now()) - running.acceptedMono });
+  }
+
+  private async saveRecord(running: RunningCase, context: CallContext, ports: Ports, record: CaseRecord): Promise<void> {
+    try { await ports.records.append(context, record); }
+    catch { this.auditBoundary?.fail(context, "records.append", "complete"); throw new Error("audit_unavailable"); }
+  }
+
+  private saveView(running: RunningCase, ports: Ports): Promise<void> {
+    return this.saveRecord(running, running.context, ports, { recordRef: `${running.context.caseRef}:view:${++running.recordSequence}`,
+      schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) });
+  }
+
+  private auditFailure(context: CallContext, action: string, stage: "intent" | "complete"): void {
+    const running = this.cases.get(context.caseRef);
+    if (!running) return;
+    const ports = this.configured as Ports;
+    if (running.view.state === "investigating" || running.view.state === "awaiting_input") {
+      running.view = { ...running.view, state: "stopped", stopReason: "audit_unavailable" };
+      this.endPhase(running, "stopped", ports);
+    }
+    void this.stopPhase(running, running.context, "audit_unavailable", ports);
+    if (stage !== "complete" && action !== "delivery.send") return;
+    const current = running.context;
+    void beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS, async () => {
+      if (!await ports.authorization.allows("delivery.fault", current)) return;
+      if (ports.clock.now() >= (running.cleanupDeadline ?? 0)) return;
+      await ports.delivery.fault(current.destinationRef, "Investigation stopped because audit storage is unavailable.", `${current.caseRef}:audit-fault`);
+    }).catch(() => {});
   }
 
   private endPhase(running: RunningCase, outcome: "awaiting_input" | "completed" | "stopped", ports: Ports): void {
@@ -276,6 +331,9 @@ export class Troubleshooting {
       delete running.candidates;
       void ports.admission.release(running.context.caseRef).catch(() => {});
     }
+    void ports.records.append(running.context, { recordRef: `${running.context.caseRef}:view:${++running.recordSequence}`,
+      schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) })
+      .catch(() => this.auditBoundary?.fail(running.context, "records.append", "complete"));
   }
 
   private armDeadline(running: RunningCase, ports: Ports): void {
@@ -306,6 +364,10 @@ export class Troubleshooting {
     if (previous) return previous;
     const deadline = running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS;
     const operation = beforeDeadline(ports.clock, deadline, async () => {
+      if (this.auditBoundary?.hasLost(context.caseRef)) {
+        await Promise.allSettled([ports.agent.abort(context.caseRef, context.phaseId), this.closePhase(running, context, ports)]);
+        return;
+      }
       const audit = { ...context, callId: `${context.caseRef}:phase-${context.phaseId}:${reason}` };
       try { await ports.audit.intent(audit, reason); } catch { /* local stop remains effective */ }
       if (ports.clock.now() >= deadline) return;
@@ -320,12 +382,17 @@ export class Troubleshooting {
     return !!actor && actor.principalRef === running.context.principalRef && actor.tenantRef === running.context.tenantRef && actor.destinationRef === running.context.destinationRef;
   }
 
+  private async denied(actor: TrustedActor, caseRef: string): Promise<void> {
+    const ports = this.configured as Ports;
+    try { await recordDenial(ports.audit, deniedContext(actor, caseRef, ports)); } catch { /* no disclosure follows denial */ }
+  }
+
   async cancel(actor: TrustedActor, caseRef: string): Promise<CaseView | { readonly status: "denied" }> {
     const running = this.cases.get(caseRef);
     const ports = this.configured as Ports;
-    if (!running || !this.owns(actor, running)) return { status: "denied" };
+    if (!running || !this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {
-      if (!await ports.authorization.allows("cancel", running.context)) return { status: "denied" };
+      if (!await ports.authorization.allows("cancel", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
       if (running.view.state === "completed" || running.view.state === "stopped") return this.viewOf(running, ports);
       const context = { ...running.context, callId: `${caseRef}:phase-${running.context.phaseId}:cancel` };
       running.view = { ...running.view, state: "stopped", stopReason: "cancelled" };
@@ -338,10 +405,14 @@ export class Troubleshooting {
   async get(actor: TrustedActor, caseRef: string): Promise<CaseView | { readonly status: "denied" }> {
     const running = this.cases.get(caseRef);
     const ports = this.configured as Ports;
-    if (!running || !this.owns(actor, running)) return { status: "denied" };
+    if (!running) {
+      try { const saved = await ports.records.read(actor, caseRef); return saved?.view ?? { status: "denied" }; }
+      catch { return { status: "denied" }; }
+    }
+    if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {
-      if (!await ports.authorization.allows("get", running.context)) return { status: "denied" };
-      const context = { ...running.context, callId: `${caseRef}:get` };
+      if (!await ports.authorization.allows("get", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
+      const context = { ...running.context, callId: `${caseRef}:get:${randomUUID()}` };
       await ports.audit.intent(context, "get");
       await ports.audit.complete(context, "get", "allowed");
       return this.viewOf(running, ports);
@@ -361,22 +432,26 @@ export class Troubleshooting {
     let selectedApplicationRef: string | undefined;
     let selectedSubmittedOn = running.targetSubmittedOn;
     const assertCurrent = (allowEnded = false) => {
+      if (this.auditBoundary?.hasLost(phaseContext.caseRef)) throw new Error("audit_unavailable");
       if ((!allowEnded && !investigation.isCurrentPhase(phaseContext.phaseId)) || phaseController.signal.aborted || running.context.phaseId !== phaseContext.phaseId) throw new Error("cancelled");
     };
     const contextFor = (action: string): CallContext => Object.freeze({ ...phaseContext, callId: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${action}:${++callSequence}` });
-    const guarded = async <T>(action: string, operation: (context: CallContext) => Promise<T>, acceptResult?: (result: T, auditRef: string) => void): Promise<T> => {
+    const guarded = async <T>(action: string, operation: (context: CallContext) => Promise<T>, acceptResult?: (result: T, auditRef: string) => void | Promise<void>): Promise<T> => {
       const assertAllowed = () => assertCurrent(action === "delivery.send");
       if (ports.clock.now() >= phaseContext.deadline) throw new Error("timeout");
       assertAllowed();
       const cap = action === "model.generate" ? MODEL_CALL_MS : ["logs.read", "code.search"].includes(action) ? TOOL_CALL_MS : CASE_EXECUTION_MS;
       const context = Object.freeze({ ...contextFor(action), deadline: Math.min(phaseContext.deadline, ports.clock.now() + cap) });
+      const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef: "simulator-source", ...this.scope!.queryWindow, pageSize: 100 } }
+        : action === "code.search" ? { scope: { repositoryRef: "simulator-source", snapshotRef: phaseContext.snapshotRef } }
+        : action === "delivery.send" ? { delivery: { deliveryKey: `${phaseContext.caseRef}:report:1`, segment: 1 } } : {};
       const check = () => { assertAllowed(); if (ports.clock.now() >= context.deadline) throw new Error("timeout"); };
       let invoked = false;
       const work = async () => {
-        if (!await ports.authorization.allows(action, context)) throw new Error("denied");
+        if (!await ports.authorization.allows(action, context)) { await recordDenial(ports.audit, context); throw new Error("denied"); }
         check();
         let auditRef: string;
-        try { auditRef = await ports.audit.intent(context, action); } catch { throw new Error("audit_unavailable"); }
+        try { auditRef = await ports.audit.intent(context, action, details); } catch { throw new Error("audit_unavailable"); }
         check();
         invoked = true;
         const discarded = () => phaseController.signal.aborted || running.context.phaseId !== phaseContext.phaseId || ports.clock.now() >= context.deadline;
@@ -399,9 +474,20 @@ export class Troubleshooting {
           try { await ports.audit.complete(context, action, "rejected"); } catch { throw new Error("audit_unavailable"); }
           throw error;
         }
-        try { await ports.audit.complete(context, action, "ok"); } catch { throw new Error("audit_unavailable"); }
+        if (["logs.read", "code.search", "model.generate"].includes(action)) {
+          await this.saveRecord(running, context, ports, { recordRef: `${context.callId}:output`, schemaVersion: 1,
+            kind: action === "model.generate" ? "model_output" : "tool_result", payload: result });
+        }
+        const read = result as Partial<ReadResult<unknown>> | null;
+        let completeDetails: AuditDetails = ["logs.read", "code.search"].includes(action) && read && Array.isArray(read.evidence)
+          ? { ...details, result: { completeness: ["complete", "partial", "unknown"].includes(read.completeness ?? "") ? read.completeness! : "unknown",
+            truncated: read.truncated === true, evidenceCount: read.evidence.length } } : details;
+        if (action === "delivery.send" && ["delivered", "unknown", "failed"].includes(String(result))) {
+          completeDetails = { ...details, delivery: { ...details.delivery!, status: result as "delivered" | "unknown" | "failed" } };
+        }
+        try { await ports.audit.complete(context, action, "ok", completeDetails); } catch { throw new Error("audit_unavailable"); }
         check();
-        acceptResult?.(result, auditRef);
+        await acceptResult?.(result, auditRef);
         return result;
       };
       try { return await beforeDeadline(ports.clock, context.deadline, work, phaseController.signal); }
@@ -419,21 +505,24 @@ export class Troubleshooting {
         throw error;
       }
     };
-    const acceptEvidence = (read: ReadResult<unknown>, kind: "log" | "code", auditRef: string) => {
+    const acceptEvidence = async (read: ReadResult<unknown>, kind: "log" | "code", auditRef: string) => {
       if (!read || !["complete", "partial", "unknown"].includes(read.completeness) || !Array.isArray(read.evidence)) throw new Error("schema_mismatch");
       const targetRef = kind === "log" ? (read.value as SimulatorObservation | null)?.applicationRef : observation?.applicationRef;
       if (kind === "log" && targetRef && targetRef !== selectedApplicationRef) throw new Error("invalid_request");
       if (kind === "log" && selectedSubmittedOn && (read.value as SimulatorObservation | null)?.submittedOn !== selectedSubmittedOn) throw new Error("invalid_request");
-      read.evidence.forEach((item, index) => {
+      for (const [index, item] of read.evidence.entries()) {
         if (item.kind !== kind || item.sourceRef !== "simulator-source") throw new Error("schema_mismatch");
         if (targetRef && item.targetRef !== targetRef) throw new Error("invalid_request");
         if (kind === "code" && (item.code?.snapshotRef !== phaseContext.snapshotRef ||
           item.code.repositoryRef !== "simulator-source" || !["main", "master"].includes(item.code.branch) ||
           !/^[a-f0-9]{40}$/.test(item.code.commit) || !item.code.receiptRef)) throw new Error("version_mismatch");
-        investigation.acceptEvidence({ ...item, completeness: read.completeness, truncated: item.truncated || read.truncated,
+        const evidence = { ...item, completeness: read.completeness, truncated: item.truncated || read.truncated,
           evidenceRef: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${kind}:${++evidenceSequence}:${index}`, caseRef: phaseContext.caseRef,
-          sanitizationVersion: "mock-sanitization-1", auditRef });
-      });
+          sanitizationVersion: "mock-sanitization-1", auditRef };
+        await this.saveRecord(running, phaseContext, ports, { recordRef: evidence.evidenceRef, schemaVersion: 1, kind: "evidence", payload: evidence });
+        assertCurrent();
+        investigation.acceptEvidence(evidence);
+      }
     };
     const invoke = async (tool: string, query: unknown): Promise<unknown> => {
       if (tool === "logs.read") {
@@ -457,6 +546,7 @@ export class Troubleshooting {
           running.view = { ...running.view, usage: { ...running.view.usage,
             logRecords: running.view.usage.logRecords + result.evidence.length,
             logCoverageMs: running.view.usage.logCoverageMs + newCoverage } };
+          await this.saveView(running, ports);
           if (result.value && "kind" in result.value) rawCandidates = structuredClone(result.value.candidates);
           return result;
         }, (_read, auditRef) => { logAuditRef = auditRef; });
@@ -493,7 +583,7 @@ export class Troubleshooting {
           await ports.agent.abort(phaseContext.caseRef, phaseContext.phaseId);
           throw new Error("awaiting_input");
         }
-        acceptEvidence(read, "log", logAuditRef);
+        await acceptEvidence(read, "log", logAuditRef);
         observation = read.evidence.length ? read.value as SimulatorObservation | null : null;
         return read;
       }
@@ -530,10 +620,14 @@ export class Troubleshooting {
         generate: (draft) => guarded("model.generate", async (modelContext) => {
           if (!ports.sanitization.safe(draft)) throw new Error("unsafe_content");
           if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
+          await this.saveRecord(running, modelContext, ports, { recordRef: `${modelContext.callId}:input`, schemaVersion: 1, kind: "model_input", payload: draft });
           if (!await ports.budget.reserve(modelContext, MODEL_RESERVATION_MICROUSD)) throw new Error("budget_exhausted");
           assertCurrent();
           if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
           running.view = { ...running.view, usage: { ...running.view.usage, modelAttempts: running.view.usage.modelAttempts + 1 } };
+          await this.saveView(running, ports);
+          assertCurrent();
+          if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
           const response = await ports.model.generate(modelContext, draft);
           await ports.budget.settle(modelContext, response.actualMicrousd);
           if (!ports.sanitization.safe(response.candidate)) throw new Error("unsafe_content");
@@ -542,6 +636,7 @@ export class Troubleshooting {
       }));
       if (!ports.sanitization.safe(candidate)) throw new Error("unsafe_content");
       const report = investigation.finish(candidate, diagnose());
+      await this.saveRecord(running, phaseContext, ports, { recordRef: report.reportRef, schemaVersion: 1, kind: "report", payload: report });
       const deliveryStatus = await guarded("delivery.send", (context) => {
         running.view = { ...running.view, deliveryStatus: "unknown" };
         return ports.delivery.send(context.destinationRef, report, `${context.caseRef}:report:1`);

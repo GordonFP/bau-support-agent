@@ -132,7 +132,8 @@ test("unknown coverage is not counted as complete, and partial source limits rem
 test("an unapproved principal cannot trigger retrieval, a model call or disclosure", async () => {
   const mock = createMockTroubleshooting({ principalRef: "unapproved-principal" });
   assert.deepEqual(await mock.receive(), { status: "denied", reason: "denied" });
-  assert.deepEqual(mock.events, []);
+  assert.equal(mock.events.some((event) => ["logs.read", "code.search", "model.generate", "delivery.send"].includes(event.action)), false);
+  assert.ok(mock.events.some((event) => event.action === "audit:authorization.denied:complete"));
 });
 
 test("revoked source access is denied before that source, model or delivery is called", async () => {

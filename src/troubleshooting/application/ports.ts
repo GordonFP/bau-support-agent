@@ -1,8 +1,9 @@
 import type { Completeness, DiagnosticReport, EvidenceReference, SimulatorObservation } from "../domain/simulator.js";
+import type { AuditDetails, CaseRecords, InitialCase } from "./records.js";
 
 export type SafeReason = "denied" | "invalid_request" | "contract_unverified" | "schema_mismatch" |
   "unavailable" | "timeout" | "cancelled" | "rate_limited" | "budget_exhausted" | "version_unknown" |
-  "version_mismatch" | "unsafe_content" | "audit_unavailable";
+  "version_mismatch" | "unsafe_content" | "audit_unavailable" | "interrupted";
 
 export interface VerifiedInbound {
   readonly eventRef: string;
@@ -107,19 +108,23 @@ export interface RuntimeRequest {
   readonly diagnose: () => DiagnosticReport;
 }
 export interface Ports {
+  readonly records: CaseRecords;
   readonly admission: {
-    confirm(record: { readonly key: string; readonly caseRef: string; readonly principalRef: string }): Promise<
-      { readonly status: "confirmed" } | { readonly status: "duplicate"; readonly caseRef: string; readonly principalRef: string } | { readonly status: "full" }>;
+    allocateCaseRef?(): string;
+    confirm(record: { readonly key: string; readonly caseRef: string; readonly principalRef: string; readonly initial: InitialCase }): Promise<
+      { readonly status: "confirmed" } | { readonly status: "duplicate"; readonly caseRef: string; readonly principalRef: string; readonly view?: CaseView } | { readonly status: "full" }>;
     release(caseRef: string): Promise<void>;
   };
   readonly clock: { now(): number; utc(): string; schedule?(deadline: number, callback: () => void): () => void };
   readonly authorization: { allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
   readonly sanitization: { sanitize<T>(value: T, caseRef: string): T; safe(value: unknown): boolean; clear(caseRef: string): void };
-  readonly audit: { intent(context: CallContext, action: string): Promise<string>; complete(context: CallContext, action: string, outcome: string): Promise<void> };
+  readonly audit: { intent(context: CallContext, action: string, details?: AuditDetails): Promise<string>;
+    complete(context: CallContext, action: string, outcome: string, details?: AuditDetails): Promise<void> };
   readonly budget: { reserve(context: CallContext, upperBoundMicrousd: number): Promise<boolean>; settle(context: CallContext, actualMicrousd: number | null): Promise<void>; status(caseRef: string): Promise<{ reservedMicrousd: number }> };
   readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | ApplicationCandidates | null>> };
   readonly code: { search(context: CallContext, query: { readonly repositoryRef: string; readonly snapshotRef: string }): Promise<ReadResult<null>> };
   readonly agent: { run(context: CallContext, request: RuntimeRequest): Promise<unknown>; abort(caseRef: string, phaseId?: number): Promise<void>; close(caseRef: string, phaseId?: number): Promise<void> };
   readonly model: { generate(context: CallContext, draft: DiagnosticReport): Promise<{ readonly candidate: unknown; readonly actualMicrousd: number | null }> };
-  readonly delivery: { send(destinationRef: string, report: DiagnosticReport, deliveryKey: string): Promise<"delivered" | "unknown" | "failed"> };
+  readonly delivery: { send(destinationRef: string, report: DiagnosticReport, deliveryKey: string): Promise<"delivered" | "unknown" | "failed">;
+    fault(destinationRef: string, notice: "Investigation stopped because audit storage is unavailable.", deliveryKey: string): Promise<"delivered" | "unknown" | "failed"> };
 }
