@@ -57,8 +57,9 @@ test("six complete synthetic attempts retain the independent 1.08-dollar plan an
   assert.equal(envelopes[0]!.planning.reservationMicrousd, 180_000);
   assert.equal((await mock.ports.budget.status("case-1")).reservedMicrousd, 1_080_000);
   assert.equal((await mock.ports.budget.status("case-1")).unsettledCalls, 0);
-  assert.equal((JSON.parse(envelopes[0]!.canonicalInput) as { messages: unknown[] }).messages.length, 1);
-  assert.equal((JSON.parse(envelopes[5]!.canonicalInput) as { messages: unknown[] }).messages.length, 6);
+  const messages = (index: number) => (JSON.parse(envelopes[index]!.canonicalInput) as { turn: { messages: { role: string; content: unknown }[] } }).turn.messages;
+  assert.equal(messages(0).filter((message) => message.role === "assistant").length, 2);
+  assert.equal(messages(5).filter((message) => message.role === "assistant").length, 7);
 });
 
 test("two transient network failures exhaust the only retry while non-network refusals are never retried", async () => {

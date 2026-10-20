@@ -11,8 +11,12 @@ import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole } from "../../
 import { RetentionLifecycle, type RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
 import { recordAccessContext, recordActor, recordDisclosure, recordRole } from "../../troubleshooting/application/record-access.js";
 import { MockModelBudget } from "./model-budget.js";
-import { mockModelPolicy, validateModelEnvelope } from "../../troubleshooting/application/model-envelope.js";
-import type { ModelPolicy } from "../../troubleshooting/application/model-contract.js";
+import { modelEnvelope, modelSystem, mockModelBody, mockModelPolicy, validateModelEnvelope } from "../../troubleshooting/application/model-envelope.js";
+import type { ModelAssistant, ModelEnvelope, ModelMessage, ModelPolicy, ModelResponse, ModelTurn } from "../../troubleshooting/application/model-contract.js";
+
+interface MockRuntimeRequest extends Omit<RuntimeRequest, "generate"> {
+  readonly generate: (draft: DiagnosticReport | ModelTurn) => Promise<unknown>;
+}
 
 // All values and identities in this adapter are synthetic. No transport is created.
 export const simulatorFixture: SimulatorObservation = {
@@ -24,6 +28,7 @@ export const simulatorFixture: SimulatorObservation = {
 
 export interface MockOptions {
   readonly modelPolicy?: ModelPolicy | null;
+  readonly modelProfile?: "memory_mock" | "local_protocol";
   readonly lifecycleActors?: readonly TrustedActor[];
   readonly recordGrants?: readonly { readonly actor: TrustedActor; readonly role: RecordRole; readonly caseRefs: readonly string[]; readonly resourceRefs: readonly string[] }[];
   readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "audit" | "budget" | "retention">>;
@@ -34,14 +39,14 @@ export interface MockOptions {
   readonly denyActions?: readonly string[];
   readonly unavailableControls?: readonly (keyof Ports)[];
   readonly candidate?: (draft: DiagnosticReport) => unknown;
-  readonly agent?: (context: CallContext, request: RuntimeRequest) => Promise<unknown>;
+  readonly agent?: (context: CallContext, request: MockRuntimeRequest) => Promise<unknown>;
   readonly auditFails?: string;
   readonly evidenceTargetRef?: string;
   readonly clock?: Ports["clock"];
   readonly queryWindow?: OfflineScope["queryWindow"];
   readonly sanitizeFailsAt?: number;
   readonly customerCandidates?: ApplicationCandidates["candidates"];
-  readonly model?: Ports["model"]["generate"];
+  readonly model?: (context: CallContext, draft: DiagnosticReport, envelope?: ModelEnvelope) => Promise<Omit<ModelResponse, "message"> & { readonly message?: ModelAssistant }>;
 }
 
 export function createMockTroubleshooting(options: MockOptions = {}) {
@@ -65,7 +70,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     { principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1" },
   ]);
   let sanitizationCount = 0;
-  const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1",
+  const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1", modelProfile: options.modelProfile ?? "memory_mock",
     ...(options.modelPolicy === null ? {} : { modelPolicy: options.modelPolicy === undefined ? mockModelPolicy : Object.freeze(structuredClone(options.modelPolicy)) }),
     queryWindow: options.queryWindow ?? {
     from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z",
@@ -216,11 +221,34 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
     } },
     agent: {
-      run: options.agent ?? (async (_context, request) => {
-        await request.invoke("logs.read", null);
-        await request.invoke("code.search", null);
-        return request.generate(request.diagnose());
-      }),
+      async run(context, request) {
+        let sequence = 0;
+        const history: ModelMessage[] = [{ role: "system", content: modelSystem, toolsAdded: ["logs_read", "code_search"].map((name) => ({
+          name: name as "logs_read" | "code_search", description: `Approved synthetic ${name}.`, parameters: { type: "object", properties: {}, additionalProperties: false } })) },
+          { role: "user", content: request.question }];
+        const compatible: MockRuntimeRequest = { ...request,
+          invoke: async (tool, query) => {
+            const result = await request.invoke(tool, query);
+            if (tool === "logs.read" || tool === "code.search") {
+              const name = tool === "logs.read" ? "logs_read" : "code_search";
+              const id = `${context.caseRef}:phase-${context.phaseId}:mock-tool:${++sequence}`;
+              history.push({ role: "assistant", content: [{ type: "toolCall", id, name, arguments: {} }] },
+                { role: "toolResult", toolCallId: id, toolName: name, content: JSON.stringify(result), isError: false });
+            }
+            return result;
+          },
+          generate: async (input) => {
+            if ("messages" in input) return request.generate(input);
+            const response = await request.generate({ schemaVersion: 1, messages: [...structuredClone(history), { role: "user", content: JSON.stringify({ draft: input }) }] });
+            history.push({ role: "assistant", content: [{ type: "text", text: JSON.stringify(response.candidate) }] });
+            return response.candidate;
+          },
+        };
+        if (options.agent) return options.agent(context, compatible);
+        await compatible.invoke("logs.read", null);
+        await compatible.invoke("code.search", null);
+        return compatible.generate(compatible.diagnose());
+      },
       async abort(caseRef, phaseId) { events.push({ action: "agent.abort", input: { caseRef, phaseId } }); aborted.resolve(); },
       async close(caseRef, phaseId = 1) {
         events.push({ action: "agent.close", input: { caseRef, phaseId } });
@@ -228,11 +256,20 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         closed.resolve();
       },
     },
-    model: { async generate(context, draft, envelope) {
-      validateModelEnvelope(draft, envelope);
+    model: { async generate(context, turn, beforeSend) {
+      const envelope = modelEnvelope(turn, mockModelBody(turn), mockModelPolicy);
+      validateModelEnvelope(turn, envelope, mockModelPolicy);
+      await beforeSend(envelope);
+      const last = turn.messages.at(-1);
+      if (last?.role !== "user") throw new Error("schema_mismatch");
+      let draft: DiagnosticReport | undefined;
+      try { draft = (JSON.parse(last.content) as { draft?: DiagnosticReport }).draft; } catch { /* A full neutral turn need not contain a report draft. */ }
       events.push({ action: "model.generate", input: structuredClone(draft) });
-      if (options.model) return options.model(context, draft, envelope);
-      return { candidate: options.candidate ? options.candidate(draft) : structuredClone(draft), actualMicrousd: 1_000 };
+      if (options.model && !draft) throw new Error("schema_mismatch");
+      const response = options.model ? await options.model(context, draft!, envelope)
+        : { candidate: draft ? options.candidate ? options.candidate(draft) : structuredClone(draft) : "Synthetic model response.", actualMicrousd: 1_000 };
+      return { ...response, message: "message" in response && response.message ? response.message : { stopReason: "stop",
+        content: [{ type: "text", text: typeof response.candidate === "string" ? response.candidate : JSON.stringify(response.candidate) }] } };
     } },
     delivery: { async fault(destinationRef, notice, deliveryKey) {
       events.push({ action: "delivery.fault", input: { destinationRef, notice, deliveryKey } });

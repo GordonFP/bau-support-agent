@@ -1,0 +1,5 @@
+simulation: bau-synthetic-responses
+routing: path
+mocks:
+  - routeKey: responses
+    path: ../mocks/responses/config.yaml

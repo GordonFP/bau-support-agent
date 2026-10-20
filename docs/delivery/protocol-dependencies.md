@@ -21,7 +21,7 @@ MCP1.32.1: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulU
 
 锁文件含 199 个条目（包括原有工具链和其他平台可选编译器），全部绑定公开 registry URL 与 integrity；macOS arm64 实际安装 180 个。许可证元数据为 MIT 121、Apache-2.0 55、BSD-3-Clause 13、ISC 7、Unlicense／BSD-2-Clause／0BSD 各 1。精确传递版本及各条目的 SPDX／integrity 以 `package-lock.json` 为准。Pi-ai 传递引入 OpenAI 7.19.0、其他供应商 SDK、telemetry 和 typebox 1.3.27；本票只调用固定 Responses codec，不启用其他供应商或遥测出口。
 
-已检查 install-script 标记：`@google/genai` 的安装前脚本为 no-op，protobufjs 的安装后脚本检查版本方案并可能输出警告；本次全部跳过。没有为这些协议包编译原生扩展。下列已安装包未在包根目录附带 license／notice 文件，不能把 SPDX 元数据视为完整分发通知证明：AWS credential-provider-http／credential-provider-login／nested-clients、pi-ai／pi-telemetry、bignumber.js、data-uri-to-buffer、proxy-agent-negotiate、standardwebhooks。后续可分发镜像仍须汇总上游通知；没有声称完成制品签名／attestation 信任链核验。
+已检查 install-script 标记：`@google/genai` 的安装前脚本为 no-op，protobufjs 的安装后脚本检查版本方案并可能输出警告；本次全部跳过。没有为这些协议包编译原生扩展。后续逐文件核对纠正两项初次扫描遗漏：bignumber.js 9.3.1 随包有完整 `LICENCE.md`，data-uri-to-buffer 4.0.1 的 README 内含完整 MIT 文本。另七包没有独立 license／notice 文件：AWS credential-provider-http／credential-provider-login／nested-clients、pi-ai／pi-telemetry、proxy-agent-negotiate、standardwebhooks。其中前五包已有精确版本对应的官方源许可证；proxy-agent-negotiate 的完整授权文本仍缺，standardwebhooks 的包元数据 MIT 与对应根许可证 Apache-2.0 的适用性仍待确认。不能把 SPDX 元数据或已找到文本视为全部分发通知证明；后续 #28 须核对最终镜像、汇总适用通知并解决两项缺口。本次没有声称完成制品签名／attestation 信任链核验或分发许可核准。
 
 ## 安全及兼容性实际结果
 

@@ -222,12 +222,11 @@ test("B receives the complete canonical synthetic input and conservative frozen-
   await mock.receive();
   await mock.closed;
   assert.ok(envelope);
-  const body = JSON.parse(envelope.canonicalInput) as { system: string; messages: unknown[]; tools: unknown[]; toolResults: unknown[]; draft: unknown; generation: unknown };
-  assert.ok(body.system.length > 0);
-  assert.equal(body.messages.length, 1);
-  assert.equal(body.toolResults.length, 2);
-  assert.ok(Array.isArray(body.tools));
-  assert.ok(body.draft);
+  const body = JSON.parse(envelope.canonicalInput) as { turn: { messages: { role: string; toolsAdded?: unknown[]; content: unknown }[] }; generation: unknown };
+  assert.ok(String(body.turn.messages[0]!.content).length > 0);
+  assert.equal(body.turn.messages.filter((message) => message.role === "toolResult").length, 2);
+  assert.equal(body.turn.messages[0]!.toolsAdded?.length, 2);
+  assert.ok(JSON.parse(String(body.turn.messages.at(-1)!.content)).draft);
   assert.deepEqual(body.generation, { maxOutputTokens: 4_000, includesReasoning: true });
   assert.ok(envelope.inputTokensUpperBound <= 24_000);
   assert.equal(envelope.hiddenRetries, 0);
@@ -251,17 +250,17 @@ test("B refuses missing, extra or unproven canonical protocol content before its
     let providerCalls = 0;
     const mock = createMockTroubleshooting({ model: async (_context, draft) => { providerCalls++; return { candidate: draft, actualMicrousd: null }; } });
     const generate = mock.ports.model.generate;
-    mock.ports.model.generate = (context, draft, envelope) => {
-      if (fault === "missing-envelope") return generate(context, draft);
+    mock.ports.model.generate = (context, turn, beforeSend) => generate(context, turn, async (envelope) => {
+      if (fault === "missing-envelope") return beforeSend(undefined!);
       const changed = structuredClone(envelope!);
       const body = JSON.parse(changed.canonicalInput) as Record<string, unknown>;
-      if (fault === "missing") delete body.toolResults;
+      if (fault === "missing") delete body.turn;
       if (fault === "extra") body.unmeteredPrompt = "extra";
       if (fault === "unproven") body.protocol = "unknown-provider-protocol";
       const canonicalInput = JSON.stringify(body);
-      return generate(context, draft, { ...changed, canonicalInput,
+      return beforeSend({ ...changed, canonicalInput,
         inputTokensUpperBound: Math.ceil(Buffer.byteLength(canonicalInput) / 2) + (fault === "false-bound" ? 1 : 0) });
-    };
+    });
     await mock.receive();
     await mock.closed;
     assert.equal(providerCalls, 0, fault);

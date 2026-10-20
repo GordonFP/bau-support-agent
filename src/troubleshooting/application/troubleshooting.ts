@@ -7,7 +7,7 @@ import type { Acceptance, ApplicationCandidates, CallContext, CaseView, Informat
 import type { AuditDetails, CaseRecord } from "./records.js";
 import { AuditBoundary } from "./audit-boundary.js";
 import { deniedContext, recordDenial } from "./authorization-audit.js";
-import { modelEnvelope, validateModelResponse } from "./model-envelope.js";
+import { validateModelEnvelope, validateModelResponse, validateModelTurn } from "./model-envelope.js";
 import type { ModelPolicy } from "./model-contract.js";
 import { ModelFailure } from "./model-failure.js";
 import { retryModel } from "./model-retry.js";
@@ -46,6 +46,7 @@ export interface OfflineScope {
   readonly snapshotRef: string;
   readonly queryWindow: { readonly from: string; readonly to: string };
   readonly modelPolicy?: ModelPolicy;
+  readonly modelProfile?: "memory_mock" | "local_protocol";
 }
 
 export class Troubleshooting {
@@ -519,6 +520,9 @@ export class Troubleshooting {
         deadline: Math.min(phaseContext.deadline, attempt?.deadline ?? ports.clock.now() + cap) });
       const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef: "simulator-source", ...this.scope!.queryWindow, pageSize: 100 } }
         : action === "code.search" ? { scope: { repositoryRef: "simulator-source", snapshotRef: phaseContext.snapshotRef } }
+        : action === "model.generate" ? { model: this.scope!.modelProfile === "local_protocol"
+          ? { profile: "local_protocol", protocol: "synthetic-responses-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
+          : { profile: "memory_mock", protocol: "mock-json-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "offline-model-1" } }
         : action === "delivery.send" ? { delivery: { deliveryKey: `${phaseContext.caseRef}:report:1`, segment: 1 } } : {};
       const check = () => { assertAllowed(); if (ports.clock.now() >= context.deadline) throw new Error("timeout"); };
       let invoked = false;
@@ -709,34 +713,49 @@ export class Troubleshooting {
           if (!boundedBody(value) || !ports.sanitization.safe(ports.sanitization.sanitize(value, phaseContext.caseRef))) throw new Error("unsafe_content");
           // Progress is deliberately not retained or forwarded and never changes any deadline.
         },
-        generate: (inputDraft) => {
-          const draft = structuredClone(inputDraft);
+        generate: (inputTurn) => {
+          const turn = structuredClone(inputTurn);
           return retryModel(ports.clock, phaseContext.deadline, () => contextFor("model.generate").callId, async (identity) => {
             let networkFailure: unknown;
             const response = await guarded("model.generate", async (modelContext) => {
-              if (!ports.sanitization.safe(draft)) throw new Error("unsafe_content");
-              if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
-              const envelope = modelEnvelope(safeInput.question, running.modelHistory, running.modelTools, draft, this.scope!.modelPolicy);
-              running.view = { ...running.view, usage: { ...running.view.usage, modelAttempts: running.view.usage.modelAttempts + 1 } };
-              await this.saveRecord(running, modelContext, ports, { recordRef: `${modelContext.callId}:input`, schemaVersion: 1, kind: "model_input", payload: envelope });
-              await this.saveView(running, ports);
-              if (!await ports.budget.reserve(modelContext, envelope.planning.reservationMicrousd, async () => {
-                if (!await ports.authorization.allows("model.generate", modelContext)) {
-                  await recordDenial(ports.audit, modelContext);
-                  throw new Error("denied");
-                }
+              if (!ports.sanitization.safe(turn)) throw new Error("unsafe_content");
+              validateModelTurn(turn);
+              let envelope: Parameters<typeof validateModelEnvelope>[1] | undefined;
+              let admitted = false;
+              let prepared = false;
+              let response;
+              try { response = await ports.model.generate(modelContext, turn, async (request) => {
                 assertCurrent();
                 if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
-              })) throw new Error("budget_exhausted");
-              assertCurrent();
-              if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
-              let response;
-              try { response = await ports.model.generate(modelContext, draft, envelope); }
+                if (prepared) throw new Error("contract_unverified");
+                prepared = true;
+                validateModelEnvelope(turn, request, this.scope!.modelPolicy);
+                if (request.profile !== (this.scope!.modelProfile ?? "memory_mock")) throw new Error("contract_unverified");
+                if (!ports.sanitization.safe(request)) throw new Error("unsafe_content");
+                envelope = structuredClone(request);
+                if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
+                running.view = { ...running.view, usage: { ...running.view.usage, modelAttempts: running.view.usage.modelAttempts + 1 } };
+                await this.saveRecord(running, modelContext, ports, { recordRef: `${modelContext.callId}:input`, schemaVersion: 1, kind: "model_input", payload: envelope });
+                await this.saveView(running, ports);
+                if (!await ports.budget.reserve(modelContext, envelope.planning.reservationMicrousd, async () => {
+                  if (!await ports.authorization.allows("model.generate", modelContext)) {
+                    await recordDenial(ports.audit, modelContext);
+                    throw new Error("denied");
+                  }
+                  assertCurrent();
+                  if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
+                })) throw new Error("budget_exhausted");
+                admitted = true;
+                assertCurrent();
+                if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
+              }); }
               catch (error) {
                 if (error instanceof ModelFailure && error.kind === "transient_network") networkFailure = error;
-                await ports.budget.settle(modelContext, null, { execution: "unknown", source: "unknown" });
+                if (admitted) await ports.budget.settle(modelContext, error instanceof ModelFailure ? error.charge?.actualMicrousd ?? null : null,
+                  { execution: error instanceof ModelFailure ? error.execution : "unknown", source: error instanceof ModelFailure ? error.charge?.source ?? "unknown" : "unknown" });
                 throw error;
               }
+              if (!admitted || !envelope) throw new Error("contract_unverified");
               const usageSource = response.usageSource ?? (response.actualMicrousd !== null && response.actualMicrousd > 0 ? "mock_usage" : "unknown");
               await ports.budget.settle(modelContext, response.actualMicrousd, { execution: "ended", source: usageSource });
               if (["mock_usage", "upstream_usage"].includes(usageSource) && response.actualMicrousd !== null &&
@@ -746,7 +765,7 @@ export class Troubleshooting {
               return response;
             }, (response) => { running.modelHistory.push(structuredClone({ role: "assistant", content: response.candidate })); },
               { ...identity, recoverable: (error) => identity.retryable && error === networkFailure });
-            return response.candidate;
+            return response;
           });
         },
       }));

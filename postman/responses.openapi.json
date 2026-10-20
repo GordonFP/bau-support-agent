@@ -1,0 +1,122 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Synthetic Responses for the controlled ModelGateway",
+    "version": "1.0.0",
+    "description": "Local reviewed function-tool subset only; no real GPT mapping, tokenizer or billing proof. Generated candidate/arguments plus empty reasoning are bounded to 4000 synthetic byte-pair tokens before emission."
+  },
+  "paths": {
+    "/v1/responses": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input",
+                  "stream",
+                  "store",
+                  "max_output_tokens",
+                  "tools"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "enum": [
+                      "gpt6.1-sol"
+                    ]
+                  },
+                  "input": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "store": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ]
+                  },
+                  "max_output_tokens": {
+                    "type": "integer",
+                    "enum": [
+                      4000
+                    ]
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "type",
+                        "name",
+                        "parameters"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "function"
+                          ]
+                        },
+                        "name": {
+                          "type": "string",
+                          "enum": [
+                            "logs_read",
+                            "code_search"
+                          ]
+                        },
+                        "parameters": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Synthetic complete/unfinished/no-terminal Responses SSE. Local x-synthetic-mode selects malformed streams.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_synthetic\"}}\n\n"
+              }
+            }
+          },
+          "400": {
+            "description": "Synthetic request contract violation",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "synthetic_contract_rejected",
+                    "message": "Synthetic request contract rejected."
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Unmodeled endpoint"
+          }
+        }
+      }
+    }
+  }
+}
