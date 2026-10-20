@@ -1,4 +1,5 @@
 import { TroubleshootingCase } from "../domain/simulator.js";
+import { CASE_EXECUTION_MS, MAX_LOG_RECORDS, MAX_MODEL_ATTEMPTS, MODEL_RESERVATION_MICROUSD, phaseWindow } from "./limits.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
 import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationReply, InformationResult, Ports, ReadResult, SafeReason, VerifiedInbound } from "./ports.js";
 
@@ -51,11 +52,12 @@ export class Troubleshooting {
     }
     const caseRef = `case-${++this.sequence}`;
     const controller = new AbortController();
-    const now = ports.clock.utc();
+    const phase = phaseWindow(ports.clock);
+    const now = phase.startedAt;
     const context: CallContext = Object.freeze({ caseRef, phaseId: 1, callId: `${caseRef}:accept`, principalRef: inbound.principalRef,
       tenantRef: inbound.tenantRef, destinationRef: inbound.destinationRef, policyVersion: "mock-policy-1", approvalRef: "mock-approval-1",
       resourceRefs: Object.freeze(["simulator-source"]), snapshotRef: this.scope.snapshotRef, budgetRef: caseRef,
-      deadline: ports.clock.now() + 180_000, signal: controller.signal });
+      deadline: phase.deadline, signal: controller.signal });
     try {
       if (!await ports.authorization.allows("accept", context)) return { status: "denied", reason: "denied" };
       if (!ports.sanitization.safe(ports.sanitization.sanitize(inbound.input, caseRef))) {
@@ -69,12 +71,12 @@ export class Troubleshooting {
       return { status: "service_unavailable", reason: "audit_unavailable" };
     }
     const view: CaseView = { caseRef, phaseId: 1, state: "investigating", receivedAt: inbound.receivedAt,
-      acceptedAt: now, phaseStartedAt: now, deadlineAt: new Date(Date.parse(now) + 180_000).toISOString(), deliveryStatus: "pending",
+      acceptedAt: now, phaseStartedAt: now, deadlineAt: phase.deadlineAt, deliveryStatus: "pending",
       usage: { modelAttempts: 0, logRecords: 0, logCoverageMs: 0 }, elapsedMs: 0,
       phases: [{ phaseId: 1, startedAt: now }], inputWaits: [] };
     const investigation = new TroubleshootingCase(caseRef);
     const running: RunningCase = { inbound: structuredClone(inbound), context, controller, view, investigation,
-      replyTail: Promise.resolve(), replyEvents: new Set(), coverageWindows: new Set(), acceptedMono: context.deadline - 180_000 };
+      replyTail: Promise.resolve(), replyEvents: new Set(), coverageWindows: new Set(), acceptedMono: context.deadline - CASE_EXECUTION_MS };
     this.cases.set(caseRef, running);
     this.armDeadline(running, ports);
     // The inbound caller receives acceptance independently of investigation completion.
@@ -111,7 +113,7 @@ export class Troubleshooting {
       const candidate = matches[0]!;
       const context = { ...running.context, callId: `${running.context.caseRef}:reply:${reply.eventRef}` };
       const budget = await ports.budget.status(context.caseRef);
-      if (running.view.usage.modelAttempts >= 6 || running.view.usage.logRecords >= 500 || budget.reservedMicrousd >= 2_000_000) {
+      if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS || running.view.usage.logRecords >= MAX_LOG_RECORDS || budget.reservedMicrousd >= 2_000_000) {
         running.view = { ...running.view, state: "stopped", stopReason: "budget_exhausted",
           inputWaits: running.view.inputWaits.map((wait) => wait.questionId === reply.reply.questionId
             ? { ...wait, endedAt: ports.clock.utc(), replyEventRef: reply.eventRef, replyReceivedAt: reply.receivedAt } : wait) };
@@ -126,15 +128,16 @@ export class Troubleshooting {
       running.investigation.selectTarget(ports.sanitization.sanitize(candidate.applicationId, context.caseRef));
       const phaseId = running.investigation.resume();
       const controller = new AbortController();
-      const startedAt = ports.clock.utc();
+      const phase = phaseWindow(ports.clock);
+      const startedAt = phase.startedAt;
       running.context = Object.freeze({ ...running.context, phaseId, callId: `${context.caseRef}:phase-${phaseId}:start`,
-        deadline: ports.clock.now() + 180_000, signal: controller.signal });
+        deadline: phase.deadline, signal: controller.signal });
       running.controller = controller;
       running.inbound = { ...running.inbound, input: { applicationId: candidate.applicationId, question: running.inbound.input.question } };
       running.targetSubmittedOn = candidate.submittedAt.slice(0, 10);
       const { question: _question, waitingStartedAt: _waiting, ...view } = running.view;
       running.view = { ...view, phaseId, state: "investigating", phaseStartedAt: startedAt,
-        deadlineAt: new Date(Date.parse(startedAt) + 180_000).toISOString(),
+        deadlineAt: phase.deadlineAt,
         phases: [...view.phases, { phaseId, startedAt }],
         inputWaits: view.inputWaits.map((wait) => wait.questionId === reply.reply.questionId
           ? { ...wait, endedAt: startedAt, replyEventRef: reply.eventRef, replyReceivedAt: reply.receivedAt } : wait) };
@@ -253,7 +256,7 @@ export class Troubleshooting {
     const invoke = async (tool: string, query: unknown): Promise<unknown> => {
       if (tool === "logs.read") {
         if (query !== null) throw new Error("invalid_request");
-        if (running.view.usage.logRecords >= 500) throw new Error("budget_exhausted");
+        if (running.view.usage.logRecords >= MAX_LOG_RECORDS) throw new Error("budget_exhausted");
         let rawCandidates: ApplicationCandidates["candidates"] | undefined;
         let logAuditRef = "";
         const read = await guarded("logs.read", async (context) => {
@@ -320,7 +323,14 @@ export class Troubleshooting {
       throw new Error("denied");
     };
     let draft: DiagnosticReport | undefined;
-    const diagnose = (): DiagnosticReport => draft ??= investigation.diagnose(observation, safeInput.question, ports.clock.utc());
+    let draftVersion = -1;
+    const diagnose = (): DiagnosticReport => {
+      if (!draft || draftVersion !== investigation.materialVersion) {
+        draft = investigation.diagnose(observation, safeInput.question, ports.clock.utc());
+        draftVersion = investigation.materialVersion;
+      }
+      return draft;
+    };
     try {
       safeInput = ports.sanitization.sanitize(phaseInbound.input, phaseContext.caseRef);
       if (!ports.sanitization.safe(safeInput)) throw new Error("unsafe_content");
@@ -330,8 +340,8 @@ export class Troubleshooting {
         question: safeInput.question, invoke, diagnose,
         generate: (draft) => guarded("model.generate", async (modelContext) => {
           if (!ports.sanitization.safe(draft)) throw new Error("unsafe_content");
-          if (running.view.usage.modelAttempts >= 6) throw new Error("budget_exhausted");
-          if (!await ports.budget.reserve(modelContext, 180_000)) throw new Error("budget_exhausted");
+          if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
+          if (!await ports.budget.reserve(modelContext, MODEL_RESERVATION_MICROUSD)) throw new Error("budget_exhausted");
           assertCurrent();
           running.view = { ...running.view, usage: { ...running.view.usage, modelAttempts: running.view.usage.modelAttempts + 1 } };
           const response = await ports.model.generate(modelContext, draft);

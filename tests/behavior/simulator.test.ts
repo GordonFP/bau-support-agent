@@ -233,3 +233,19 @@ test("an asynchronous startup sanitization failure ends safely and cleans up the
   assert.equal(JSON.stringify(view).includes("synthetic-sensitive-upstream-error"), false);
   assert.equal(mock.events.some((event) => ["logs.read", "code.search", "model.generate", "delivery.send"].includes(event.action)), false);
 });
+
+test("diagnosing before tools does not discard evidence accepted later in the same phase", async () => {
+  const mock = createMockTroubleshooting({ agent: async (_context, request) => {
+    request.diagnose();
+    await request.invoke("logs.read", null);
+    await request.invoke("code.search", null);
+    return request.generate(request.diagnose());
+  } });
+  await mock.receive();
+  const { report } = await mock.delivery.next();
+  assert.equal(report.simulator.shopCount, 10);
+  assert.deepEqual(report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
+  assert.equal(report.simulator.shops[9]?.shopRef, "shop-10");
+  assert.equal(report.evidence.length, 2);
+  assert.equal(report.targetSummary, "[case-1:application]");
+});

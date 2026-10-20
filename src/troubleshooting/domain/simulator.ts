@@ -90,11 +90,15 @@ export class TroubleshootingCase {
   private awaiting = false;
   private phase = 1;
   private selectedTarget: string | undefined;
+  private materialRevision = 0;
 
   constructor(readonly caseRef: string) {}
 
+  get materialVersion(): number { return this.materialRevision; }
+
   selectTarget(applicationRef: string): void {
     if (this.ended || (this.selectedTarget !== undefined && this.selectedTarget !== applicationRef)) throw new Error("invalid_request");
+    if (this.selectedTarget !== applicationRef) this.materialRevision++;
     this.selectedTarget = applicationRef;
   }
 
@@ -123,6 +127,7 @@ export class TroubleshootingCase {
       throw new Error("invalid_request");
     }
     this.evidence.set(evidence.evidenceRef, immutable(evidence));
+    this.materialRevision++;
   }
 
   diagnose(observation: SimulatorObservation | null, problem: string, formedAt: string): DiagnosticReport {
