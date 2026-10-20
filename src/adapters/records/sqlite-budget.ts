@@ -1,6 +1,6 @@
 import type { CallContext, Ports } from "../../troubleshooting/application/ports.js";
 import { CASE_MODEL_MICROUSD, MAX_MODEL_ATTEMPTS, MAX_MODEL_STARTS, MAX_MODEL_UNSETTLED, MODEL_RATE_WINDOW_MS, POC_MODEL_MICROUSD } from "../../troubleshooting/application/limits.js";
-import { ModelBudgetQueue } from "../../troubleshooting/application/model-budget-queue.js";
+import { ModelBudgetQueue, type ModelAdmission } from "../../troubleshooting/application/model-budget-queue.js";
 import type { SqliteSession } from "./sqlite-session.js";
 import type { BudgetSettlement, BudgetStatus } from "../../troubleshooting/application/model-budget.js";
 import { modelCallBinding, reconcileCharge } from "../../troubleshooting/application/model-budget.js";
@@ -22,26 +22,26 @@ export class SqliteBudget {
     return this.queue.reserve(context, amount, beforeStart);
   }
 
-  private admit(context: CallContext, amount: number): boolean | number {
-    return this.session.transaction(() => {
+  private admit(context: CallContext, amount: number): ModelAdmission {
+    return this.session.transaction<ModelAdmission>(() => {
       const db = this.session.database;
       const binding = modelCallBinding(context);
       const existing = db.prepare("SELECT reserved,case_ref,binding FROM budget WHERE call_id=?").get(context.callId);
-      if (existing) return String(existing.case_ref) === context.caseRef && Number(existing.reserved) === amount && existing.binding === binding;
+      if (existing) return { status: String(existing.case_ref) === context.caseRef && Number(existing.reserved) === amount && existing.binding === binding ? "admitted" : "rejected" };
       const totals = db.prepare(`SELECT COALESCE(SUM(COALESCE(actual,reserved)),0) AS global_amount,
         COALESCE(SUM(CASE WHEN case_ref=? THEN COALESCE(actual,reserved) ELSE 0 END),0) AS case_amount,
         COUNT(CASE WHEN case_ref=? THEN 1 END) AS attempts, COUNT(CASE WHEN ended=0 THEN 1 END) AS unsettled,
         COUNT(CASE WHEN actual>reserved THEN 1 END) AS contradictions FROM budget`).get(context.caseRef, context.caseRef)!;
       if (Number(totals.global_amount) + amount > POC_MODEL_MICROUSD || Number(totals.case_amount) + amount > CASE_MODEL_MICROUSD ||
-        Number(totals.attempts) >= MAX_MODEL_ATTEMPTS || Number(totals.contradictions) > 0) return false;
+        Number(totals.attempts) >= MAX_MODEL_ATTEMPTS || Number(totals.contradictions) > 0) return { status: "rejected" };
       const now = this.rateClock.now();
       db.prepare("UPDATE budget_clock SET rate_ms=? WHERE id=1").run(now);
       const rate = db.prepare("SELECT COUNT(*) AS starts, MIN(started_at) AS oldest FROM budget WHERE started_at>?").get(now - MODEL_RATE_WINDOW_MS)!;
-      const next = Number(rate.starts) >= MAX_MODEL_STARTS ? Number(rate.oldest) + MODEL_RATE_WINDOW_MS : Infinity;
-      if (Number(totals.unsettled) >= MAX_MODEL_UNSETTLED || Number.isFinite(next)) return next;
+      if (Number(rate.starts) >= MAX_MODEL_STARTS) return { status: "wait", retryAt: Number(rate.oldest) + MODEL_RATE_WINDOW_MS };
+      if (Number(totals.unsettled) >= MAX_MODEL_UNSETTLED) return { status: "wait" };
       db.prepare("INSERT INTO budget(call_id,case_ref,reserved,actual,source,ended,started_at,binding) VALUES(?,?,?,NULL,'reserved_upper_bound',0,?,?)").run(context.callId, context.caseRef, amount, now, binding);
       this.beforeReserveCommit?.();
-      return true;
+      return { status: "admitted" };
     });
   }
 

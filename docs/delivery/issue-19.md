@@ -56,3 +56,9 @@ docker run --rm --pull=never --network none --read-only \
 ## 后续门槛
 
 真实费用／协议与生产存储验证仍未执行，继续按对应票的启用条件推进。#20 处理生命周期删除时，现有 durable budget.binding 尚保存脱敏后的案主／租户／会话／资源上下文，必须收敛到保留最少结算／幂等信息（例如规范绑定摘要），同时不能重置总账或释放未知槽。本票不实现角色、保留／删除或备份流程。#15 记录的 Node 安全更新通知仍为待核实更新门禁，没有因本票测试通过而标记已解决。
+
+## #19 审查修订
+
+维护性 P2：把内部准入的 `boolean | number` 改为共享判别联合 `admitted / rejected / wait`，等待项显式携带可选的逻辑时钟 `retryAt`；等待结算不再借用 Infinity 表示。Mock、SQLite 和队列采用相同状态，公开 `reserve` 仍返回 boolean，准入、拒绝及等待行为保持原样。
+
+精确 Node 24.22.0 下独立类型检查、独立构建、全部 137 项既有行为测试及差异检查重新通过。再次合并集成分支 `7e45eea`，结果 already up to date。本次无行为改变，未重复 Linux 验证；上文 Linux 137 项结果对应原功能提交 `7e45eea`。

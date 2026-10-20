@@ -1,6 +1,6 @@
 import type { CallContext, Ports } from "../../troubleshooting/application/ports.js";
 import { CASE_MODEL_MICROUSD, MAX_MODEL_ATTEMPTS, MAX_MODEL_STARTS, MAX_MODEL_UNSETTLED, MODEL_RATE_WINDOW_MS, POC_MODEL_MICROUSD } from "../../troubleshooting/application/limits.js";
-import { ModelBudgetQueue } from "../../troubleshooting/application/model-budget-queue.js";
+import { ModelBudgetQueue, type ModelAdmission } from "../../troubleshooting/application/model-budget-queue.js";
 import { modelCallBinding, reconcileCharge } from "../../troubleshooting/application/model-budget.js";
 import type { BudgetSettlement, BudgetStatus } from "../../troubleshooting/application/model-budget.js";
 
@@ -23,21 +23,21 @@ export class MockModelBudget {
     return this.queue.reserve(context, amount, beforeStart);
   }
 
-  private admit(context: CallContext, amount: number): boolean | number {
+  private admit(context: CallContext, amount: number): ModelAdmission {
     const binding = modelCallBinding(context);
     const previous = this.charges.get(context.callId);
-    if (previous) return previous.caseRef === context.caseRef && previous.reserved === amount && previous.binding === binding;
+    if (previous) return { status: previous.caseRef === context.caseRef && previous.reserved === amount && previous.binding === binding ? "admitted" : "rejected" };
     const all = [...this.charges.values()];
     const own = all.filter((charge) => charge.caseRef === context.caseRef);
     const cost = (values: Charge[]) => values.reduce((total, charge) => total + (charge.actual ?? charge.reserved), 0);
     if (cost(all) + amount > POC_MODEL_MICROUSD || cost(own) + amount > CASE_MODEL_MICROUSD || own.length >= MAX_MODEL_ATTEMPTS ||
-      all.some((charge) => charge.actual !== null && charge.actual > charge.reserved)) return false;
+      all.some((charge) => charge.actual !== null && charge.actual > charge.reserved)) return { status: "rejected" };
     const now = this.rateClock.now();
     const recent = all.filter((charge) => charge.startedAt > now - MODEL_RATE_WINDOW_MS);
-    const next = recent.length >= MAX_MODEL_STARTS ? Math.min(...recent.map((charge) => charge.startedAt)) + MODEL_RATE_WINDOW_MS : Infinity;
-    if (all.filter((charge) => !charge.ended).length >= MAX_MODEL_UNSETTLED || Number.isFinite(next)) return next;
+    if (recent.length >= MAX_MODEL_STARTS) return { status: "wait", retryAt: Math.min(...recent.map((charge) => charge.startedAt)) + MODEL_RATE_WINDOW_MS };
+    if (all.filter((charge) => !charge.ended).length >= MAX_MODEL_UNSETTLED) return { status: "wait" };
     this.charges.set(context.callId, { caseRef: context.caseRef, binding, reserved: amount, actual: null, estimated: null, source: "reserved_upper_bound", ended: false, startedAt: now });
-    return true;
+    return { status: "admitted" };
   }
 
   async settle(context: CallContext, amount: number | null, settlement?: BudgetSettlement): Promise<void> {

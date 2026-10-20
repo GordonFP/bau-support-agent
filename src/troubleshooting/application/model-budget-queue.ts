@@ -4,13 +4,16 @@ import { modelCallBinding } from "./model-budget.js";
 import { MAX_ACTIVE_CASES } from "./limits.js";
 import { beforeDeadline, schedule } from "./deadline.js";
 
+export type ModelAdmission = { readonly status: "admitted" } | { readonly status: "rejected" } |
+  { readonly status: "wait"; readonly retryAt?: number }; // Persisted logical rate-clock milliseconds; absent means wait for settlement.
+
 export class ModelBudgetQueue {
   private readonly queued = new Map<string, { context: CallContext; amount: number; operation: Promise<boolean> }>();
   private readonly waiters = new Set<() => void>();
   private closed = false;
 
   constructor(private readonly clock: Ports["clock"], private readonly rateNow: () => number,
-    private readonly admit: (context: CallContext, amount: number) => boolean | number) {}
+    private readonly admit: (context: CallContext, amount: number) => ModelAdmission) {}
 
   async reserve(context: CallContext, amount: number, beforeStart?: () => Promise<void>): Promise<boolean> {
     context = contextSnapshot(context);
@@ -37,11 +40,13 @@ export class ModelBudgetQueue {
     while (!this.expired(context)) {
       await beforeStart?.();
       if (this.expired(context)) return false;
-      const admitted = this.admit(context, amount);
-      if (typeof admitted === "boolean") return admitted;
+      const admission = this.admit(context, amount);
+      if (admission.status === "admitted") return true;
+      if (admission.status === "rejected") return false;
       await new Promise<void>((resolve) => {
         const done = () => { cancel(); context.signal.removeEventListener("abort", done); this.waiters.delete(done); resolve(); };
-        const wakeAt = Math.min(context.deadline, this.clock.now() + Math.max(0, admitted - this.rateNow()));
+        const wakeAt = admission.retryAt === undefined ? context.deadline :
+          Math.min(context.deadline, this.clock.now() + Math.max(0, admission.retryAt - this.rateNow()));
         const cancel = schedule(this.clock, wakeAt, done);
         this.waiters.add(done);
         context.signal.addEventListener("abort", done, { once: true });
