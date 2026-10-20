@@ -1,0 +1,14 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!dist/
+!dist/src/
+!dist/src/**
+!runtime-skills/
+!runtime-skills/bau-troubleshooting/
+!runtime-skills/bau-troubleshooting/SKILL.md
+!deployment/
+!deployment/runtime.example.json
+!notices/
+!notices/**
