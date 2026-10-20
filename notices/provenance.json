@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "texts": [
+    {
+      "name": "@aws-sdk/credential-provider-http",
+      "version": "3.972.77",
+      "file": "aws-sdk__credential-provider-http-3.972.77.LICENSE.txt",
+      "bytes": 11352,
+      "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+      "source": "https://raw.githubusercontent.com/aws/aws-sdk-js-v3/35085844c581d910f51deea1b2de48f6b4ffa704/LICENSE",
+      "association": "exact-version source LICENSE retrieved; full notice inventory not certified",
+      "sourcePackageVersion": "3.972.77",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@aws-sdk/credential-provider-login",
+      "version": "3.972.82",
+      "file": "aws-sdk__credential-provider-login-3.972.82.LICENSE.txt",
+      "bytes": 11352,
+      "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+      "source": "https://raw.githubusercontent.com/aws/aws-sdk-js-v3/35085844c581d910f51deea1b2de48f6b4ffa704/LICENSE",
+      "association": "exact-version source LICENSE retrieved; full notice inventory not certified",
+      "sourcePackageVersion": "3.972.82",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@aws-sdk/nested-clients",
+      "version": "3.997.49",
+      "file": "aws-sdk__nested-clients-3.997.49.LICENSE.txt",
+      "bytes": 11352,
+      "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+      "source": "https://raw.githubusercontent.com/aws/aws-sdk-js-v3/35085844c581d910f51deea1b2de48f6b4ffa704/LICENSE",
+      "association": "exact-version source LICENSE retrieved; full notice inventory not certified",
+      "sourcePackageVersion": "3.997.49",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "bignumber.js",
+      "version": "9.3.1",
+      "file": "bignumber.js-9.3.1.LICENSE.txt",
+      "bytes": 1147,
+      "sha256": "def75ba75d6426f1c3f02addf8e175fbe6e0d8a82e541cbdffc16d2bd8fd7d6a",
+      "source": null,
+      "association": "complete LICENSE text already shipped under LICENCE spelling; false missing-file result corrected",
+      "sourcePackageVersion": "9.3.1",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "data-uri-to-buffer",
+      "version": "4.0.1",
+      "file": "data-uri-to-buffer-4.0.1.LICENSE.txt",
+      "bytes": 1125,
+      "sha256": "aa7c09d3ff3c4302fb26fb696cd1b2e24dcc71846c80406d037b021342e78e0e",
+      "source": null,
+      "association": "complete MIT text already shipped inline README",
+      "sourcePackageVersion": "4.0.1",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "1.3.0",
+      "file": "earendil-works__pi-ai-1.3.0.LICENSE.txt",
+      "bytes": 1069,
+      "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "source": null,
+      "association": "fixed release source LICENSE retrieved; signatures not verified",
+      "sourcePackageVersion": "1.3.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@earendil-works/pi-telemetry",
+      "version": "1.3.0",
+      "file": "earendil-works__pi-telemetry-1.3.0.LICENSE.txt",
+      "bytes": 1069,
+      "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "source": null,
+      "association": "fixed release source LICENSE retrieved; signatures not verified",
+      "sourcePackageVersion": "1.3.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "agent-base",
+      "version": "6.0.2",
+      "file": "agent-base-6.0.2.LICENSE.txt",
+      "bytes": 1125,
+      "sha256": "5aa012c5c5e970177d1ff9144121a598fa082434391061504b2d77a70289097f",
+      "source": "https://raw.githubusercontent.com/TooTallNate/node-agent-base/c4b8ea2e1a11bae023bb09b708050a50418204e9/README.md",
+      "association": "exact gitHead README License section; byte-identical shipped installed README",
+      "sourcePackageVersion": "6.0.2",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@earendil-works/pi-agent-core",
+      "version": "1.3.0",
+      "file": "earendil-works__pi-agent-core-1.3.0.LICENSE.txt",
+      "bytes": 1069,
+      "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "source": "https://raw.githubusercontent.com/earendil-works/pi/71023aec1546d6d677a65669c5665c0927ce0dd0/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "1.3.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@earendil-works/pi-codemode",
+      "version": "1.3.0",
+      "file": "earendil-works__pi-codemode-1.3.0.LICENSE.txt",
+      "bytes": 1069,
+      "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "source": "https://raw.githubusercontent.com/earendil-works/pi/71023aec1546d6d677a65669c5665c0927ce0dd0/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "1.3.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@earendil-works/pi-coding-agent",
+      "version": "1.3.0",
+      "file": "earendil-works__pi-coding-agent-1.3.0.LICENSE.txt",
+      "bytes": 1069,
+      "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "source": "https://raw.githubusercontent.com/earendil-works/pi/71023aec1546d6d677a65669c5665c0927ce0dd0/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "1.3.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@earendil-works/pi-tui",
+      "version": "1.3.0",
+      "file": "earendil-works__pi-tui-1.3.0.LICENSE.txt",
+      "bytes": 1069,
+      "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "source": "https://raw.githubusercontent.com/earendil-works/pi/71023aec1546d6d677a65669c5665c0927ce0dd0/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "1.3.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "https-proxy-agent",
+      "version": "5.0.1",
+      "file": "https-proxy-agent-5.0.1.LICENSE.txt",
+      "bytes": 1125,
+      "sha256": "5aa012c5c5e970177d1ff9144121a598fa082434391061504b2d77a70289097f",
+      "source": "https://raw.githubusercontent.com/TooTallNate/proxy-agents/d0d80cc0482f20495aa8595f802e1a9f3b1b3409/README.md",
+      "association": "exact gitHead README License section; byte-identical shipped installed README",
+      "sourcePackageVersion": "5.0.1",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@microsoft/teams.api",
+      "version": "2.1.1",
+      "file": "microsoft__teams.api-2.1.1.LICENSE.txt",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "source": "https://raw.githubusercontent.com/microsoft/teams.ts/79ed749cb65c7f14bb9b1f94b8cfdc7b9c5a5b81/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "0.0.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@microsoft/teams.apps",
+      "version": "2.1.1",
+      "file": "microsoft__teams.apps-2.1.1.LICENSE.txt",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "source": "https://raw.githubusercontent.com/microsoft/teams.ts/79ed749cb65c7f14bb9b1f94b8cfdc7b9c5a5b81/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "0.0.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@microsoft/teams.cards",
+      "version": "2.1.1",
+      "file": "microsoft__teams.cards-2.1.1.LICENSE.txt",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "source": "https://raw.githubusercontent.com/microsoft/teams.ts/79ed749cb65c7f14bb9b1f94b8cfdc7b9c5a5b81/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "0.0.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@microsoft/teams.common",
+      "version": "2.1.1",
+      "file": "microsoft__teams.common-2.1.1.LICENSE.txt",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "source": "https://raw.githubusercontent.com/microsoft/teams.ts/79ed749cb65c7f14bb9b1f94b8cfdc7b9c5a5b81/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "0.0.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@microsoft/teams.graph",
+      "version": "2.1.1",
+      "file": "microsoft__teams.graph-2.1.1.LICENSE.txt",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "source": "https://raw.githubusercontent.com/microsoft/teams.ts/79ed749cb65c7f14bb9b1f94b8cfdc7b9c5a5b81/LICENSE",
+      "association": "fixed official release root LICENSE; package metadata declares MIT",
+      "sourcePackageVersion": "0.0.0",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@opentelemetry/api",
+      "version": "1.9.1",
+      "file": "opentelemetry__api-1.9.1.LICENSE.txt",
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "source": "https://raw.githubusercontent.com/open-telemetry/opentelemetry-js/7e74509a4d848e94b2970bb5262dd3e8efeed0a2/LICENSE",
+      "association": "exact gitHead root LICENSE; byte-identical installed LICENSE",
+      "sourcePackageVersion": "1.9.1",
+      "publisherSignatureVerified": false,
+      "limits": "Scoped retrieved text; complete final image notice/legal/security clearance is not established."
+    },
+    {
+      "name": "@opentelemetry/api",
+      "version": "1.9.1",
+      "file": "opentelemetry__api-1.9.1.COPYRIGHT.txt",
+      "bytes": 85,
+      "sha256": "3fea76b4b419e38fbbf42cd473df09880854aadcbd8f3c640c903b0e5395b8da",
+      "source": "installed build/src/index.js copyright header",
+      "association": "Original header extraction, not a standalone upstream NOTICE"
+    }
+  ],
+  "unresolved": [
+    {
+      "name": "proxy-agent-negotiate",
+      "version": "1.1.0",
+      "reason": "No complete grant/copyright identified at fixed source; MIT metadata is not a replacement."
+    },
+    {
+      "name": "standardwebhooks",
+      "version": "1.1.1",
+      "reason": "Package MIT metadata versus fixed root Apache-2.0 applicability unresolved."
+    }
+  ],
+  "completeClearance": false
+}
