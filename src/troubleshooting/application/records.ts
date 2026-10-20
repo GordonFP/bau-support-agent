@@ -45,6 +45,11 @@ export interface CaseRecords {
 }
 
 export interface AuditDetails {
+  readonly model?: { readonly profile: "memory_mock" | "local_protocol";
+    readonly protocol: "mock-json-byte-pairs-1" | "synthetic-responses-byte-pairs-1";
+    readonly schemaVersion: "model-turn-1"; readonly artifactVersion: "offline-model-1" | "pi-ai-1.3.0" };
+  readonly tool?: { readonly name: string; readonly schemaVersion: string; readonly artifactVersion: string;
+    readonly manifestSha256: string; readonly sanitizationVersion: string };
   readonly scope?: { readonly sourceRef?: string; readonly repositoryRef?: string; readonly snapshotRef?: string;
     readonly from?: string; readonly to?: string; readonly pageSize?: number };
   readonly result?: { readonly completeness: "complete" | "partial" | "unknown"; readonly truncated: boolean; readonly evidenceCount: number };
