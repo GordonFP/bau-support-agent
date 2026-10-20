@@ -103,9 +103,37 @@ Serverless 部署的处理位置由 SKU 决定：Global 可跨相关全球区域
 
 这些是厂商条件性承诺，不能覆盖 New API、反向代理、APM、数据库备份或本服务的日志与记录；实际保留／删除、访问权和发送真实脱敏日志／代码的公司确认仍须单独记录。
 
-### Azure 计费与硬预算
+### Azure 公开费率与预算基线（2026-10-20 补充）
 
-公开 DeepSeek 价格页列 Flash 的输入、缓存输入及输出每百万 token 计价栏，本次静态读取金额为动态占位，不能据此填造单价。实际需对应 Azure 合同／offer、生效日期、部署类型、币种与 New API 计价配置；New API 内置 DeepSeek 价格不能代替 Azure 费率。[官方 DeepSeek 价格页][azure-pricing]
+用户确认“费率就按查到的资料来”，并说明暂时无法提供其他信息。当前费用测算和 Mock 预算参数采用下列 **Azure 公开 USD 标准价**，不再以公司合同费率作为规划前置；相关政策修订以[模型、数据与成本政策](https://github.com/GordonFP/bau-support-agent/issues/7)为准。模型选择继续沿用原决议，公开模型名与实际 alias 的映射仍未核验。
+
+单位：**US$ / 1,000,000 tokens**；查询日期 2026-10-20。规划基准为 Global／Global Standard 按 token 计价，不采用 Flex、Batch、PTU 或约定折扣。
+
+| 公开模型与计费类别 | 普通输入 | 缓存读取输入 | 缓存写入输入 | 输出（含适用推理） |
+| --- | ---: | ---: | ---: | ---: |
+| DeepSeek-V4-Flash，Global | 0.19 | 0.028 | 未单列，非 0 费率承诺 | 0.51 |
+| GPT-6.1 Sol，Global Standard，short context | 2.00 | 0.10 | 2.50 | 10.00 |
+| GPT-6.1 Sol，Global Standard，long context | 4.00 | 0.20 | 5.00 | 15.00 |
+
+DeepSeek 数值来自[官方价格页][azure-pricing]原始 HTML 的 `data-amount`，并用[公开 Retail Prices API][azure-retail-deepseek] 的原版 `V4 Flash ... glbl`、`eastus2`、`Consumption`、USD 记录交叉核对；API 单位 **1K**，原值 `0.00019 / 0.000028 / 0.00051`，乘 1,000 换算为每百万。meter 生效字段为 `2026-08-01T00:00:00Z`；未采用 `0731`、Data Zone 或 Government 价格。此前文本提取显示的 `$-` 是动态展示占位，本轮已取得具体金额。
+
+GPT 数值同时由[官方 Azure OpenAI 价格页][azure-openai-pricing]、[明确标为 Global Standard 的公开价格表][azure-gpt-price-guidance]和[公开 Retail Prices API][azure-retail-gpt]复核；API `6.1-sol ShortCo/LongCo ... Std Gl` 的单位为 **1M**，meter 生效字段为 `2026-10-01T00:00:00Z`。引用的是 pay-as-you-go 价，未采用 PTU 文档另处的容量租用示意成本。API 生效日期不是模型发布日期或公司合同起始日；查询返回均无后续分页。
+
+Azure 所读资料未明确给出 GPT-6.1 Sol 专属 short/long 切换阈值，不能挪用其他模型的阈值。**分类未核实前，预算预留采用 long 费率，不提前享受缓存折扣，并按较高的已列缓存写入输入价覆盖输入。** 一个输入 token 只分入普通、读取或写入其中一类，不重复相加。Data Zone／区域与部署类型可能改变公开价，实际启用时核对所选价目适用性；本表不声称当前网关已配置这些价格。
+
+#### 原上限下的示例测算
+
+每次完整输入 24,000、总生成输出 4,000 tokens，六次是该案全部模型尝试（包含适用重试），不是额外再乘重试次数。估算公式为 `(24000 × inputRate + 4000 × outputRate) / 1000000`。
+
+| 估算情景 | 每次 US$ | 六次 US$ |
+| --- | ---: | ---: |
+| DeepSeek Global，不计缓存折扣 | 0.0066 | 0.0396 |
+| GPT short，普通输入 | 0.088 | 0.528 |
+| GPT short，输入按写入价预留 | 0.10 | 0.60 |
+| GPT long，普通输入 | 0.156 | 0.936 |
+| GPT long，输入按写入价预留（分类未知时的规划基线） | 0.18 | 1.08 |
+
+这些是该 token 假设及公开价下的模型费用估算，未包含网关附加费、税、网络或存储；不证明实际成本上界，也不授权实际调用。原每案 US$2／POC US$100、24k／4k、调用数、并发、速率与计时限制保持。公开价可用于现在的开发／预算规格；真实调用前仍核对适用价目、倍率／附加费、最终输出约束、usage 来源和全部上游尝试，未知费用保留预留而非按零结算。
 
 微软说明 HTTP 状态本身不能决定收费，是否执行了可计费处理及 meter 规则才是依据，实际账单／meter 用于对账。客户端超时、Abort、断流与网关本地退款都不能推出 Azure 已停止处理或零收费。[成本与账单][azure-cost]、[延迟与流式][azure-latency]
 
@@ -113,12 +141,12 @@ Azure Cost Management budget 是告警，消费不会因此停止，使用量还
 
 ## 仍需部署方提供的最小证据
 
-公开资料已可作为通用协议与政策输入，以下事项只在进入对应真实步骤前补齐，不阻塞现有 Mock／合成规格。
+用户已说明暂时无法提供其他资料，以下项目统一记为暂缺，不继续作为当前会话的补交要求；它们只在进入对应真实步骤前核对，不阻塞现有 Mock／合成规格。公司网关资料票保持开放作为真实启用前门槛，未被标记为验证通过。
 
 | 项目 | 需要的脱敏事实 | 用途 |
 | --- | --- | --- |
 | 部署基线 | New API 实际版本／digest、Azure 渠道类型、API 版本；模型别名到上游模型及部署版本的映射 | 决定使用 Chat Completions 还是 Responses，固定可复现协议；不自动修改既有模型选择 |
-| 预算执行 | 最终 token 参数、重试／路由策略、网关计价配置、Azure 实际计费来源和口径 | 保留 24k 输入、4k 输出、单案 US$2／POC US$100 等原限制，未知用量不能按零结算 |
+| 预算执行 | 所用公开价的适用性、最终 token 参数、重试／路由策略、网关倍率／附加费、实际 usage 与费用来源 | 保留 24k 输入、4k 输出、单案 US$2／POC US$100 等原限制，未知用量不能按零结算 |
 | 数据处理 | Azure 销售方式、部署类型与地域、滥用监测状态，以及网关／代理的正文日志、缓存、备份与保留／删除配置 | 确定实际数据路径，避免把公开产品承诺泛化为所有中间层的零保留 |
 | 公司确认 | 允许发送真实脱敏日志／代码的确认状态、责任角色、日期和受控证据代号；适用资源访问批准 | 资料齐备、组织批准与运行验证分别记录 |
 
@@ -138,7 +166,7 @@ Azure Cost Management budget 是告警，消费不会因此停止，使用量还
 
 Microsoft 页面是动态官方资料，本轮访问日期为 2026-10-20；可见更新时间包括模型目录 2026-10-08、退役表 2026-09-23、v1 Chat 参考 2026-06-11、数据政策／abuse monitoring 2026-05-19、部署类型 2026-08-12，以及集成迁移说明 2026-08-27。新版本或实际接入前重新核对，不把这些页面日期当作公司确认日期。
 
-已执行：读取研究 Skill、当前资料票、相关政策与既有研究记录；两个研究 agent 分别核对 New API 与 Microsoft 官方资料，并经主 agent 合成；Context7 均先 resolve 再查询官方文档／样例；web 浏览及交叉核对官方文档；GitHub 公开 release／tag／commit 元数据核对；浅克隆 tag 并确认固定 SHA；静态核对协议、路由、参数转换、usage、重试、取消、预扣及日志配置路径；Markdown 引用定义、固定源码文件／行号、脱敏与格式检查。
+已执行：读取研究 Skill、当前资料票、相关政策与既有研究记录；用户对公开费率基线的明确确认；两个研究 agent 分别核对 New API 与 Microsoft 官方资料，并经主 agent 合成；Context7 均先 resolve 再查询官方文档／样例；web 浏览及交叉核对官方文档；GitHub 公开 release／tag／commit 元数据核对；浅克隆 tag 并确认固定 SHA；静态核对协议、路由、参数转换、usage、重试、取消、预扣及日志配置路径；原始官方价格页数据与公开无认证 Retail Prices API 的 USD／单位／SKU／生效字段交叉核对、Decimal 单位换算与预算算式复核；Markdown 引用定义、固定源码文件／行号、脱敏与格式检查。
 
 未执行：依赖安装、服务启动、实际部署／镜像验证、任何模型或公司生产 endpoint 调用、自动化行为测试、类型检查、构建和完整许可证／安全扫描。本记录是公开研究，不构成实际联调完成。
 
@@ -200,3 +228,8 @@ Microsoft 页面是动态官方资料，本轮访问日期为 2026-10-20；可�
 [azure-cost]: https://learn.microsoft.com/en-my/azure/foundry/concepts/manage-costs?view=foundry-classic
 [azure-latency]: https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/latency
 [azure-budgets]: https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/tutorial-acm-create-budgets
+
+[azure-openai-pricing]: https://azure.microsoft.com/en-us/pricing/details/azure-openai/
+[azure-gpt-price-guidance]: https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/provisioned-throughput-sizing
+[azure-retail-deepseek]: https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&%24filter=productName%20eq%20%27Azure%20Deepseek%20Models%27%20and%20contains%28skuName%2C%20%27V4%20Flash%27%29%20and%20armRegionName%20eq%20%27eastus2%27%20and%20priceType%20eq%20%27Consumption%27
+[azure-retail-gpt]: https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&%24filter=productName%20eq%20%27Azure%20OpenAI%20GPT6%27%20and%20contains%28skuName%2C%20%276.1%27%29%20and%20armRegionName%20eq%20%27eastus2%27%20and%20priceType%20eq%20%27Consumption%27
