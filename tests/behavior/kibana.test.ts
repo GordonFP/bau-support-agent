@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { once } from "node:events";
 import assert from "node:assert/strict";
 import { createMockTroubleshooting } from "../../src/adapters/mock/troubleshooting.js";
 import { McpBoundary } from "../../src/adapters/mcp/boundary.js";
@@ -76,7 +77,7 @@ test("B rejects arbitrary query controls, invalid calendars, foreign scopes and 
   });
 });
 
-for (const mode of ["target", "index", "event", "future_submission", "calendar", "timezone", "cardinality", "depth", "prototype", "fragment"] as const) test(`B rejects untrusted native ${mode} drift before evidence delivery`, async () => {
+for (const mode of ["target", "index", "event", "future_submission", "submillisecond", "calendar", "timezone", "cardinality", "depth", "prototype", "fragment"] as const) test(`B rejects untrusted native ${mode} drift before evidence delivery`, async () => {
   const { logRow, esBody } = await import("../fixtures/kibana.js");
   await nativeRead((_body, response) => {
     const row: any = logRow();
@@ -84,6 +85,7 @@ for (const mode of ["target", "index", "event", "future_submission", "calendar",
     if (mode === "index") row._index = "other-index";
     if (mode === "event") row._source.event_time = "2026-10-19T00:00:00.000Z";
     if (mode === "future_submission") row._source.submitted_at = "2026-10-19T01:00:00.000Z";
+    if (mode === "submillisecond") row._source.event_time = "2026-10-18T23:00:00.0001Z";
     if (mode === "calendar") row._source.submitted_shops[0].coverage_through = "2026-02-29";
     if (mode === "timezone") row._source.business_timezone = "Unreviewed/Unknown";
     if (mode === "cardinality") row._source.submitted_shops = Array.from({ length: 101 }, (_, i) => ({ ...row._source.submitted_shops[0], shop_id: `s${i}` }));
@@ -125,4 +127,83 @@ test("B preserves unknown partial and missing-page warnings, including zero obse
     assert.equal(result.value, null); assert.equal(result.completeness, "unknown"); assert.equal(result.truncated, true);
     assert.match(result.warnings.join(" "), /Missing native page/);
   });
+});
+
+for (const mode of ["redirect", "reset", "invalid_json", "gzip", "stream_overflow"] as const) test(`B confines native HTTP ${mode} and returns a finite source failure`, async () => {
+  const { esBody, logRow } = await import("../fixtures/kibana.js");
+  const { gzipSync } = await import("node:zlib");
+  let redirected = 0, sent = 0, finished = false;
+  const target = await kibanaServer((_body, response) => { redirected++; response.writeHead(200).end("{}"); });
+  try { await nativeRead(async (_body, response) => {
+    if (mode === "redirect") { response.writeHead(307, { location: target.url + "/internal/search/es" }).end(); return; }
+    if (mode === "reset") { response.destroy(); return; }
+    if (mode === "invalid_json") { response.writeHead(200, { "content-type": "application/json" }).end('{"rawResponse":'); return; }
+    const row: any = logRow(); row._source.payload = "x".repeat(1_300_000);
+    const bytes = Buffer.from(JSON.stringify({ rawResponse: esBody([row]) }));
+    if (mode === "gzip") { const zipped = gzipSync(bytes); assert.ok(zipped.length < 4_000); response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" }).end(zipped); return; }
+    response.writeHead(200, { "content-type": "application/json" });
+    try { for (let offset = 0; offset < bytes.length; offset += 16_384) {
+      if (response.destroyed) break; const part = bytes.subarray(offset, offset + 16_384); sent += part.length;
+      if (!response.write(part)) await Promise.race([once(response, "drain"), once(response, "close")]);
+      await new Promise((done) => setTimeout(done, 1));
+    } if (!response.destroyed) { finished = true; response.end(); } } catch { /* Owned native child closed this response. */ }
+  }, async (adapter, mock, server) => {
+    await assert.rejects(adapter.logs.read(context(mock.ports.clock.now()), query), /^Error: unavailable$/);
+    assert.equal(server.requests.length, 1); assert.equal(redirected, 0);
+    if (mode === "stream_overflow") { assert.ok(sent >= 1_048_576 && sent < 1_300_000); assert.equal(finished, false); }
+    assert.doesNotMatch(JSON.stringify(mock.events), /127\.0\.0\.1|SYNTHETIC-SECRET|payload/);
+  }); } finally { await target.close(); }
+});
+
+test("B cancellation discards native results but does not claim the owned ES work stopped or replay it", async () => {
+  const started = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(); let backendWorkEnded = false;
+  const { esBody } = await import("../fixtures/kibana.js");
+  await nativeRead(async (_body, response) => { started.resolve(); await release.promise; backendWorkEnded = true; if (!response.destroyed) response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: esBody() })); }, async (adapter, mock, server) => {
+    const controller = new AbortController();
+    const pending = adapter.logs.read(context(mock.ports.clock.now(), { signal: controller.signal }), query);
+    await started.promise; controller.abort(); await assert.rejects(pending, /^Error: cancelled$/);
+    assert.equal(server.requests.length, 1); assert.equal(backendWorkEnded, false);
+    assert.equal(mock.events.some((event) => event.action === "delivery.send" || event.action === "model.generate"), false);
+    release.resolve(); await new Promise(setImmediate); assert.equal(backendWorkEnded, true);
+  });
+});
+
+test("B detects reviewed manifest drift before the native search and refuses automatic tool trust", async () => {
+  await nativeRead(undefined, async (adapter, mock, server) => {
+    await assert.rejects(adapter.logs.read(context(mock.ports.clock.now()), query), /^Error: schema_mismatch$/); assert.equal(server.requests.length, 0);
+  }, (value) => { value.manifest.tools[0].description = "unreviewed drift"; });
+});
+
+test("B sorts actual UTC instants across fractional precision and preserves source business timezone", async () => {
+  const { logRow, esBody } = await import("../fixtures/kibana.js");
+  await nativeRead((_body, response) => {
+    const rows = [logRow(1), logRow(2)];
+    rows[0]!._source.event_time = "2026-10-18T23:00:00Z"; rows[1]!._source.event_time = "2026-10-18T23:00:00.100Z";
+    for (const row of rows) row._source.submitted_at = "2026-10-18T18:00:00Z";
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: esBody(rows) }));
+  }, async (adapter, mock) => {
+    const result = await adapter.logs.read(context(mock.ports.clock.now()), query);
+    assert.equal(result.evidence.length, 2); assert.ok(result.value && !("kind" in result.value)); assert.equal(result.value.submittedOn, "2026-10-19");
+    assert.deepEqual(result.evidence.map((item) => item.observedAt), ["2026-10-18T23:00:00Z", "2026-10-18T23:00:00.100Z"]);
+  });
+});
+
+test("B pages native offsets serially and retains all received rows as unknown evidence", async () => {
+  const { logRow, esBody } = await import("../fixtures/kibana.js");
+  await nativeRead((body, response) => {
+    const from = body.params.body.from as number;
+    const rows = Array.from({ length: from === 0 ? 100 : 1 }, (_, index) => logRow(from + index + 1));
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: esBody(rows, 101) }));
+  }, async (adapter, mock, server) => {
+    const result = await adapter.logs.read(context(mock.ports.clock.now()), query);
+    assert.equal(result.evidence.length, 101); assert.equal(result.completeness, "unknown");
+    assert.deepEqual(server.requests.map((request) => request.body.params.body.from), [0, 100]);
+    assert.ok(result.evidence.every((item) => item.completeness === "unknown"));
+  });
+});
+
+test("B refuses a missing pinned import in the actual artifact closure before native HTTP", async () => {
+  await nativeRead(undefined, async (adapter, mock, server) => {
+    await assert.rejects(adapter.logs.read(context(mock.ports.clock.now()), query), /^Error: unavailable$/); assert.equal(server.requests.length, 0);
+  }, (value) => { value.modules.splice(1, 1); });
 });

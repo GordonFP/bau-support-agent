@@ -41,7 +41,7 @@ export async function kibanaProfile(url: string, override?: (value: any) => void
     value = { profile: "synthetic-local-1", factory: { path: factory, export: "createSyntheticServer" }, axios, stdio,
       packages: { axios: { path: join(axiosRoot, "package.json"), version: "1.20.0" }, sdk: { path: join(dirname(stdio), "../../../package.json"), version: "1.32.1" } },
       modules: [factory, fileURLToPath(import.meta.url), axios, stdio, join(axiosRoot, "package.json"), join(dirname(stdio), "../../../package.json")].map((path) => ({ path, sha256: "" })),
-      manifest: { server: { name: "owned-synthetic-kibana", version: "1.0.0" }, protocolVersion: "2025-11-25", capabilities: { tools: {} }, tools: [syntheticSearch], searchTool: "synthetic_search" } };
+      manifest: { server: { name: "owned-synthetic-kibana", version: "1.0.0" }, protocolVersion: "2025-11-25", capabilities: { tools: {} }, tools: [structuredClone(syntheticSearch)], searchTool: "synthetic_search" } };
     for (const entry of await readdir(join(axiosRoot, "lib"), { recursive: true })) {
       if (entry.endsWith(".js")) value.modules.push({ path: join(axiosRoot, "lib", entry), sha256: "" });
     }
