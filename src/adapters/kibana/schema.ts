@@ -2,8 +2,12 @@ import { z } from "zod/v4";
 import { McpFailure } from "../mcp/failure.js";
 const text = z.string().min(1).max(1024);
 const date = z.iso.date();
-const source = z.strictObject({ event_id: text, event_time: z.iso.datetime(), application_id: text, customer_id: text,
-  submitted_at: z.iso.datetime(), business_timezone: z.string().min(1).max(80).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }),
+// This reviewed synthetic mapping supports UTC seconds/milliseconds. Reject
+// finer source precision rather than truncate instants during ordering/scope checks.
+const time = z.iso.datetime().regex(/T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/);
+export const validLogTimestamp = (value: unknown): value is string => time.safeParse(value).success;
+const source = z.strictObject({ event_id: text, event_time: time, application_id: text, customer_id: text,
+  submitted_at: time, business_timezone: z.string().min(1).max(80).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }),
   submitted_shops: z.array(z.strictObject({ shop_id: text, authorization: z.enum(["active", "cancelled", "unknown"]),
     coverage_start: date.nullable(), coverage_through: date.nullable(), continuous_coverage: z.boolean() })).max(100),
 });

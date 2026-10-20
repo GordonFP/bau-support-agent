@@ -1,0 +1,10 @@
+version: 1
+name: synthetic-kibana
+slug: synthetic-kibana
+protocol: http
+port: 4501
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true
+interceptRequests: true

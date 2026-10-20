@@ -1,0 +1,5 @@
+simulation: bau-synthetic-kibana
+routing: path
+mocks:
+  - routeKey: kibana
+    path: ../mocks/kibana/config.yaml

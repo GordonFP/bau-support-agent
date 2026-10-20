@@ -1,5 +1,7 @@
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { createRequire, registerHooks } from "node:module";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { loadKibanaProfile, verifyModules } from "./profile.js";
@@ -12,7 +14,7 @@ try {
   const root = pathToFileURL(dirname(profile.value.factory.path) + "/").href;
   const axiosRoot = pathToFileURL(dirname(profile.value.packages.axios.path) + "/").href;
   const sdkRoot = pathToFileURL(dirname(profile.value.packages.sdk.path) + "/").href;
-  const pinned = new Set(profile.value.modules.map((item) => pathToFileURL(item.path).href));
+  const pinned = new Map(profile.value.modules.map((item) => [pathToFileURL(item.path).href, item.sha256]));
   if (createRequire(profile.value.factory.path).resolve("axios/package.json") !== profile.value.packages.axios.path) throw new Error();
   for (const [name, entry] of Object.entries(profile.value.packages)) {
     const info = JSON.parse(await readFile(entry.path, "utf8"));
@@ -25,6 +27,7 @@ try {
     if (specifier === "axios" && result.url !== configuredAxios) throw new Error();
     return result;
   }, load(url, context, next) {
+    if (profile.value.profile === "local-candidate-1" && url.startsWith("file:") && (!pinned.has(url) || createHash("sha256").update(readFileSync(fileURLToPath(url))).digest("hex") !== pinned.get(url))) throw new Error();
     if ((url.startsWith(root) || profile.value.profile === "local-candidate-1" && (url.startsWith(axiosRoot) || url.startsWith(sdkRoot))) && !pinned.has(url)) throw new Error();
     if (/\/(?:dotenv|express)\//.test(url)) throw new Error();
     if (profile.value.profile === "local-candidate-1" && url.startsWith(sdkRoot) && ![

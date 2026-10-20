@@ -1,0 +1,35 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Owned synthetic Kibana internal search proxy", "version": "1.0.0", "description": "Observed local candidate subset, not an identified company deployment API. Native MCP loses upstream timeout/shard status." },
+  "paths": {
+    "/internal/search/es": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "additionalProperties": false, "required": ["params"],
+            "properties": { "params": {
+              "type": "object", "additionalProperties": false, "required": ["index", "body"],
+              "properties": {
+                "index": { "type": "string", "enum": ["synthetic-simulator"] },
+                "body": { "type": "object", "additionalProperties": false, "required": ["query", "size", "from", "sort"],
+                  "properties": {
+                    "query": { "type": "object", "description": "Host-generated exact association and event range only; arbitrary DSL is refused by the stand-in." },
+                    "size": { "type": "integer", "enum": [100] },
+                    "from": { "type": "integer", "minimum": 0, "maximum": 400 },
+                    "sort": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "object" } }
+                  }
+                }
+              }
+            } }
+          } } }
+        },
+        "responses": {
+          "200": { "description": "Synthetic wrapped ES result, including timeout/shard fields lost by native conversion." },
+          "400": { "description": "Rejected synthetic contract" },
+          "501": { "description": "Unmodeled route; no forwarding" }
+        }
+      }
+    }
+  }
+}

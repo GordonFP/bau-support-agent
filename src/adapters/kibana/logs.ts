@@ -8,9 +8,8 @@ import { MAX_ACTIVE_CASES, MAX_LOG_RECORDS, TOOL_CALL_MS } from "../../troublesh
 import { McpBoundary } from "../mcp/boundary.js";
 import { McpFailure } from "../mcp/failure.js";
 import { canonical, digest, SANITIZATION_VERSION } from "../mcp/manifest.js";
-import { validTimestamp } from "../mcp/schema.js";
 import { verifyModules, type KibanaProfile } from "./profile.js";
-import { businessDate, parseNative } from "./schema.js";
+import { businessDate, parseNative, validLogTimestamp } from "./schema.js";
 export { loadKibanaProfile } from "./profile.js";
 export interface KibanaOptions {
   readonly profile: KibanaProfile;
@@ -43,7 +42,7 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
       return await boundary.run({ ...caller, deadline: Math.min(caller.deadline, ports.clock.now() + TOOL_CALL_MS) }, "kibana.logs", endpoint, authorize, async (operation) => {
         context = operation.context;
         exact(query, ["sourceRef", "applicationId", "customerId", "from", "to", "pageSize"]);
-        if (query.sourceRef !== "simulator-source" || query.pageSize !== 100 || !!query.applicationId === !!query.customerId || !validTimestamp(query.from) || !validTimestamp(query.to) ||
+        if (query.sourceRef !== "simulator-source" || query.pageSize !== 100 || !!query.applicationId === !!query.customerId || !validLogTimestamp(query.from) || !validLogTimestamp(query.to) ||
           Date.parse(query.to) <= Date.parse(query.from) || Date.parse(query.to) - Date.parse(query.from) > 86_400_000) failure("invalid_request");
         // This lossy native contract cannot establish authoritative customer discovery.
         if (query.customerId) failure("contract_unverified");
@@ -57,6 +56,7 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
         tally.coverage += span; tally.windows.add(key);
         try { await ports.audit.intent(context, "mcp.logs.read", details); } catch { return failure("audit_unavailable"); }
         await verifyModules(profile); operation.current();
+        if (createHash("sha256").update(readFileSync(child)).digest("hex") !== endpoint.artifact.sha256) failure("contract_unverified");
         const connected = await operation.connect();
         if (canonical(connected.serverInfo) !== canonical(profile.value.manifest.server) || connected.protocolVersion !== profile.value.manifest.protocolVersion) failure("version_mismatch");
         if (canonical(connected.capabilities) !== canonical(profile.value.manifest.capabilities) || connected.instructions !== undefined) failure("contract_unverified");
@@ -64,6 +64,7 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
         if (listed.nextCursor || canonical(listed.tools) !== canonical(profile.value.manifest.tools)) failure("schema_mismatch");
         const evidence: SourceEvidence[] = [], observations: SimulatorObservation[] = [], seen = new Map<string, string>();
         let offset = 0, truncated = false;
+        let previousKey: { time: number; id: string } | undefined;
         const warnings = [incomplete];
         for (;;) {
           operation.current();
@@ -88,8 +89,9 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
             if (hit._index !== profile.value.index || row.application_id !== raw || hit._id !== row.event_id || Date.parse(row.event_time) < Date.parse(query.from) || Date.parse(row.event_time) >= Date.parse(query.to) || Date.parse(row.submitted_at) > Date.parse(row.event_time)) failure("denied");
             const signature = canonical(row);
             if (seen.has(row.event_id)) { truncated = true; warnings.push("Duplicate or conflicting native events prevent consistent pagination."); } else seen.set(row.event_id, signature);
-            const previous = evidence.at(-1);
-            if (previous && (previous.observedAt! > row.event_time || previous.observedAt === row.event_time && previous.locator >= row.event_id)) failure("schema_mismatch");
+            const time = Date.parse(row.event_time);
+            if (previousKey && (previousKey.time > time || previousKey.time === time && previousKey.id >= row.event_id)) failure("schema_mismatch");
+            previousKey = { time, id: row.event_id };
             const observation: SimulatorObservation = { applicationRef: row.application_id, submittedOn: businessDate(row.submitted_at, row.business_timezone),
               shops: row.submitted_shops.map((shop) => ({ shopRef: shop.shop_id, authorization: shop.authorization, completeThrough: shop.coverage_through, coverageComplete: false })),
               calculation: { started: null, succeeded: null, estimate: null }, causes: [] };
