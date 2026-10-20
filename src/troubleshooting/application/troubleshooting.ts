@@ -13,6 +13,7 @@ import { ModelFailure } from "./model-failure.js";
 import { retryModel } from "./model-retry.js";
 import { codeQuery } from "./code-query.js";
 import type { CodeSearchQuery, CodeSnippetQuery, CodeTraceQuery } from "./ports.js";
+import { caseResources } from "./resource-scope.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
   "timeout", "cancelled", "rate_limited", "budget_exhausted", "version_unknown", "version_mismatch", "unsafe_content", "audit_unavailable"]);
@@ -48,6 +49,7 @@ interface RunningCase {
 export interface OfflineScope {
   readonly mode: "mock";
   readonly snapshotRef: string;
+  readonly resourceRefs?: readonly string[];
   readonly queryWindow: { readonly from: string; readonly to: string };
   readonly modelPolicy?: ModelPolicy;
   readonly modelProfile?: "memory_mock" | "local_protocol";
@@ -60,8 +62,11 @@ export class Troubleshooting {
   private readonly persistedLookups = new Map<string, Promise<Acceptance | null>>();
   private sequence = 0;
   private readonly auditBoundary?: AuditBoundary;
+  private readonly approvedResources: readonly string[] | null;
 
   constructor(private readonly configured: Partial<Ports>, private readonly scope?: OfflineScope) {
+    try { this.approvedResources = caseResources(scope?.resourceRefs ?? ["simulator-source"]); }
+    catch { this.approvedResources = null; }
     if (configured.audit) {
       this.auditBoundary = new AuditBoundary(configured.audit, (context, action, stage) => this.auditFailure(context, action, stage));
       this.configured = { ...configured, audit: this.auditBoundary.port };
@@ -167,7 +172,7 @@ export class Troubleshooting {
   private async acceptVerified(inbound: VerifiedInbound, key: string, admissionPhase?: ReturnType<typeof phaseWindow>): Promise<Acceptance> {
     if (requiredPorts.some((key) => !this.configured[key]) || this.scope?.mode !== "mock") return { status: "service_unavailable", reason: "unavailable" };
     const windowSize = Date.parse(this.scope.queryWindow.to) - Date.parse(this.scope.queryWindow.from);
-    if (!this.scope.snapshotRef || !Number.isFinite(windowSize) || windowSize <= 0 || windowSize > 86_400_000) {
+    if (!this.scope.snapshotRef || !this.approvedResources || !Number.isFinite(windowSize) || windowSize <= 0 || windowSize > 86_400_000) {
       return { status: "service_unavailable", reason: "invalid_request" };
     }
     const ports = this.configured as Ports;
@@ -184,7 +189,7 @@ export class Troubleshooting {
     const now = phase.startedAt;
     const context: CallContext = Object.freeze({ caseRef, phaseId: 1, callId: `${caseRef}:accept`, principalRef: inbound.principalRef,
       tenantRef: inbound.tenantRef, destinationRef: inbound.destinationRef, policyVersion: "mock-policy-1", approvalRef: "mock-approval-1",
-      resourceRefs: Object.freeze(["simulator-source"]), snapshotRef: this.scope.snapshotRef, budgetRef: caseRef,
+      resourceRefs: this.approvedResources, snapshotRef: this.scope.snapshotRef, budgetRef: caseRef,
       deadline: phase.deadline, signal: controller.signal });
     const work = this.confirmAcceptance(inbound, key, ports, context, controller, phase);
     void work.finally(() => this.pendingAdmissions.delete(key)).catch(() => {});
