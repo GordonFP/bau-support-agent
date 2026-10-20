@@ -11,10 +11,10 @@ export const activitySchema = z.strictObject({
 });
 export type TeamsActivity = z.infer<typeof activitySchema>;
 export const informationCommand = z.strictObject({ action: z.literal("provide_information"), caseRef: id, questionId: id,
-  content: z.strictObject({ submittedAt: z.string().max(64), candidateRef: id.optional() }) });
+  content: z.union([z.strictObject({ submittedAt: z.string().max(64), candidateRef: id.optional() }), z.strictObject({ candidateRef: id })]) });
 export const cancelCommand = z.strictObject({ action: z.literal("cancel"), caseRef: id });
 export const getCommand = z.strictObject({ action: z.literal("get"), caseRef: id });
-export const investigateCommand = z.strictObject({ action: z.literal("investigate"), applicationId: id.optional(), customerId: id.optional(), question: z.string().min(1).max(16_384) });
+export const investigateCommand = z.strictObject({ action: z.literal("investigate"), scenario: z.enum(["simulator", "psp"]).optional(), shopId: id.optional(), bindingId: id.optional(), applicationId: id.optional(), customerId: id.optional(), question: z.string().min(1).max(16_384) });
 export function mappingFor(activity: TeamsActivity, configuration: TeamsConfiguration): TeamsMapping {
   if (activity.serviceUrl !== configuration.serviceUrl || activity.recipient.id !== configuration.botId ||
     activity.conversation.tenantId !== configuration.tenantId || activity.channelData && activity.channelData.tenant.id !== configuration.tenantId) throw new Error("denied");

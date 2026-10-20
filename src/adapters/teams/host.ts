@@ -99,7 +99,8 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
       }
       const command = investigateCommand.parse(raw);
       const result = await services.application.accept({ ...mapping.actor, conversationKind: "private", receivedAt: lease.receivedAt,
-        eventRef: createHash("sha256").update(lease.activity.id).digest("hex"), input: { question: command.question,
+        eventRef: createHash("sha256").update(lease.activity.id).digest("hex"), input: { question: command.question, ...(command.scenario ? { scenario: command.scenario } : {}),
+          ...(command.shopId ? { shopId: command.shopId } : {}), ...(command.bindingId ? { bindingId: command.bindingId } : {}),
           ...(command.applicationId ? { applicationId: command.applicationId } : {}), ...(command.customerId ? { customerId: command.customerId } : {}) } });
       lease.response = "view" in result ? { status: result.status, caseRef: result.view.caseRef, phaseId: result.view.phaseId } : { status: "denied" };
     } catch { await deny(lease); }

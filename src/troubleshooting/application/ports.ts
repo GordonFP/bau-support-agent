@@ -63,18 +63,30 @@ export interface CaseView {
     readonly replyEventRef?: string; readonly replyReceivedAt?: string }[];
 }
 
-export interface InformationQuestion {
+export type InformationQuestion = {
   readonly questionId: string;
   readonly requiredFields: readonly ["submittedAt"];
   readonly candidates: readonly { readonly candidateRef: string; readonly submittedAt: string }[];
   readonly format: "ISO-8601 UTC";
   readonly prompt: string;
-}
+} | {
+  readonly questionId: string;
+  readonly requiredFields: readonly ["candidateRef"];
+  readonly candidates: readonly { readonly candidateRef: string; readonly applicationId: string; readonly shopId: string; readonly bindingId: string; readonly boundAt: string }[];
+  readonly format: "trusted target selection";
+  readonly prompt: string;
+};
 
 export interface ApplicationCandidates {
   readonly kind: "application_candidates";
   readonly customerRef: string;
   readonly candidates: readonly { readonly applicationId: string; readonly submittedAt: string }[];
+}
+
+export interface PspTargetCandidates {
+  readonly kind: "psp_target_candidates";
+  readonly candidates: readonly { readonly applicationId: string; readonly customerId: string; readonly shopId: string;
+    readonly bindingId: string; readonly boundAt: string }[];
 }
 
 export interface InformationReply {
@@ -150,7 +162,7 @@ export interface Ports {
   readonly audit: { intent(context: CallContext, action: string, details?: AuditDetails): Promise<string>;
     complete(context: CallContext, action: string, outcome: string, details?: AuditDetails): Promise<void> };
   readonly budget: { reserve(context: CallContext, upperBoundMicrousd: number, beforeStart?: () => Promise<void>): Promise<boolean>; settle(context: CallContext, actualMicrousd: number | null, settlement?: BudgetSettlement): Promise<void>; status(caseRef: string): Promise<BudgetStatus> };
-  readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | PspObservation | ApplicationCandidates | null>> };
+  readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | PspObservation | ApplicationCandidates | PspTargetCandidates | null>> };
   readonly code: {
     search(context: CallContext, query: CodeSearchQuery): Promise<ReadResult<null>>;
     snippet(context: CallContext, query: CodeSnippetQuery): Promise<ReadResult<null>>;

@@ -21,7 +21,12 @@ export const syntheticManifest = {
         properties: { repositoryRef: text, snapshotRef: text, cursor: text }, required: ["repositoryRef", "snapshotRef"] } },
   ],
 };
-export type EvidenceManifest = typeof syntheticManifest;
+export const syntheticPspManifest = { ...syntheticManifest,
+  server: { name: "bau-synthetic-psp-evidence", version: "1.0.0" }, artifactVersion: "synthetic-psp-local-service-1",
+  tools: syntheticManifest.tools.map((tool) => tool.name === "read_logs" ? { ...tool, inputSchema: { ...tool.inputSchema,
+    properties: { ...tool.inputSchema.properties, shopId: text, bindingId: text } } } : { ...tool, inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties, term: text } } }),
+};
+export type EvidenceManifest = typeof syntheticManifest | typeof syntheticPspManifest;
 export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value !== null && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))

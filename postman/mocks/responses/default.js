@@ -24,6 +24,7 @@ const server = http.createServer(async (request, response) => {
       try { const value = JSON.parse(part.text); if (candidate === undefined && value.draft) candidate = value.draft; } catch { /* Other transcript text. */ }
     }
     if (!name && candidate === undefined) return fail(response, 400);
+    if (!name && candidate?.scene === "psp") candidate = { reportRef: candidate.reportRef, draftVersion: candidate.draftVersion };
     const text = name ? "" : JSON.stringify(candidate);
     const item = name ? { type: "function_call", id: `fc_${name}`, call_id: `call_${name}`, name, arguments: "{}", status: "completed" }
       : { type: "message", id: "msg_synthetic", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] };

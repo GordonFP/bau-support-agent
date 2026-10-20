@@ -1,6 +1,6 @@
 {
   "openapi": "3.0.3",
-  "info": { "title": "Owned synthetic Kibana internal search proxy", "version": "1.0.0", "description": "Observed local candidate subset, not an identified company deployment API. Native MCP loses upstream timeout/shard status." },
+  "info": { "title": "Owned synthetic Kibana internal search proxy", "version": "1.1.0", "description": "Observed local candidate subset, not an identified company deployment API. Owned Simulator/PSP field contracts only; no real business mapping. Native MCP loses upstream timeout/shard status." },
   "paths": {
     "/internal/search/es": {
       "post": {
@@ -11,10 +11,10 @@
             "properties": { "params": {
               "type": "object", "additionalProperties": false, "required": ["index", "body"],
               "properties": {
-                "index": { "type": "string", "enum": ["synthetic-simulator"] },
+                "index": { "type": "string", "enum": ["synthetic-simulator", "synthetic-psp"] },
                 "body": { "type": "object", "additionalProperties": false, "required": ["query", "size", "from", "sort"],
                   "properties": {
-                    "query": { "type": "object", "description": "Host-generated exact association and event range only; arbitrary DSL is refused by the stand-in." },
+                    "query": { "type": "object", "description": "Host-generated exact application_id and event_time range; PSP also requires exact shop_id and binding_id. Index/source pairs are fixed by the host. Arbitrary DSL is refused by the stand-in." },
                     "size": { "type": "integer", "enum": [100] },
                     "from": { "type": "integer", "minimum": 0, "maximum": 400 },
                     "sort": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "object" } }

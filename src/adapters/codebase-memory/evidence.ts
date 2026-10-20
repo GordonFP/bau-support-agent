@@ -1,12 +1,13 @@
 import type { CallContext, Ports, ReadResult, SafeReason } from "../../troubleshooting/application/ports.js";
 import { codeQuery, type CodeOperation, type CodeQuery } from "../../troubleshooting/application/code-query.js";
 import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
-import { caseResources } from "../../troubleshooting/application/resource-scope.js";
+import { caseRepositories, caseResources } from "../../troubleshooting/application/resource-scope.js";
 import { TOOL_CALL_MS } from "../../troubleshooting/application/limits.js";
 import { McpBoundary, type OwnedMcpEndpoint } from "../mcp/boundary.js";
 import { McpFailure } from "../mcp/failure.js";
 import { canonical, digest, FRAGMENT_BYTES, SANITIZATION_VERSION } from "../mcp/manifest.js";
 import { SnapshotCollection, binarySha256, fileSha256, type CollectionReceipt } from "./collection.js";
+import { pspRule } from "./psp-rule.js";
 import { nativeManifest } from "./native-manifest.js";
 import { searchResult, snippetResult, traceResult, type NativeRead } from "./native-result.js";
 
@@ -24,6 +25,7 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
   const options = { ...supplied };
   let approved: readonly string[];
   try { approved = caseResources(supplied.approvedCaseResourceRefs ?? ["simulator-source"]); } catch { throw new McpFailure("contract_unverified"); }
+  const repositories = caseRepositories(approved);
   const call = async (context: CallContext, operation: CodeOperation, value: CodeQuery): Promise<ReadResult<null>> => {
     context = Object.freeze({ ...context, deadline: Math.min(context.deadline, ports.clock.now() + TOOL_CALL_MS), resourceRefs: Object.freeze([...context.resourceRefs]) });
     let query: CodeQuery;
@@ -31,11 +33,11 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
     const action = `mcp.code.${operation}`;
     const requested = [query.repositoryRef, ...("targetRepositoryRef" in query && query.targetRepositoryRef ? [query.targetRepositoryRef] : [])];
     if (context.snapshotRef !== query.snapshotRef || canonical([...context.resourceRefs].sort()) !== canonical([...approved].sort()) ||
-      requested.some((resource) => !approved.includes(resource))) throw new McpFailure("denied");
+      requested.some((resource) => !repositories.includes(resource))) throw new McpFailure("denied");
     const authorize = async (bound: CallContext) => {
       if (!bound.caseRef || !Number.isSafeInteger(bound.phaseId) || bound.phaseId < 1 || !bound.callId || !bound.approvalRef || !bound.policyVersion ||
         !bound.snapshotRef || bound.snapshotRef !== query.snapshotRef || canonical([...bound.resourceRefs].sort()) !== canonical([...approved].sort()) ||
-        requested.some((resource) => !approved.includes(resource))) throw new McpFailure("denied");
+        requested.some((resource) => !repositories.includes(resource))) throw new McpFailure("denied");
       for (const resourceRef of approved) {
         if (!await ports.authorization.allows(action, { ...bound, resourceRefs: [resourceRef] })) throw new McpFailure("denied");
       }
@@ -70,7 +72,7 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
           const selected = await leaseWork; native.current();
           // A cross-linked DB is never mounted for a narrower permission scope.
           const scope = selected.receipt.repositories.map((item) => item.repositoryRef);
-          if (canonical([...scope].sort()) !== canonical([...approved].sort())) throw new McpFailure("denied");
+          if (canonical([...scope].sort()) !== canonical([...repositories].sort())) throw new McpFailure("denied");
           const repository = selected.receipt.repositories.find((item) => item.repositoryRef === query.repositoryRef);
           if (!repository || requested.some((item) => !scope.includes(item)) ||
             ("file" in query && !repository.files.includes(query.file))) throw new McpFailure("denied");
@@ -107,7 +109,7 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
             acquiredAt: ports.clock.utc(), completeness, truncated: result.partial, targetRef,
             text: `[untrusted Codebase Memory evidence] ${item.text}`,
             code: { repositoryRef: item.repository.repositoryRef, branch: item.repository.branch, commit: item.repository.commit,
-              snapshotRef: bound.snapshotRef, indexedAt: item.repository.indexedAt, receiptRef: `sha256:${selected.receipt.receiptSha256}` },
+              ...(pspRule(item.text) ? { pspRule: pspRule(item.text)! } : {}), snapshotRef: bound.snapshotRef, indexedAt: item.repository.indexedAt, receiptRef: `sha256:${selected.receipt.receiptSha256}` },
           })), completeness, truncated: result.partial,
           warnings: ["Static code relationships do not prove this execution or a historical production deployment.",
             "Index coverage is best effort; zero hits do not prove absence.", ...(result.partial ? ["Native result is partial or truncated."] : []),

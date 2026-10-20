@@ -1,3 +1,5 @@
+import { pspObservationSchema } from "../mcp/psp-schema.js";
+import { pspEvents } from "../../troubleshooting/domain/psp.js";
 import { z } from "zod/v4";
 import { McpFailure } from "../mcp/failure.js";
 const text = z.string().min(1).max(1024);
@@ -25,4 +27,16 @@ export function parseNative(value: unknown): NativePage {
 export function businessDate(timestamp: string, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp));
   return [parts.find((part) => part.type === "year")!.value, parts.find((part) => part.type === "month")!.value, parts.find((part) => part.type === "day")!.value].join("-");
+}
+
+// Separate owned PSP snapshot rows. Native completeness is still unknown.
+const pspSource = z.strictObject({ event_id: text, event_time: time, application_id: text, customer_id: text,
+  shop_id: text, binding_id: text, verification: pspObservationSchema });
+const pspPage = page.extend({ hits: z.array(z.strictObject({ _id: text, _index: text, _score: z.number().finite().nullable(), _source: pspSource })).max(100) });
+export function parsePspNative(value: unknown) {
+  const result = pspPage.safeParse(value);
+  if (!result.success || result.data.hits.some(({ _source: row }) => row.application_id !== row.verification.applicationRef || row.customer_id !== row.verification.customerRef ||
+    row.shop_id !== row.verification.target.shopRef || row.binding_id !== row.verification.target.bindingRef ||
+    !pspEvents(row.verification).some((event) => event.eventRef === row.event_id && event.observedAt === row.event_time))) throw new McpFailure("schema_mismatch");
+  return result.data;
 }

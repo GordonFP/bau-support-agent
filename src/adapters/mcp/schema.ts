@@ -1,5 +1,6 @@
 import { McpFailure } from "./failure.js";
 import { z } from "zod/v4";
+import { pspObservationSchema, pspRuleSchema, pspTargetsSchema } from "./psp-schema.js";
 import { EVIDENCE_SCHEMA } from "./manifest.js";
 const string = z.string().min(1);
 const date = z.iso.date();
@@ -19,9 +20,9 @@ const evidence = z.strictObject({ sourceRef: string, kind: z.enum(["log", "code"
   targetRef: string, text: string,
   log: z.strictObject({ from: time, to: time, queryRef: string }).optional(),
   code: z.strictObject({ repositoryRef: string, branch: z.enum(["main", "master"]), commit: z.string().regex(/^[a-f0-9]{40}$/),
-    snapshotRef: string, indexedAt: time, receiptRef: string }).optional(),
+    snapshotRef: string, indexedAt: time, receiptRef: string, pspRule: pspRuleSchema.optional() }).transform(({ pspRule, ...code }) => ({ ...code, ...(pspRule ? { pspRule } : {}) })).optional(),
 }).transform(({ log, code, ...item }) => ({ ...item, ...(log ? { log } : {}), ...(code ? { code } : {}) }));
-const schema = z.strictObject({ schemaVersion: z.literal(EVIDENCE_SCHEMA), value: z.union([observation, candidates, z.null()]),
+const schema = z.strictObject({ schemaVersion: z.literal(EVIDENCE_SCHEMA), value: z.union([observation, candidates, pspObservationSchema, pspTargetsSchema, z.null()]),
   evidence: z.array(evidence).max(100), completeness: complete, truncated: z.boolean(), warnings: z.array(string).max(32),
   nextCursor: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),
 });

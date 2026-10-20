@@ -13,7 +13,7 @@ const shape = z.strictObject({
   packages: z.strictObject({ axios: z.strictObject({ path, version: z.enum(["1.12.2", "1.20.0"]) }), sdk: z.strictObject({ path, version: z.enum(["1.20.0", "1.32.1"]) }) }),
   modules: z.array(z.strictObject({ path, sha256: sha })).min(3).max(512),
   backend: z.strictObject({ url: z.string().max(256), apiKey: z.literal("owned-synthetic-key") }),
-  index: z.literal("synthetic-simulator"),
+  index: z.enum(["synthetic-simulator", "synthetic-psp"]),
   manifest: z.strictObject({ server: z.strictObject({ name: z.string().min(1).max(100), version: z.string().min(1).max(50) }),
     protocolVersion: z.enum(["2025-06-18", "2025-11-25"]), capabilities: z.record(z.string(), z.unknown()),
     tools: z.array(z.record(z.string(), z.unknown())).min(1).max(16), searchTool: z.string().min(1).max(80) }),

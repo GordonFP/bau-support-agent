@@ -25,4 +25,4 @@ export async function reviewedSkill(path: string): Promise<string> {
     return new TextDecoder("utf-8", { fatal: true }).decode(body);
   } catch { throw new Error("contract_unverified"); }
 }
-export const REVIEWED_SKILL_SHA256 = "27b86d3f62c99d366999fd07cb0651f04b9477206d0d204255f3f7680ae0258e";
+export const REVIEWED_SKILL_SHA256 = "e204643dabd38e47d884b5aee74846b060e18fee46a50b3a6ddfd336f3d16a69";

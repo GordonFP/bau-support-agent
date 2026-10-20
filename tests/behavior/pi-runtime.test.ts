@@ -302,6 +302,7 @@ test("a trusted reply starts a fresh native Pi phase without old tool history wh
     await mock.phaseClosed(1);
     const waiting = await mock.application.get(mock.inbound, "case-1");
     assert.ok("state" in waiting && waiting.state === "awaiting_input" && waiting.question);
+    assert.ok(waiting.question.format === "ISO-8601 UTC");
     assert.equal(server.requests.length, 1);
     clock.advance(600_000);
     const resumed = await mock.application.provideInformation({ ...mock.inbound, eventRef: "trusted-phase-two", receivedAt: clock.utc(),

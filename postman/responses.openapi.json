@@ -1,8 +1,8 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Synthetic Responses for the controlled ModelGateway",
-    "version": "1.0.0",
+    "description": "Owned local Responses subset. Simulator echoes its host draft; PSP selects the exact current reportRef and draftVersion with no other fields. Full drafts remain in bounded input; total generation bound is unchanged.", "title": "Synthetic Responses for the controlled ModelGateway",
+    "version": "1.1.0",
     "description": "Local reviewed function-tool subset only; no real GPT mapping, tokenizer or billing proof. Generated candidate/arguments plus empty reasoning are bounded to 4000 synthetic byte-pair tokens before emission."
   },
   "paths": {

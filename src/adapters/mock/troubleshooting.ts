@@ -30,6 +30,7 @@ export const simulatorFixture: SimulatorObservation = {
 
 export interface MockOptions {
   readonly pspObservation?: PspObservation | null;
+  readonly resourceRefs?: readonly string[];
   readonly modelPolicy?: ModelPolicy | null;
   readonly modelProfile?: "memory_mock" | "local_protocol";
   readonly lifecycleActors?: readonly TrustedActor[];
@@ -75,6 +76,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   let sanitizationCount = 0;
   const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1", modelProfile: options.modelProfile ?? "memory_mock",
     ...(options.pspObservation !== undefined ? { resourceRefs: ["simulator-source", "psp-log-source", "psp-code"], psp: { sourceRef: "psp-log-source", repositoryRef: "psp-code" } } : {}),
+    ...(options.resourceRefs ? { resourceRefs: Object.freeze([...options.resourceRefs]) } : {}),
     ...(options.modelPolicy === null ? {} : { modelPolicy: options.modelPolicy === undefined ? mockModelPolicy : Object.freeze(structuredClone(options.modelPolicy)) }),
     queryWindow: options.queryWindow ?? {
     from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z",
@@ -84,14 +86,16 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     receivedAt: "2026-10-19T09:00:00.000Z", input: { applicationId: "SYNTHETIC-SECRET-APPLICATION", question: "Why is SYNTHETIC-SECRET-APPLICATION still waiting?" } };
   const evidenceBase = { sourceRef: "simulator-source", acquiredAt: "2026-10-19T09:00:01.000Z", completeness: "complete" as const,
     truncated: false, targetRef: options.evidenceTargetRef ?? options.observation?.applicationRef ?? "SYNTHETIC-SECRET-APPLICATION" };
-  const log: SourceEvidence = { ...evidenceBase, sourceRef: options.pspObservation !== undefined ? "psp-log-source" : "simulator-source", kind: "log", locator: "synthetic-log:1", observedAt: "2026-10-18T23:00:00.000Z",
+  const log: SourceEvidence = { ...evidenceBase, sourceRef: "simulator-source", kind: "log", locator: "synthetic-log:1", observedAt: "2026-10-18T23:00:00.000Z",
     text: "Synthetic submitted-shop coverage observation for SYNTHETIC-SECRET-APPLICATION.",
     log: { ...scope.queryWindow, queryRef: "synthetic-query-1" } };
-  const code: SourceEvidence = { ...evidenceBase, sourceRef: options.pspObservation !== undefined ? "psp-code" : "simulator-source", kind: "code", locator: options.pspObservation !== undefined ? "psp.ts:10" : "simulator.ts:10", observedAt: null,
-    text: options.pspObservation !== undefined ? "Synthetic PSP code alone does not prove this shop's executed verification path."
-      : "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
-    code: { repositoryRef: options.pspObservation !== undefined ? "psp-code" : "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
+  const code: SourceEvidence = { ...evidenceBase, sourceRef: "simulator-source", kind: "code", locator: "simulator.ts:10", observedAt: null,
+    text: "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
+    code: { repositoryRef: "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
       snapshotRef: "simulator-snapshot-1", indexedAt: "2026-10-19T08:00:00.000Z", receiptRef: "synthetic-snapshot-receipt-1" } };
+  const codeFor = (repositoryRef: string): SourceEvidence => repositoryRef === "simulator-source" ? structuredClone(code)
+    : { ...structuredClone(code), sourceRef: repositoryRef, locator: "psp.ts:10",
+      text: "Synthetic PSP code alone does not prove this shop's executed verification path.", code: { ...code.code!, repositoryRef } };
   const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>) => {
     actor = recordActor(actor);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
@@ -224,10 +228,10 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       if (query.sourceRef === "psp-log-source" && options.pspObservation) {
         const value = options.pspObservation;
         const points = [{ eventRef: value.target.recordRef, observedAt: value.target.boundAt, target: value.target }, value.first, value.support,
-          value.second.transaction, value.second.tailThree, value.final, ...value.linkedShops];
+          value.second.transaction, value.second.tailThree, value.final, ...value.linkedShops, ...(value.executions ?? [])];
         const seen = new Set<string>();
         const evidence = points.filter((point) => point.eventRef && point.observedAt && !seen.has(point.eventRef) && seen.add(point.eventRef)).map((point) =>
-          ({ ...structuredClone(log), locator: point.eventRef!, observedAt: point.observedAt, text: `Synthetic PSP observation: ${JSON.stringify(point)}` }));
+          ({ ...structuredClone(log), sourceRef: "psp-log-source", locator: point.eventRef!, observedAt: point.observedAt, text: `Synthetic PSP observation: ${JSON.stringify(point)}` }));
         return { value: structuredClone(value), evidence, completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
       }
       return { value: structuredClone(observation), evidence: observation ? [structuredClone(log)] : [],
@@ -236,15 +240,15 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     code: { async search(context, query) {
       codeQuery("search", query);
       events.push({ action: "code.search", input: query });
-      return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
+      return { value: null, evidence: [codeFor(query.repositoryRef)], completeness: "complete", truncated: false, warnings: [] };
     }, async snippet(context, query) {
       codeQuery("snippet", query);
       events.push({ action: "code.snippet", input: query });
-      return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
+      return { value: null, evidence: [codeFor(query.repositoryRef)], completeness: "complete", truncated: false, warnings: [] };
     }, async trace(context, query) {
       codeQuery("trace", query);
       events.push({ action: "code.trace", input: query });
-      return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
+      return { value: null, evidence: [codeFor(query.repositoryRef)], completeness: "complete", truncated: false, warnings: [] };
     } },
     agent: {
       async run(context, request) {
@@ -292,8 +296,12 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       try { draft = (JSON.parse(last.content) as { draft?: DiagnosticReport }).draft; } catch { /* A full neutral turn need not contain a report draft. */ }
       events.push({ action: "model.generate", input: structuredClone(draft) });
       if (options.model && !draft) throw new Error("schema_mismatch");
-      const response = options.model ? await options.model(context, draft!, envelope)
-        : { candidate: draft ? options.candidate ? options.candidate(draft) : structuredClone(draft) : "Synthetic model response.", actualMicrousd: 1_000 };
+      const candidate = () => {
+        if (!draft) return "Synthetic model response.";
+        if (options.candidate) return options.candidate(draft);
+        return draft.scene === "psp" ? { reportRef: draft.reportRef, draftVersion: draft.draftVersion } : structuredClone(draft);
+      };
+      const response = options.model ? await options.model(context, draft!, envelope) : { candidate: candidate(), actualMicrousd: 1_000 };
       return { ...response, message: "message" in response && response.message ? response.message : { stopReason: "stop",
         content: [{ type: "text", text: typeof response.candidate === "string" ? response.candidate : JSON.stringify(response.candidate) }] } };
     } },

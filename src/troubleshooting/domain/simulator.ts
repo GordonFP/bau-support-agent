@@ -1,5 +1,5 @@
 import { diagnosePsp } from "./psp.js";
-import type { PspObservation, PspReport } from "./psp.js";
+import type { PspObservation, PspReport, PspRule } from "./psp.js";
 
 export type Completeness = "complete" | "partial" | "unknown";
 export type Authorization = "active" | "cancelled" | "unknown";
@@ -43,6 +43,7 @@ export interface EvidenceReference {
     readonly snapshotRef: string;
     readonly indexedAt: string;
     readonly receiptRef: string;
+    readonly pspRule?: PspRule;
   };
 }
 
@@ -98,17 +99,27 @@ export class TroubleshootingCase {
   private awaiting = false;
   private phase = 1;
   private selectedTarget: string | undefined;
+  private selectedPspTarget: string | undefined;
   private materialRevision = 0;
   private readonly sourceWarnings = new Set<string>();
 
   constructor(readonly caseRef: string) {}
 
   get materialVersion(): number { return this.materialRevision; }
+  private get draftVersion(): string { return `${this.caseRef}:phase-${this.phase}:material-${this.materialRevision}`; }
 
   selectTarget(applicationRef: string): void {
     if (this.ended || (this.selectedTarget !== undefined && this.selectedTarget !== applicationRef)) throw new Error("invalid_request");
     if (this.selectedTarget !== applicationRef) this.materialRevision++;
     this.selectedTarget = applicationRef;
+  }
+
+  selectPspTarget(observation: PspObservation): void {
+    const target = JSON.stringify([observation.applicationRef, observation.customerRef, observation.target.shopRef, observation.target.bindingRef,
+      observation.target.platformRef, observation.target.pspRef, observation.target.recordRef, observation.target.boundAt]);
+    if (this.ended || this.selectedPspTarget !== undefined && this.selectedPspTarget !== target) throw new Error("invalid_request");
+    this.selectTarget(observation.applicationRef);
+    this.selectedPspTarget = target;
   }
 
   awaitInformation(): void {
@@ -131,7 +142,7 @@ export class TroubleshootingCase {
     this.awaiting = false;
   }
 
-  forget(): void { this.stop(); this.evidence.clear(); this.sourceWarnings.clear(); this.selectedTarget = undefined; }
+  forget(): void { this.stop(); this.evidence.clear(); this.sourceWarnings.clear(); this.selectedTarget = undefined; this.selectedPspTarget = undefined; }
 
   acceptWarnings(warnings: readonly string[]): void {
     if (this.ended || this.awaiting) throw new Error("invalid_request");
@@ -197,13 +208,15 @@ export class TroubleshootingCase {
   }
 
   diagnosePsp(observation: PspObservation | null, problem: string, formedAt: string): PspReport {
-    return immutable(diagnosePsp(this.caseRef, observation, problem, formedAt, [...this.evidence.values()], [...this.sourceWarnings]));
+    return immutable(diagnosePsp(this.caseRef, observation, problem, formedAt, [...this.evidence.values()], [...this.sourceWarnings], this.draftVersion));
   }
 
   finish(candidate: unknown, expected: DiagnosticReport): DiagnosticReport {
-    // The first offline slice only accepts the deterministic evidence-backed draft.
-    // A future model adapter must still submit a candidate through this boundary.
-    if (this.ended || JSON.stringify(candidate) !== JSON.stringify(expected)) throw new Error("unsafe_content");
+    const selection = candidate !== null && typeof candidate === "object" && !Array.isArray(candidate) ? candidate as Record<string, unknown> : null;
+    const selected = expected.scene === "psp" && selection && Object.keys(selection).length === 2 &&
+      Object.keys(selection).every((key) => key === "reportRef" || key === "draftVersion") && selection.reportRef === expected.reportRef && selection.draftVersion === expected.draftVersion;
+    if (this.ended || expected.scene === "psp" && (expected.caseRef !== this.caseRef || expected.draftVersion !== this.draftVersion) ||
+      !selected && JSON.stringify(candidate) !== JSON.stringify(expected)) throw new Error("unsafe_content");
     for (const fact of [...expected.facts, ...expected.possibleCauses]) {
       if (!fact.evidenceRefs.length || fact.evidenceRefs.some((ref) => !this.evidence.has(ref))) throw new Error("invalid_request");
     }
