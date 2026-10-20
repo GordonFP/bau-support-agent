@@ -44,6 +44,7 @@ test("actual in-process Pi selects only reviewed MCP tools and delivers its evid
     const view = await mock.application.get(mock.inbound, "case-1");
     assert.ok("state" in view && view.state === "completed", JSON.stringify(view));
     const sent = await mock.delivery.next();
+    assert.ok(sent.report.scene === "simulator");
     assert.deepEqual(sent.report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
     assert.equal(sent.report.evidence.length, 2);
     assert.equal(sent.destinationRef, mock.inbound.destinationRef);

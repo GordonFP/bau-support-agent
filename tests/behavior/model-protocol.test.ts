@@ -80,6 +80,7 @@ test("A Simulator reaches the native gateway and records the exact complete wire
     assert.equal(server.requests[0]!.includes("SYNTHETIC-SECRET"), false);
     assert.equal(stored.view.state, "completed");
     const sent = await mock.delivery.next();
+    assert.ok(sent.report.scene === "simulator");
     assert.equal(sent.report.simulator.shops.length, 10);
     assert.equal(sent.destinationRef, mock.inbound.destinationRef);
     const budget = await mock.ports.budget.status("case-1");

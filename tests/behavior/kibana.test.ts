@@ -51,7 +51,7 @@ test("A through actual Pi, Responses, native MCP and owned ES delivers an honest
   try {
     assert.equal((await mock.receive()).status, "accepted"); await mock.closed;
     const view = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in view && view.state === "completed", JSON.stringify(view));
-    const sent = await mock.delivery.next(); assert.deepEqual(sent.report.simulator.dataReadiness, { satisfied: 0, missing: 0, unknown: 1 });
+    const sent = await mock.delivery.next(); assert.ok(sent.report.scene === "simulator"); assert.deepEqual(sent.report.simulator.dataReadiness, { satisfied: 0, missing: 0, unknown: 1 });
     assert.notEqual(sent.report.diagnosticStatus, "located"); assert.match(sent.report.limitations.join(" "), /completeness.*unknown/i);
     assert.equal(sent.report.evidence[0]!.completeness, "unknown"); assert.equal(server.requests.length, 1); assert.equal(model.requests.length, 2);
     const retained = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(retained?.scope === "full");

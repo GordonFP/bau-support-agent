@@ -16,6 +16,7 @@ test("actual A/B/C gateway completes model-selected log/code tool turns through 
     assert.ok(stored?.scope === "full");
     assert.equal(stored.view.state, "completed");
     const report = await mock.delivery.next();
+    assert.ok(report.report.scene === "simulator");
     assert.equal(report.report.simulator.shopCount, 10);
     assert.deepEqual(report.report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
     const budget = await mock.ports.budget.status("case-1");

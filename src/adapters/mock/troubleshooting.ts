@@ -7,6 +7,7 @@ import { auditRecord } from "../../troubleshooting/application/audit-record.js";
 import { codeQuery } from "../../troubleshooting/application/code-query.js";
 import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
+import type { PspObservation } from "../../troubleshooting/domain/psp.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
 import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole } from "../../troubleshooting/application/records.js";
 import { RetentionLifecycle, type RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
@@ -28,6 +29,7 @@ export const simulatorFixture: SimulatorObservation = {
 };
 
 export interface MockOptions {
+  readonly pspObservation?: PspObservation | null;
   readonly modelPolicy?: ModelPolicy | null;
   readonly modelProfile?: "memory_mock" | "local_protocol";
   readonly lifecycleActors?: readonly TrustedActor[];
@@ -72,6 +74,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   ]);
   let sanitizationCount = 0;
   const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1", modelProfile: options.modelProfile ?? "memory_mock",
+    ...(options.pspObservation !== undefined ? { resourceRefs: ["simulator-source", "psp-log-source", "psp-code"], psp: { sourceRef: "psp-log-source", repositoryRef: "psp-code" } } : {}),
     ...(options.modelPolicy === null ? {} : { modelPolicy: options.modelPolicy === undefined ? mockModelPolicy : Object.freeze(structuredClone(options.modelPolicy)) }),
     queryWindow: options.queryWindow ?? {
     from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z",
@@ -81,12 +84,13 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     receivedAt: "2026-10-19T09:00:00.000Z", input: { applicationId: "SYNTHETIC-SECRET-APPLICATION", question: "Why is SYNTHETIC-SECRET-APPLICATION still waiting?" } };
   const evidenceBase = { sourceRef: "simulator-source", acquiredAt: "2026-10-19T09:00:01.000Z", completeness: "complete" as const,
     truncated: false, targetRef: options.evidenceTargetRef ?? options.observation?.applicationRef ?? "SYNTHETIC-SECRET-APPLICATION" };
-  const log: SourceEvidence = { ...evidenceBase, kind: "log", locator: "synthetic-log:1", observedAt: "2026-10-18T23:00:00.000Z",
+  const log: SourceEvidence = { ...evidenceBase, sourceRef: options.pspObservation !== undefined ? "psp-log-source" : "simulator-source", kind: "log", locator: "synthetic-log:1", observedAt: "2026-10-18T23:00:00.000Z",
     text: "Synthetic submitted-shop coverage observation for SYNTHETIC-SECRET-APPLICATION.",
     log: { ...scope.queryWindow, queryRef: "synthetic-query-1" } };
-  const code: SourceEvidence = { ...evidenceBase, kind: "code", locator: "simulator.ts:10", observedAt: null,
-    text: "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
-    code: { repositoryRef: "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
+  const code: SourceEvidence = { ...evidenceBase, sourceRef: options.pspObservation !== undefined ? "psp-code" : "simulator-source", kind: "code", locator: options.pspObservation !== undefined ? "psp.ts:10" : "simulator.ts:10", observedAt: null,
+    text: options.pspObservation !== undefined ? "Synthetic PSP code alone does not prove this shop's executed verification path."
+      : "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
+    code: { repositoryRef: options.pspObservation !== undefined ? "psp-code" : "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
       snapshotRef: "simulator-snapshot-1", indexedAt: "2026-10-19T08:00:00.000Z", receiptRef: "synthetic-snapshot-receipt-1" } };
   const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>) => {
     actor = recordActor(actor);
@@ -168,14 +172,15 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         const trusted = authorizedActors.some((actor) => actor.tenantRef === context.tenantRef && actor.principalRef === context.principalRef && actor.destinationRef === context.destinationRef);
         const review = ["records.read", "records.export"].includes(action) && options.recordGrants?.some((grant) => grant.actor.principalRef === context.principalRef &&
           grant.actor.tenantRef === context.tenantRef && grant.actor.destinationRef === context.destinationRef && context.resourceRefs.every((ref) => grant.resourceRefs.includes(ref)));
-        return (trusted || review === true) && context.resourceRefs.every((ref) => ref === "simulator-source") && !options.denyActions?.includes(action);
+        return (trusted || review === true) && context.resourceRefs.every((ref) => (scope.resourceRefs ?? ["simulator-source"]).includes(ref)) && !options.denyActions?.includes(action);
       },
     },
     sanitization: {
       sanitize<T>(value: T, caseRef: string): T {
         if (++sanitizationCount === options.sanitizeFailsAt) throw new Error("synthetic-sensitive-upstream-error");
         const json = JSON.stringify(value).replaceAll("SYNTHETIC-SECRET-APPLICATION", `[${caseRef}:application]`)
-          .replaceAll("SYNTHETIC-SECRET-CUSTOMER", `[${caseRef}:customer]`);
+          .replaceAll("SYNTHETIC-SECRET-CUSTOMER", `[${caseRef}:customer]`).replaceAll("SYNTHETIC-SECRET-SHOP", `[${caseRef}:shop]`)
+          .replaceAll("SYNTHETIC-SECRET-BINDING", `[${caseRef}:binding]`);
         return JSON.parse(json) as T;
       },
       safe: (value) => !/SYNTHETIC-SECRET|https?:\/\/|<script/i.test(JSON.stringify(value)),
@@ -215,7 +220,16 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         return { value: { kind: "application_candidates", customerRef: query.customerId, candidates: options.customerCandidates },
           evidence: [{ ...structuredClone(log), targetRef: query.customerId }], completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
       }
-      const observation = options.observation === undefined ? simulatorFixture : options.observation;
+      const observation = query.sourceRef === "psp-log-source" ? options.pspObservation ?? null : options.observation === undefined ? simulatorFixture : options.observation;
+      if (query.sourceRef === "psp-log-source" && options.pspObservation) {
+        const value = options.pspObservation;
+        const points = [{ eventRef: value.target.recordRef, observedAt: value.target.boundAt, target: value.target }, value.first, value.support,
+          value.second.transaction, value.second.tailThree, value.final, ...value.linkedShops];
+        const seen = new Set<string>();
+        const evidence = points.filter((point) => point.eventRef && point.observedAt && !seen.has(point.eventRef) && seen.add(point.eventRef)).map((point) =>
+          ({ ...structuredClone(log), locator: point.eventRef!, observedAt: point.observedAt, text: `Synthetic PSP observation: ${JSON.stringify(point)}` }));
+        return { value: structuredClone(value), evidence, completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
+      }
       return { value: structuredClone(observation), evidence: observation ? [structuredClone(log)] : [],
         completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
     } },

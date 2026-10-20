@@ -30,6 +30,7 @@ test("independent MCP client and local synthetic services produce the complete S
   const mock = setup();
   assert.equal((await mock.receive()).status, "accepted");
   const { report } = await mock.delivery.next();
+  assert.ok(report.scene === "simulator");
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
   assert.equal(report.evidence.length, 2);
   assert.ok(report.evidence.every((item) => item.text.startsWith("[untrusted MCP evidence]")));
@@ -67,6 +68,7 @@ for (const validDate of ["2024-02-29", "2000-02-29"]) {
     const mock = setup(`calendar:all:${validDate}`);
     await mock.receive();
     const { report } = await mock.delivery.next();
+    assert.ok(report.scene === "simulator");
     assert.equal(report.simulator.submittedOn, validDate);
     assert.deepEqual(report.simulator.dataReadiness, { satisfied: 10, missing: 0, unknown: 0 });
     assert.ok(report.simulator.shops.every((shop) => shop.targetDate === validDate && shop.completeThrough === validDate));
@@ -77,6 +79,7 @@ test("native MCP null coverage remains unknown rather than becoming a calendar o
   const mock = setup("null_coverage");
   await mock.receive();
   const { report } = await mock.delivery.next();
+  assert.ok(report.scene === "simulator");
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 0, missing: 0, unknown: 10 });
   assert.ok(report.simulator.shops.every((shop) => shop.completeThrough === null && shop.readiness === "unknown"));
 });

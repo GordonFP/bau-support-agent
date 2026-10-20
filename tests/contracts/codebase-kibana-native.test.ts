@@ -78,6 +78,7 @@ test("one stable full case context and shared boundary join actual Pi, native Ki
     const view = await application.get(mock.inbound, "case-1");
     assert.ok("state" in view && view.state === "completed", JSON.stringify(view));
     const sent = await mock.delivery.next();
+    assert.ok(sent.report.scene === "simulator");
     assert.deepEqual(sent.report.simulator.dataReadiness, { satisfied: 0, missing: 0, unknown: 1 });
     assert.notEqual(sent.report.diagnosticStatus, "located");
     assert.equal(sent.report.evidence.filter((item) => item.kind === "code").length, 1);

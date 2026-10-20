@@ -5,6 +5,7 @@ import type { BeforeModelSend, ModelResponse, ModelTurn } from "./model-contract
 
 import type { DeliveryAttempt, DeliveryNotice, DeliveryResult } from "./communication.js";
 import type { Retention } from "./retention.js";
+import type { PspObservation } from "../domain/psp.js";
 
 export type SafeReason = "denied" | "invalid_request" | "contract_unverified" | "schema_mismatch" |
   "unavailable" | "timeout" | "cancelled" | "rate_limited" | "budget_exhausted" | "version_unknown" |
@@ -17,7 +18,8 @@ export interface VerifiedInbound {
   readonly destinationRef: string;
   readonly conversationKind: "private" | "group";
   readonly receivedAt: string;
-  readonly input: { readonly applicationId?: string; readonly customerId?: string; readonly question: string };
+  readonly input: { readonly scenario?: "simulator" | "psp"; readonly applicationId?: string; readonly customerId?: string;
+    readonly shopId?: string; readonly bindingId?: string; readonly question: string };
 }
 
 export type TrustedActor = Pick<VerifiedInbound, "principalRef" | "tenantRef" | "destinationRef">;
@@ -92,9 +94,11 @@ export type Acceptance = { readonly status: "accepted" | "duplicate"; readonly v
   { readonly status: "denied" | "service_unavailable"; readonly reason: SafeReason };
 
 export interface LogQuery {
-  readonly sourceRef: "simulator-source";
+  readonly sourceRef: "simulator-source" | "psp-log-source";
   readonly applicationId?: string;
   readonly customerId?: string;
+  readonly shopId?: string;
+  readonly bindingId?: string;
   readonly from: string;
   readonly to: string;
   readonly pageSize: 100;
@@ -146,7 +150,7 @@ export interface Ports {
   readonly audit: { intent(context: CallContext, action: string, details?: AuditDetails): Promise<string>;
     complete(context: CallContext, action: string, outcome: string, details?: AuditDetails): Promise<void> };
   readonly budget: { reserve(context: CallContext, upperBoundMicrousd: number, beforeStart?: () => Promise<void>): Promise<boolean>; settle(context: CallContext, actualMicrousd: number | null, settlement?: BudgetSettlement): Promise<void>; status(caseRef: string): Promise<BudgetStatus> };
-  readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | ApplicationCandidates | null>> };
+  readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | PspObservation | ApplicationCandidates | null>> };
   readonly code: {
     search(context: CallContext, query: CodeSearchQuery): Promise<ReadResult<null>>;
     snippet(context: CallContext, query: CodeSnippetQuery): Promise<ReadResult<null>>;

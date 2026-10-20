@@ -3,6 +3,7 @@ import { TroubleshootingCase } from "../domain/simulator.js";
 import { boundedBody, CASE_EXECUTION_MS, CASE_MODEL_MICROUSD, CLEANUP_MS, MAX_ACTIVE_CASES, MAX_LOG_RECORDS, MAX_MODEL_ATTEMPTS, MODEL_CALL_MS, TOOL_CALL_MS, phaseWindow } from "./limits.js";
 import { beforeDeadline, schedule } from "./deadline.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
+import type { PspObservation } from "../domain/psp.js";
 import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationReply, InformationResult, Ports, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
 import type { AuditDetails, CaseRecord } from "./records.js";
 import { AuditBoundary } from "./audit-boundary.js";
@@ -51,6 +52,7 @@ export interface OfflineScope {
   readonly mode: "mock";
   readonly snapshotRef: string;
   readonly resourceRefs?: readonly string[];
+  readonly psp?: { readonly sourceRef: "psp-log-source"; readonly repositoryRef: string };
   readonly queryWindow: { readonly from: string; readonly to: string };
   readonly modelPolicy?: ModelPolicy;
   readonly modelProfile?: "memory_mock" | "local_protocol";
@@ -67,10 +69,13 @@ export class Troubleshooting {
   private closing?: Promise<void>;
   private readonly auditBoundary?: AuditBoundary;
   private readonly approvedResources: readonly string[] | null;
+  private readonly pspResources: OfflineScope["psp"];
 
   constructor(private readonly configured: Partial<Ports>, private readonly scope?: OfflineScope) {
     try { this.approvedResources = caseResources(scope?.resourceRefs ?? ["simulator-source"]); }
     catch { this.approvedResources = null; }
+    this.pspResources = scope?.psp && this.approvedResources?.includes(scope.psp.sourceRef) && this.approvedResources.includes(scope.psp.repositoryRef)
+      ? Object.freeze(structuredClone(scope.psp)) : undefined;
     if (configured.audit) {
       this.auditBoundary = new AuditBoundary(configured.audit, (context, action, stage) => this.auditFailure(context, action, stage));
       this.configured = { ...configured, audit: this.auditBoundary.port };
@@ -185,6 +190,7 @@ export class Troubleshooting {
   }
 
   private async acceptVerified(inbound: VerifiedInbound, key: string, admissionPhase?: ReturnType<typeof phaseWindow>): Promise<Acceptance> {
+    if (inbound.input.scenario === "psp" && !this.pspResources) return { status: "service_unavailable", reason: "contract_unverified" };
     if (requiredPorts.some((key) => !this.configured[key]) || this.scope?.mode !== "mock") return { status: "service_unavailable", reason: "unavailable" };
     const windowSize = Date.parse(this.scope.queryWindow.to) - Date.parse(this.scope.queryWindow.from);
     if (!this.scope.snapshotRef || !this.approvedResources || !Number.isFinite(windowSize) || windowSize <= 0 || windowSize > 86_400_000) {
@@ -574,8 +580,12 @@ export class Troubleshooting {
     const phaseContext = running.context;
     const phaseController = running.controller;
     const phaseInbound = running.inbound;
+    const psp = phaseInbound.input.scenario === "psp";
+    const sourceRef = psp ? this.pspResources!.sourceRef : "simulator-source";
+    const repositoryRef = psp ? this.pspResources!.repositoryRef : "simulator-source";
     const investigation = running.investigation;
     let observation: SimulatorObservation | null = null;
+    let pspObservation: PspObservation | null = null;
     let callSequence = 0;
     let evidenceSequence = 0;
     let safeInput: VerifiedInbound["input"];
@@ -596,8 +606,8 @@ export class Troubleshooting {
       const cap = action === "model.generate" ? MODEL_CALL_MS : ["logs.read", "code.search", "code.snippet", "code.trace"].includes(action) ? TOOL_CALL_MS : CASE_EXECUTION_MS;
       const context = Object.freeze({ ...(attempt ? { ...phaseContext, callId: attempt.callId, operationRef: attempt.operationRef } : contextFor(action)),
         deadline: Math.min(phaseContext.deadline, attempt?.deadline ?? ports.clock.now() + cap) });
-      const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef: "simulator-source", ...this.scope!.queryWindow, pageSize: 100 } }
-        : action.startsWith("code.") ? { scope: { repositoryRef: "simulator-source", snapshotRef: phaseContext.snapshotRef } }
+      const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef, ...this.scope!.queryWindow, pageSize: 100 } }
+        : action.startsWith("code.") ? { scope: { repositoryRef, snapshotRef: phaseContext.snapshotRef } }
         : action === "model.generate" ? { model: this.scope!.modelProfile === "local_protocol"
           ? { profile: "local_protocol", protocol: "synthetic-responses-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
           : { profile: "memory_mock", protocol: "mock-json-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "offline-model-1" } }
@@ -680,11 +690,11 @@ export class Troubleshooting {
       if (!read.evidence.length && (read.completeness !== "complete" || read.truncated)) {
         investigation.acceptWarnings([`${kind}: ${read.completeness}; truncated=${read.truncated}; zero observations.`]);
       }
-      const targetRef = kind === "log" ? (read.value as SimulatorObservation | null)?.applicationRef : observation?.applicationRef;
+      const targetRef = kind === "log" ? (read.value as SimulatorObservation | null)?.applicationRef : pspObservation?.applicationRef ?? observation?.applicationRef;
       if (kind === "log" && targetRef && targetRef !== selectedApplicationRef) throw new Error("invalid_request");
       if (kind === "log" && selectedSubmittedOn && (read.value as SimulatorObservation | null)?.submittedOn !== selectedSubmittedOn) throw new Error("invalid_request");
       for (const [index, item] of read.evidence.entries()) {
-        if (item.kind !== kind || (kind === "log" ? item.sourceRef !== "simulator-source" : !phaseContext.resourceRefs.includes(item.sourceRef))) throw new Error("schema_mismatch");
+        if (item.kind !== kind || (kind === "log" ? item.sourceRef !== sourceRef : !phaseContext.resourceRefs.includes(item.sourceRef))) throw new Error("schema_mismatch");
         if (targetRef && item.targetRef !== targetRef) throw new Error("invalid_request");
         if (kind === "code" && (item.code?.snapshotRef !== phaseContext.snapshotRef ||
           !phaseContext.resourceRefs.includes(item.code.repositoryRef) || !["main", "master"].includes(item.code.branch) ||
@@ -705,7 +715,8 @@ export class Troubleshooting {
         let logAuditRef = "";
         const read = await guarded("logs.read", async (context) => {
           const result = await ports.logs.read(context, {
-            sourceRef: "simulator-source", ...(selectedApplicationId !== undefined
+            sourceRef, ...(psp && phaseInbound.input.shopId ? { shopId: phaseInbound.input.shopId } : {}),
+            ...(psp && phaseInbound.input.bindingId ? { bindingId: phaseInbound.input.bindingId } : {}), ...(selectedApplicationId !== undefined
               ? { applicationId: selectedApplicationId } : { customerId: phaseInbound.input.customerId! }),
             from: this.scope!.queryWindow.from, to: this.scope!.queryWindow.to, pageSize: 100,
           });
@@ -720,7 +731,7 @@ export class Troubleshooting {
             logRecords: running.view.usage.logRecords + result.evidence.length,
             logCoverageMs: running.view.usage.logCoverageMs + newCoverage } };
           await this.saveView(running, ports);
-          if (result.value && "kind" in result.value) rawCandidates = structuredClone(result.value.candidates);
+          if (result.value && "kind" in result.value && result.value.kind === "application_candidates") rawCandidates = structuredClone(result.value.candidates);
           return result;
         }, (_read, auditRef) => { logAuditRef = auditRef; });
         if (read.value && "kind" in read.value && read.value.kind === "application_candidates") {
@@ -761,13 +772,17 @@ export class Troubleshooting {
           throw new Error("awaiting_input");
         }
         await acceptEvidence(read, "log", logAuditRef);
-        observation = read.evidence.length ? read.value as SimulatorObservation | null : null;
+        if (psp) {
+          const value = read.evidence.length ? read.value as PspObservation | null : null;
+          if (value && (value.kind !== "psp_observation" || value.target.shopRef !== safeInput.shopId || value.target.bindingRef !== safeInput.bindingId)) throw new Error("invalid_request");
+          pspObservation = value;
+        } else observation = read.evidence.length ? read.value as SimulatorObservation | null : null;
         return read;
       }
       if (tool === "code.search" || tool === "code.snippet" || tool === "code.trace") {
         const operation = tool.slice(5) as "search" | "snippet" | "trace";
         if (query !== null && (typeof query !== "object" || Array.isArray(query) || "snapshotRef" in query)) throw new Error("invalid_request");
-        const bound = codeQuery(operation, { ...(query ?? { repositoryRef: "simulator-source" }), snapshotRef: phaseContext.snapshotRef });
+        const bound = codeQuery(operation, { ...(query ?? { repositoryRef }), snapshotRef: phaseContext.snapshotRef });
         if (!phaseContext.resourceRefs.includes(bound.repositoryRef) || ("targetRepositoryRef" in bound && bound.targetRepositoryRef &&
           !phaseContext.resourceRefs.includes(bound.targetRepositoryRef))) throw new Error("denied");
         return guarded(tool, (context) => operation === "search" ? ports.code.search(context, bound as CodeSearchQuery)
@@ -780,7 +795,7 @@ export class Troubleshooting {
     let draftVersion = -1;
     const diagnose = (): DiagnosticReport => {
       if (!draft || draftVersion !== investigation.materialVersion) {
-        draft = investigation.diagnose(observation, safeInput.question, ports.clock.utc());
+        draft = psp ? investigation.diagnosePsp(pspObservation, safeInput.question, ports.clock.utc()) : investigation.diagnose(observation, safeInput.question, ports.clock.utc());
         draftVersion = investigation.materialVersion;
       }
       return draft;

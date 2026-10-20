@@ -1,3 +1,6 @@
+import { diagnosePsp } from "./psp.js";
+import type { PspObservation, PspReport } from "./psp.js";
+
 export type Completeness = "complete" | "partial" | "unknown";
 export type Authorization = "active" | "cancelled" | "unknown";
 
@@ -51,11 +54,10 @@ export interface ObservedFact {
   readonly limitations: readonly string[];
 }
 
-export interface DiagnosticReport {
+export interface ReportBase {
   readonly schemaVersion: 1;
   readonly reportRef: string;
   readonly caseRef: string;
-  readonly scene: "simulator";
   readonly problem: string;
   readonly targetSummary: string;
   readonly facts: readonly ObservedFact[];
@@ -68,6 +70,10 @@ export interface DiagnosticReport {
   readonly formedAt: string;
   readonly policyVersion: string;
   readonly artifactVersion: string;
+}
+
+export interface SimulatorReport extends ReportBase {
+  readonly scene: "simulator";
   readonly simulator: {
     readonly submittedOn: string | null;
     readonly shopCount: number;
@@ -83,6 +89,8 @@ export interface DiagnosticReport {
     readonly calculation: SimulatorObservation["calculation"];
   };
 }
+
+export type DiagnosticReport = SimulatorReport | PspReport;
 
 export class TroubleshootingCase {
   private readonly evidence = new Map<string, EvidenceReference>();
@@ -140,7 +148,7 @@ export class TroubleshootingCase {
     this.materialRevision++;
   }
 
-  diagnose(observation: SimulatorObservation | null, problem: string, formedAt: string): DiagnosticReport {
+  diagnose(observation: SimulatorObservation | null, problem: string, formedAt: string): SimulatorReport {
     const evidence = [...this.evidence.values()];
     const logEvidence = evidence.filter((item) => item.kind === "log");
     const logRefs = logEvidence.map((item) => item.evidenceRef);
@@ -186,6 +194,10 @@ export class TroubleshootingCase {
         submittedOn: observation?.submittedOn ?? null, shopCount: shops.length, dataReadiness, shops,
         calculation: observation?.calculation ?? { started: null, succeeded: null, estimate: null },
       } });
+  }
+
+  diagnosePsp(observation: PspObservation | null, problem: string, formedAt: string): PspReport {
+    return immutable(diagnosePsp(this.caseRef, observation, problem, formedAt, [...this.evidence.values()], [...this.sourceWarnings]));
   }
 
   finish(candidate: unknown, expected: DiagnosticReport): DiagnosticReport {

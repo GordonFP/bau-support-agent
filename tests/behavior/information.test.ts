@@ -77,6 +77,7 @@ test("a valid trusted reply resumes the same case with a new 180-second phase af
   assert.equal(reply.view.deadlineAt, "2026-10-19T10:03:00.000Z");
   const { report } = await mock.delivery.next();
   assert.equal(report.caseRef, accepted.view.caseRef);
+  assert.ok(report.scene === "simulator");
   assert.equal(report.simulator.submittedOn, "2026-10-18");
   assert.equal(mock.events.filter((event) => event.action === "logs.read").length, 2);
 });
@@ -191,6 +192,7 @@ test("an unsettled old model keeps its reservation and its late result cannot re
   assert.equal(view.state, "completed");
   assert.equal(view.phaseId, 2);
   assert.equal(view.reportRef, report.reportRef);
+  assert.ok(report.scene === "simulator");
   assert.equal(report.simulator.submittedOn, "2026-10-18");
   assert.equal(mock.events.filter((event) => event.action === "delivery.send").length, 1);
   assert.equal((await mock.ports.budget.status(accepted.view.caseRef)).reservedMicrousd, 181_000);
@@ -257,6 +259,7 @@ test("selecting the second application preserves its raw source selector without
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   const { report } = await mock.delivery.next();
+  assert.ok(report.scene === "simulator");
   assert.deepEqual(report.simulator.shops.map((shop) => shop.shopRef), ["second-application-shop"]);
   assert.equal(report.targetSummary, "[case-1:application]-SECOND");
   const query = mock.events.filter((event) => event.action === "logs.read")[1]!.input as { applicationId: string };

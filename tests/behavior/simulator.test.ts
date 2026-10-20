@@ -8,6 +8,7 @@ test("a cross-day request reports the submitted tenth shop's D-1 coverage gap", 
   assert.equal(acceptance.status, "accepted");
   const { report, destinationRef } = await mock.delivery.next();
   assert.equal(destinationRef, "private-conversation-1");
+  assert.ok(report.scene === "simulator");
   assert.equal(report.simulator.submittedOn, "2026-10-18");
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
   assert.deepEqual(report.simulator.shops[9], {
@@ -55,6 +56,7 @@ test("complete shop data leaves execution, calculation success and estimate expl
     shops: simulatorFixture.shops.map((shop) => ({ ...shop, completeThrough: "2026-10-18" })) } });
   await mock.receive();
   const { report } = await mock.delivery.next();
+  assert.ok(report.scene === "simulator");
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 10, missing: 0, unknown: 0 });
   assert.deepEqual(report.simulator.calculation, { started: null, succeeded: null, estimate: null });
   assert.equal(report.possibleCauses.length, 0);
@@ -124,6 +126,7 @@ test("unknown coverage is not counted as complete, and partial source limits rem
     shops: simulatorFixture.shops.map((shop, index) => index === 9 ? { ...shop, completeThrough: null, coverageComplete: false } : shop) } });
   await mock.receive();
   const { report } = await mock.delivery.next();
+  assert.ok(report.scene === "simulator");
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 9, missing: 0, unknown: 1 });
   assert.equal(report.simulator.shops[9]?.readiness, "unknown");
   assert.match(report.limitations.join(" "), /partial/);
@@ -244,6 +247,7 @@ test("diagnosing before tools does not discard evidence accepted later in the sa
   } });
   await mock.receive();
   const { report } = await mock.delivery.next();
+  assert.ok(report.scene === "simulator");
   assert.equal(report.simulator.shopCount, 10);
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
   assert.equal(report.simulator.shops[9]?.shopRef, "shop-10");
