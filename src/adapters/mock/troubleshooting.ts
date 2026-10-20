@@ -1,7 +1,7 @@
 import { Troubleshooting } from "../../troubleshooting/application/troubleshooting.js";
 import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
-import type { CallContext, Ports, RuntimeRequest, SourceEvidence, VerifiedInbound } from "../../troubleshooting/application/ports.js";
+import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, VerifiedInbound } from "../../troubleshooting/application/ports.js";
 
 // All values and identities in this adapter are synthetic. No transport is created.
 export const simulatorFixture: SimulatorObservation = {
@@ -24,11 +24,20 @@ export interface MockOptions {
   readonly clock?: Ports["clock"];
   readonly queryWindow?: OfflineScope["queryWindow"];
   readonly sanitizeFailsAt?: number;
+  readonly customerCandidates?: ApplicationCandidates["candidates"];
+  readonly model?: Ports["model"]["generate"];
 }
 
 export function createMockTroubleshooting(options: MockOptions = {}) {
   const sent = Promise.withResolvers<{ destinationRef: string; report: DiagnosticReport; deliveryKey: string }>();
   const closed = Promise.withResolvers<void>();
+  const aborted = Promise.withResolvers<void>();
+  const phaseClosures = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>();
+  const phaseClosure = (phaseId: number, caseRef = "case-1") => {
+    const key = `${caseRef}:${phaseId}`;
+    if (!phaseClosures.has(key)) phaseClosures.set(key, Promise.withResolvers<void>());
+    return phaseClosures.get(key)!;
+  };
   const events: { action: string; input: unknown }[] = [];
   const reserved = new Map<string, number>();
   let sanitizationCount = 0;
@@ -39,7 +48,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     principalRef: options.principalRef ?? "principal-1", destinationRef: "private-conversation-1", conversationKind: "private",
     receivedAt: "2026-10-19T09:00:00.000Z", input: { applicationId: "SYNTHETIC-SECRET-APPLICATION", question: "Why is SYNTHETIC-SECRET-APPLICATION still waiting?" } };
   const evidenceBase = { sourceRef: "simulator-source", acquiredAt: "2026-10-19T09:00:01.000Z", completeness: "complete" as const,
-    truncated: false, targetRef: options.evidenceTargetRef ?? "SYNTHETIC-SECRET-APPLICATION" };
+    truncated: false, targetRef: options.evidenceTargetRef ?? options.observation?.applicationRef ?? "SYNTHETIC-SECRET-APPLICATION" };
   const log: SourceEvidence = { ...evidenceBase, kind: "log", locator: "synthetic-log:1", observedAt: "2026-10-18T23:00:00.000Z",
     text: "Synthetic submitted-shop coverage observation for SYNTHETIC-SECRET-APPLICATION.",
     log: { ...scope.queryWindow, queryRef: "synthetic-query-1" } };
@@ -57,7 +66,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     sanitization: {
       sanitize<T>(value: T, caseRef: string): T {
         if (++sanitizationCount === options.sanitizeFailsAt) throw new Error("synthetic-sensitive-upstream-error");
-        const json = JSON.stringify(value).replaceAll("SYNTHETIC-SECRET-APPLICATION", `[${caseRef}:application]`);
+        const json = JSON.stringify(value).replaceAll("SYNTHETIC-SECRET-APPLICATION", `[${caseRef}:application]`)
+          .replaceAll("SYNTHETIC-SECRET-CUSTOMER", `[${caseRef}:customer]`);
         return JSON.parse(json) as T;
       },
       safe: (value) => !/SYNTHETIC-SECRET|https?:\/\/|<script/i.test(JSON.stringify(value)),
@@ -77,10 +87,15 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     budget: {
       async reserve(context, upperBoundMicrousd) { reserved.set(context.callId, upperBoundMicrousd); return true; },
       async settle(context, actualMicrousd) { if (actualMicrousd !== null) reserved.set(context.callId, actualMicrousd); },
-      async status() { return { reservedMicrousd: [...reserved.values()].reduce((sum, amount) => sum + amount, 0) }; },
+      async status(caseRef) { return { reservedMicrousd: [...reserved.entries()]
+        .filter(([callId]) => callId.startsWith(`${caseRef}:`)).reduce((sum, [, amount]) => sum + amount, 0) }; },
     },
     logs: { async read(context, query) {
       events.push({ action: "logs.read", input: query });
+      if (query.customerId && options.customerCandidates) {
+        return { value: { kind: "application_candidates", customerRef: query.customerId, candidates: options.customerCandidates },
+          evidence: [{ ...structuredClone(log), targetRef: query.customerId }], completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
+      }
       const observation = options.observation === undefined ? simulatorFixture : options.observation;
       return { value: structuredClone(observation), evidence: observation ? [structuredClone(log)] : [],
         completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
@@ -95,11 +110,16 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         await request.invoke("code.search", null);
         return request.generate(request.diagnose());
       }),
-      async abort() {},
-      async close() { closed.resolve(); },
+      async abort(caseRef, phaseId) { events.push({ action: "agent.abort", input: { caseRef, phaseId } }); aborted.resolve(); },
+      async close(caseRef, phaseId = 1) {
+        events.push({ action: "agent.close", input: { caseRef, phaseId } });
+        phaseClosure(phaseId, caseRef).resolve();
+        closed.resolve();
+      },
     },
     model: { async generate(context, draft) {
       events.push({ action: "model.generate", input: structuredClone(draft) });
+      if (options.model) return options.model(context, draft);
       return { candidate: options.candidate ? options.candidate(draft) : structuredClone(draft), actualMicrousd: 1_000 };
     } },
     delivery: { async send(destinationRef, report, deliveryKey) {
@@ -111,7 +131,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   const configured: Partial<Ports> = { ...ports };
   for (const key of options.unavailableControls ?? []) delete configured[key];
   const application = new Troubleshooting(configured, scope);
-  return { application, ports, events, inbound, closed: closed.promise,
+  return { application, ports, events, inbound, closed: closed.promise, aborted: aborted.promise,
+    phaseClosed: (phaseId: number, caseRef = "case-1") => phaseClosure(phaseId, caseRef).promise,
     receive: (override: Partial<VerifiedInbound> = {}) => application.accept({ ...inbound, ...override }),
     delivery: { next: () => sent.promise } };
 }

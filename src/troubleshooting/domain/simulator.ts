@@ -87,11 +87,39 @@ export interface DiagnosticReport {
 export class TroubleshootingCase {
   private readonly evidence = new Map<string, EvidenceReference>();
   private ended = false;
+  private awaiting = false;
+  private phase = 1;
+  private selectedTarget: string | undefined;
 
   constructor(readonly caseRef: string) {}
 
+  selectTarget(applicationRef: string): void {
+    if (this.ended || (this.selectedTarget !== undefined && this.selectedTarget !== applicationRef)) throw new Error("invalid_request");
+    this.selectedTarget = applicationRef;
+  }
+
+  awaitInformation(): void {
+    if (this.ended || this.awaiting) throw new Error("invalid_request");
+    this.awaiting = true;
+  }
+
+  resume(): number {
+    if (this.ended || !this.awaiting) throw new Error("invalid_request");
+    this.awaiting = false;
+    return ++this.phase;
+  }
+
+  isCurrentPhase(phaseId: number): boolean {
+    return !this.ended && !this.awaiting && this.phase === phaseId;
+  }
+
+  stop(): void {
+    this.ended = true;
+    this.awaiting = false;
+  }
+
   acceptEvidence(evidence: EvidenceReference): void {
-    if (this.ended || evidence.caseRef !== this.caseRef || this.evidence.has(evidence.evidenceRef)) {
+    if (this.ended || this.awaiting || evidence.caseRef !== this.caseRef || this.evidence.has(evidence.evidenceRef)) {
       throw new Error("invalid_request");
     }
     this.evidence.set(evidence.evidenceRef, immutable(evidence));

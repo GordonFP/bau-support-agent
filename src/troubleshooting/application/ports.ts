@@ -11,7 +11,7 @@ export interface VerifiedInbound {
   readonly destinationRef: string;
   readonly conversationKind: "private" | "group";
   readonly receivedAt: string;
-  readonly input: { readonly applicationId: string; readonly question: string };
+  readonly input: { readonly applicationId?: string; readonly customerId?: string; readonly question: string };
 }
 
 export interface CallContext {
@@ -33,22 +33,58 @@ export interface CallContext {
 export interface CaseView {
   readonly caseRef: string;
   readonly phaseId: number;
-  readonly state: "investigating" | "completed" | "stopped";
+  readonly state: "investigating" | "awaiting_input" | "completed" | "stopped";
   readonly receivedAt: string;
   readonly acceptedAt: string;
   readonly phaseStartedAt: string;
-  readonly deadlineAt: string;
+  readonly deadlineAt?: string;
+  readonly waitingStartedAt?: string;
+  readonly question?: InformationQuestion;
   readonly reportRef?: string;
   readonly stopReason?: SafeReason;
   readonly deliveryStatus: "pending" | "delivered" | "unknown" | "failed";
+  readonly usage: { readonly modelAttempts: number; readonly logRecords: number; readonly logCoverageMs: number };
+  readonly elapsedMs: number;
+  readonly phases: readonly { readonly phaseId: number; readonly startedAt: string; readonly endedAt?: string;
+    readonly outcome?: "awaiting_input" | "completed" | "stopped" }[];
+  readonly inputWaits: readonly { readonly questionId: string; readonly startedAt: string; readonly endedAt?: string;
+    readonly replyEventRef?: string; readonly replyReceivedAt?: string }[];
 }
+
+export interface InformationQuestion {
+  readonly questionId: string;
+  readonly requiredFields: readonly ["submittedAt"];
+  readonly candidates: readonly { readonly candidateRef: string; readonly submittedAt: string }[];
+  readonly format: "ISO-8601 UTC";
+  readonly prompt: string;
+}
+
+export interface ApplicationCandidates {
+  readonly kind: "application_candidates";
+  readonly customerRef: string;
+  readonly candidates: readonly { readonly applicationId: string; readonly submittedAt: string }[];
+}
+
+export interface InformationReply {
+  readonly principalRef: string;
+  readonly tenantRef: string;
+  readonly destinationRef: string;
+  readonly eventRef: string;
+  readonly receivedAt: string;
+  readonly reply: { readonly caseRef: string; readonly questionId: string };
+  readonly content: Readonly<Record<string, unknown>>;
+}
+
+export type InformationResult = { readonly status: "resumed" | "needs_information" | "duplicate" | "terminal"; readonly view: CaseView; readonly newCaseRequired?: true } |
+  { readonly status: "denied"; readonly reason: SafeReason; readonly newCaseRequired?: true };
 
 export type Acceptance = { readonly status: "accepted" | "duplicate"; readonly view: CaseView } |
   { readonly status: "denied" | "service_unavailable"; readonly reason: SafeReason };
 
 export interface LogQuery {
   readonly sourceRef: "simulator-source";
-  readonly applicationId: string;
+  readonly applicationId?: string;
+  readonly customerId?: string;
   readonly from: string;
   readonly to: string;
   readonly pageSize: 100;
@@ -68,14 +104,14 @@ export interface RuntimeRequest {
   readonly diagnose: () => DiagnosticReport;
 }
 export interface Ports {
-  readonly clock: { now(): number; utc(): string };
+  readonly clock: { now(): number; utc(): string; schedule?(deadline: number, callback: () => void): () => void };
   readonly authorization: { allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
   readonly sanitization: { sanitize<T>(value: T, caseRef: string): T; safe(value: unknown): boolean; clear(caseRef: string): void };
   readonly audit: { intent(context: CallContext, action: string): Promise<string>; complete(context: CallContext, action: string, outcome: string): Promise<void> };
   readonly budget: { reserve(context: CallContext, upperBoundMicrousd: number): Promise<boolean>; settle(context: CallContext, actualMicrousd: number | null): Promise<void>; status(caseRef: string): Promise<{ reservedMicrousd: number }> };
-  readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | null>> };
+  readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | ApplicationCandidates | null>> };
   readonly code: { search(context: CallContext, query: { readonly repositoryRef: string; readonly snapshotRef: string }): Promise<ReadResult<null>> };
-  readonly agent: { run(context: CallContext, request: RuntimeRequest): Promise<unknown>; abort(caseRef: string): Promise<void>; close(caseRef: string): Promise<void> };
+  readonly agent: { run(context: CallContext, request: RuntimeRequest): Promise<unknown>; abort(caseRef: string, phaseId?: number): Promise<void>; close(caseRef: string, phaseId?: number): Promise<void> };
   readonly model: { generate(context: CallContext, draft: DiagnosticReport): Promise<{ readonly candidate: unknown; readonly actualMicrousd: number | null }> };
   readonly delivery: { send(destinationRef: string, report: DiagnosticReport, deliveryKey: string): Promise<"delivered" | "unknown" | "failed"> };
 }
