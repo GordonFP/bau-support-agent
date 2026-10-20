@@ -20,15 +20,20 @@ export function ownedContainer(profile: DockerProfile, sourceRoot: string, confi
   let start: Promise<void> | undefined;
   let closing: Promise<void> | undefined;
   let retired = false;
+  let creationRequested = false;
   const close = () => closing ??= (async () => {
     retired = true;
     if (!start) return;
     // A delayed start is still owned. Never report success before its original promise settles.
-    try { await start; } catch { /* inspect still proves whether a partial create exists */ }
+    let unknownStart = false;
+    try { await start; } catch {
+      if (!creationRequested) return; // Local validation failed before any create request.
+      unknownStart = true;
+    }
     try { await dockerCommand(profile, ["rm", "--force", name]); } catch { /* inspect below is authoritative */ }
     try { await dockerCommand(profile, ["inspect", "--format", "{{.State.Running}}", name]); }
     catch (error) {
-      if (String((error as { stderr?: Buffer }).stderr).trim().toLowerCase() === `error: no such object: ${name}`) return;
+      if (!unknownStart && String((error as { stderr?: Buffer }).stderr).trim().toLowerCase() === `error: no such object: ${name}`) return;
       throw new Error("unavailable");
     }
     throw new Error("unavailable");
@@ -53,6 +58,10 @@ export function ownedContainer(profile: DockerProfile, sourceRoot: string, confi
       if (databaseRoot) args.push("--mount", `type=bind,src=${join(databaseRoot, `${repository.project}.db`)},dst=/state/cache/${repository.project}.db,readonly`);
     }
     args.push(profile.image, "/bin/sleep", "infinity");
+    // A failed/expired CLI cannot prove the daemon did not receive this request.
+    // Even a currently absent name cannot exclude a late create. Keep cached
+    // cleanup rejected and its reader lease held for independent reconciliation.
+    creationRequested = true;
     await dockerCommand(profile, args);
   })(); };
   const endpoint = (management = false): StdioEndpoint & { close: () => Promise<void> } => ({ command: profile.docker,

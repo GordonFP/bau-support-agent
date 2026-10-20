@@ -16,9 +16,28 @@ Scope: local synthetic G0/G1 execution for [#26](https://github.com/GordonFP/bau
 
 The CLI takes an exclusive update lock, rejects new B read leases and waits for existing readers to drain. It builds every selected index and every explicit cross-repository target set, rejects partial/skipped/unusable construction, checks stored graph Branch provenance and recorded index generation, and hashes source bytes before and after building. It confirms no native producer remains in the private process namespace before copying SQLite bytes. Only after every source/DB and cross-repository receipt is complete does it publish a read-only directory and atomically rename `current.json`. A failed update retains the complete previous receipt and a finite failure-phase record. Unknown writers leave the lock closed; stale reader/writer ownership requires administrative reconciliation and is never automatically discarded.
 
+After building the project, an administrator invokes `node dist/management/codebase-snapshot.js /absolute/local-synthetic.json`. The owned local GitLab substitute must already be running. For example, the external configuration has this closed shape (paths and port are local placeholders):
+
+```json
+{
+  "mode": "local_synthetic",
+  "root": "/controlled/snapshots",
+  "docker": "/usr/local/bin/docker",
+  "binary": "/controlled/artifacts/codebase-memory-mcp",
+  "image": "sha256:df76f23de89b7a36c1ada0f9a5b8d14e63169547479eaef955cc0e7c74d6e29a",
+  "gitlab": "http://127.0.0.1:43100/",
+  "repositories": [
+    { "repositoryRef": "simulator-source", "project": "simulator", "projectId": 1, "branch": "main" },
+    { "repositoryRef": "estimate-source", "project": "estimate", "projectId": 2, "branch": "master" }
+  ]
+}
+```
+
+Success writes one immutable receipt to stdout. The host passes its `snapshotRef` and exact resource set to the application and both evidence profiles, constructs one `McpBoundary` after final lifecycle/sanitization ports, and supplies `localReadService` only in this G1 administrator/test composition. No command, config path or snapshot management operation is exposed to Pi.
+
 A collection represents one exact resource security scope. A narrower account uses its own independently indexed collection, rather than a cross-linked database from a broader account. Every repository in the collection is currently authorized before the native service can start; an explicitly declared cross-repository target is also checked before any physical query. Before and after each query, the Adapter checks the receipt, its construction proof, every matching source digest and every DB digest. HEAD, ready, coverage metadata and an index timestamp alone are not relied on.
 
-The G1 controller in `management/codebase-docker.ts` is used by the administrator/test host. It starts a separate non-root container per owned read or management scope with init, network none, read-only root/source/DB mounts, a private writable config/activity/log cache, 2 CPUs, 1536 MiB and pids=128. Start ownership is registered before its first await. Cleanup awaits any original pending start, stops the whole named container and confirms exact absence before releasing its read lease. The shared boundary retains pending or failed cleanup as incomplete. This controller is not a production app dependency; it does not put Docker CLI/socket credentials into the BAU runtime or change the portable application's 512 MiB/pids=64 validation profile.
+The G1 controller in `management/codebase-docker.ts` is used by the administrator/test host. It starts a separate non-root container per owned read or management scope with init, network none, read-only root/source/DB mounts, a private writable config/activity/log cache, 2 CPUs, 1536 MiB and pids=128. Start ownership is registered before its first await. Cleanup awaits any original pending start, stops the whole named container and confirms exact absence before releasing its read lease. Once a create request was dispatched, a failed/expired CLI leaves cleanup cached as rejected even if a current inspect says absent: a late create remains possible. The reader lease and C partial state remain held for independent administrative reconciliation. The contract test demonstrates this with an owned real container created after the failed command and first absent inspect; reconciliation does not silently reset the retired controller's unknown result. Local validation failures before dispatch can close without a resource. This controller is not a production app dependency; it does not put Docker CLI/socket credentials into the BAU runtime or change the portable application's 512 MiB/pids=64 validation profile.
 
 ## Actual fixed artifact and native limitations
 
@@ -41,7 +60,13 @@ The exact-source SQLite follow-up verifies nine public source blobs and four off
 
 Executed native contract scenarios use the real fixed binary and real Git HTTP backend, through the CLI and existing B/A/C/D boundaries. They cover four converters, multiple repositories and branches, non-zero cross construction, lossy trace truth, per-end denial, partial third-index failure, failed synchronization, full atomic replacement, read draining/new-admission refusal, source drift, bounded partial results, pending-start cancellation, whole-container cleanup, physical scope/write protection and same-account daemon behavior. Portable behavior tests cover closed DTO refusal, host-scope validation and application snippet/trace evidence acceptance.
 
-Final command counts and mixed native Simulator verification are recorded after integration below; no unexecuted check is counted as passed.
+Actual verification on 2026-10-21, after merging the final #25 artifact-closure hardening (`432366be`), using Node 24.22.0 and TypeScript 7.0.2:
+
+- `npm run typecheck`, `npm run build`, `scripts/check-pi-types.mjs`, `scripts/check-teams-types.mjs` and `scripts/check-teams-interop.mjs` passed. The code Adapter and management source/type closure additionally passed strict checking with `--skipLibCheck false`. The approved inherited project setting remains; strict native Pi/Teams consumers reject invalid input. This does not repair the documented Pi vendor declarations.
+- All **298** portable behavior tests passed on macOS arm64 with `--test-concurrency=2` and Linux arm64 in the original network-none, read-only-root/checkout, 512 MiB/pids=64/64 MiB tmpfs profile. Docker CLI/socket and the native controller were not added to that application container. A first fully parallel macOS run had one existing 250 ms deadline test return `unavailable` instead of `timeout` under concurrent native/Postman load; its isolated rerun and the full controlled-concurrency rerun passed without changing its assertion or deadline.
+- All **11** native contract tests passed with the actual fixed CBM binary in the separate owned Linux arm64 containers controlled from the macOS Node host. The two mixed tests additionally require the explicit reviewed external Kibana candidate; no synthetic fallback is accepted. Actual Pi 1.3.0 → local Responses → native Kibana/owned ES plus multi-repository CBM share one boundary, immutable full scope and code snapshot, then produce an honest unknown-readiness report through A/C/D. Exported records, model requests and delivery pass sensitive/private-path canary checks. A separate test confirms a log result fits alone but is refused after native snippets charge earlier phases of the same case's 256 KiB allowance.
+- All **3** model/Kibana Postman contract tests passed with local Postman CLI simulations. No cloud workspace or provider request was used.
+- The offline SQLite receipt verifier again matched all nine reviewed public source blobs and four official documents. `git diff --check` passed. External artifacts, private candidate control/config/source, cloned repositories and generated indices are not committed.
 
 ## Sources and outstanding environment gates
 

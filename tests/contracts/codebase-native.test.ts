@@ -15,6 +15,8 @@ import { SnapshotCollection } from "../../src/adapters/codebase-memory/collectio
 import { codebaseMemoryPorts, type CodebaseMemoryOptions } from "../../src/adapters/codebase-memory/evidence.js";
 import { McpBoundary } from "../../src/adapters/mcp/boundary.js";
 import type { CallContext } from "../../src/troubleshooting/application/ports.js";
+import { ManualClock } from "../fixtures/clock.js";
+import { lateDocker } from "../fixtures/late-docker.js";
 
 const execute = promisify(execFile);
 const cli = fileURLToPath(new URL("../../management/codebase-snapshot.js", import.meta.url));
@@ -180,6 +182,49 @@ test("actual limited native graph results preserve partial truth and a pending o
       (error: unknown) => String((error as {stderr?: string}).stderr).trim().toLowerCase() === `error: no such object: ${ownedName}`);
     assert.equal(absent, true);
   } finally { await gitlab.close(); await removeOwnedTree(root); }
+});
+
+test("C retains an unknown Docker start after its CLI exits and an absent inspect cannot rule out an owned late create", { timeout: 60_000 }, async () => {
+  const gitlab = await syntheticGitLab();
+  const root = await mkdtemp(join(tmpdir(), "bau-cbm-late-create-"));
+  let delayed: Awaited<ReturnType<typeof lateDocker>> | undefined;
+  let ownedName: string | undefined;
+  try {
+    const receipt = await publish(root, gitlab, 1);
+    delayed = await lateDocker(root, profile.docker);
+    const clock = new ManualClock();
+    const actor = { principalRef: "lifecycle-owner", tenantRef: "tenant-1", destinationRef: "lifecycle-path" };
+    const mock = createMockTroubleshooting({ clock, lifecycleActors: [actor] });
+    const boundary = new McpBoundary(mock.ports), collection = new SnapshotCollection(root);
+    const native = codebaseMemoryPorts(mock.ports, boundary, { collection, resolveTarget: () => "synthetic-target",
+      service: localReadService({ ...profile, docker: delayed.command }, (snapshot) => collection.path(snapshot)) });
+    const context: CallContext = { caseRef: "case-1", phaseId: 1, callId: "unknown-start", principalRef: "principal-1", tenantRef: "tenant-1",
+      destinationRef: "private-conversation-1", policyVersion: "synthetic-policy", approvalRef: "synthetic-approval", resourceRefs: ["simulator-source"],
+      snapshotRef: receipt.snapshotRef, budgetRef: "case-1", deadline: 30000, signal: new AbortController().signal };
+    await assert.rejects(native.code.search(context, { repositoryRef: "simulator-source", snapshotRef: receipt.snapshotRef }), /^Error: unavailable$/);
+    ownedName = await delayed.name();
+    await assert.rejects(dockerCommand(profile, ["inspect", ownedName])); // No container exists yet.
+    await mock.ports.retention!.recordTrigger(actor, { triggerRef: "terminated", kind: "terminated", scope: "poc", decidedAt: clock.utc() });
+    clock.advance(30 * 86_400_000);
+    const purging = mock.ports.retention!.purgeDue(actor);
+    await new Promise(setImmediate); clock.advance(5000);
+    assert.equal((await purging).state, "partial");
+    assert.equal((await readdir(join(root, "readers"))).length, 1);
+    assert.equal(await delayed.reconcile(), true);
+    assert.equal((await dockerCommand(profile, ["inspect", "--format", "{{.State.Running}}", ownedName])).toString().trim(), "true");
+    await dockerCommand(profile, ["rm", "--force", ownedName]);
+    // A separate administrator reconciled the resource; this retired controller
+    // still cannot turn its cached unknown result into an automatic success.
+    assert.equal((await mock.ports.retention!.purgeDue(actor)).state, "partial");
+    assert.equal((await readdir(join(root, "readers"))).length, 1);
+  } finally {
+    if (delayed) {
+      await delayed.reconcile();
+      ownedName ??= await delayed.name();
+      await dockerCommand(profile, ["rm", "--force", ownedName]).catch(() => {});
+    }
+    await gitlab.close(); await removeOwnedTree(root);
+  }
 });
 
 test("a separately indexed narrow scope is physically read-only and a different cache cannot isolate the same native account daemon", { timeout: 60_000 }, async () => {
