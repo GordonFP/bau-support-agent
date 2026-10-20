@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
 import { advancesView, contextSnapshot, recordSnapshot, sameCaseAuthority, savedContextSnapshot } from "../../troubleshooting/application/record-contract.js";
 import { auditRecord } from "../../troubleshooting/application/audit-record.js";
+import { codeQuery } from "../../troubleshooting/application/code-query.js";
 import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
@@ -217,7 +218,16 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
     } },
     code: { async search(context, query) {
+      codeQuery("search", query);
       events.push({ action: "code.search", input: query });
+      return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
+    }, async snippet(context, query) {
+      codeQuery("snippet", query);
+      events.push({ action: "code.snippet", input: query });
+      return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
+    }, async trace(context, query) {
+      codeQuery("trace", query);
+      events.push({ action: "code.trace", input: query });
       return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
     } },
     agent: {

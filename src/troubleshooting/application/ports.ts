@@ -99,6 +99,22 @@ export interface LogQuery {
   readonly pageSize: 100;
 }
 export type SourceEvidence = Omit<EvidenceReference, "evidenceRef" | "caseRef" | "auditRef" | "sanitizationVersion">;
+export interface CodeSearchQuery {
+  readonly repositoryRef: string;
+  readonly snapshotRef: string;
+  readonly term?: string;
+  readonly kind?: "source" | "symbol";
+}
+export interface CodeSnippetQuery {
+  readonly repositoryRef: string;
+  readonly snapshotRef: string;
+  readonly symbol: string;
+  readonly file: string;
+}
+export interface CodeTraceQuery extends CodeSnippetQuery {
+  readonly direction: "inbound" | "outbound";
+  readonly targetRepositoryRef?: string;
+}
 export interface ReadResult<T> {
   readonly value: T;
   readonly evidence: readonly SourceEvidence[];
@@ -130,7 +146,11 @@ export interface Ports {
     complete(context: CallContext, action: string, outcome: string, details?: AuditDetails): Promise<void> };
   readonly budget: { reserve(context: CallContext, upperBoundMicrousd: number, beforeStart?: () => Promise<void>): Promise<boolean>; settle(context: CallContext, actualMicrousd: number | null, settlement?: BudgetSettlement): Promise<void>; status(caseRef: string): Promise<BudgetStatus> };
   readonly logs: { read(context: CallContext, query: LogQuery): Promise<ReadResult<SimulatorObservation | ApplicationCandidates | null>> };
-  readonly code: { search(context: CallContext, query: { readonly repositoryRef: string; readonly snapshotRef: string }): Promise<ReadResult<null>> };
+  readonly code: {
+    search(context: CallContext, query: CodeSearchQuery): Promise<ReadResult<null>>;
+    snippet(context: CallContext, query: CodeSnippetQuery): Promise<ReadResult<null>>;
+    trace(context: CallContext, query: CodeTraceQuery): Promise<ReadResult<null>>;
+  };
   readonly agent: { run(context: CallContext, request: RuntimeRequest): Promise<unknown>; abort(caseRef: string, phaseId?: number): Promise<void>; close(caseRef: string, phaseId?: number): Promise<void> };
   readonly model: { generate(context: CallContext, turn: ModelTurn, beforeSend: BeforeModelSend): Promise<ModelResponse> };
   readonly delivery: { send(destinationRef: string, report: DiagnosticReport, deliveryKey: string): Promise<"delivered" | "unknown" | "failed">;

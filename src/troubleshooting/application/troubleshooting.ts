@@ -11,6 +11,8 @@ import { validateModelEnvelope, validateModelResponse, validateModelTurn } from 
 import type { ModelPolicy } from "./model-contract.js";
 import { ModelFailure } from "./model-failure.js";
 import { retryModel } from "./model-retry.js";
+import { codeQuery } from "./code-query.js";
+import type { CodeSearchQuery, CodeSnippetQuery, CodeTraceQuery } from "./ports.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
   "timeout", "cancelled", "rate_limited", "budget_exhausted", "version_unknown", "version_mismatch", "unsafe_content", "audit_unavailable"]);
@@ -545,11 +547,11 @@ export class Troubleshooting {
       const assertAllowed = () => assertCurrent(action === "delivery.send");
       if (ports.clock.now() >= phaseContext.deadline) throw new Error("timeout");
       assertAllowed();
-      const cap = action === "model.generate" ? MODEL_CALL_MS : ["logs.read", "code.search"].includes(action) ? TOOL_CALL_MS : CASE_EXECUTION_MS;
+      const cap = action === "model.generate" ? MODEL_CALL_MS : ["logs.read", "code.search", "code.snippet", "code.trace"].includes(action) ? TOOL_CALL_MS : CASE_EXECUTION_MS;
       const context = Object.freeze({ ...(attempt ? { ...phaseContext, callId: attempt.callId, operationRef: attempt.operationRef } : contextFor(action)),
         deadline: Math.min(phaseContext.deadline, attempt?.deadline ?? ports.clock.now() + cap) });
       const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef: "simulator-source", ...this.scope!.queryWindow, pageSize: 100 } }
-        : action === "code.search" ? { scope: { repositoryRef: "simulator-source", snapshotRef: phaseContext.snapshotRef } }
+        : action.startsWith("code.") ? { scope: { repositoryRef: "simulator-source", snapshotRef: phaseContext.snapshotRef } }
         : action === "model.generate" ? { model: this.scope!.modelProfile === "local_protocol"
           ? { profile: "local_protocol", protocol: "synthetic-responses-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
           : { profile: "memory_mock", protocol: "mock-json-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "offline-model-1" } }
@@ -587,12 +589,12 @@ export class Troubleshooting {
           try { await ports.audit.complete(context, action, "rejected"); } catch { throw new Error("audit_unavailable"); }
           throw error;
         }
-        if (["logs.read", "code.search", "model.generate"].includes(action)) {
+        if (["logs.read", "code.search", "code.snippet", "code.trace", "model.generate"].includes(action)) {
           await this.saveRecord(running, context, ports, { recordRef: `${context.callId}:output`, schemaVersion: 1,
             kind: action === "model.generate" ? "model_output" : "tool_result", payload: result });
         }
         const read = result as Partial<ReadResult<unknown>> | null;
-        let completeDetails: AuditDetails = ["logs.read", "code.search"].includes(action) && read && Array.isArray(read.evidence)
+        let completeDetails: AuditDetails = ["logs.read", "code.search", "code.snippet", "code.trace"].includes(action) && read && Array.isArray(read.evidence)
           ? { ...details, result: { completeness: ["complete", "partial", "unknown"].includes(read.completeness ?? "") ? read.completeness! : "unknown",
             truncated: read.truncated === true, evidenceCount: read.evidence.length } } : details;
         if (action === "delivery.send" && ["delivered", "unknown", "failed"].includes(String(result))) {
@@ -601,7 +603,7 @@ export class Troubleshooting {
         try { await ports.audit.complete(context, action, "ok", completeDetails); } catch { throw new Error("audit_unavailable"); }
         check();
         await acceptResult?.(result, auditRef);
-        if (["logs.read", "code.search"].includes(action)) {
+        if (["logs.read", "code.search", "code.snippet", "code.trace"].includes(action)) {
           check();
           running.modelTools.push(structuredClone({ tool: action, callId: context.callId, result }));
         }
@@ -639,10 +641,10 @@ export class Troubleshooting {
       if (kind === "log" && targetRef && targetRef !== selectedApplicationRef) throw new Error("invalid_request");
       if (kind === "log" && selectedSubmittedOn && (read.value as SimulatorObservation | null)?.submittedOn !== selectedSubmittedOn) throw new Error("invalid_request");
       for (const [index, item] of read.evidence.entries()) {
-        if (item.kind !== kind || item.sourceRef !== "simulator-source") throw new Error("schema_mismatch");
+        if (item.kind !== kind || (kind === "log" ? item.sourceRef !== "simulator-source" : !phaseContext.resourceRefs.includes(item.sourceRef))) throw new Error("schema_mismatch");
         if (targetRef && item.targetRef !== targetRef) throw new Error("invalid_request");
         if (kind === "code" && (item.code?.snapshotRef !== phaseContext.snapshotRef ||
-          item.code.repositoryRef !== "simulator-source" || !["main", "master"].includes(item.code.branch) ||
+          !phaseContext.resourceRefs.includes(item.code.repositoryRef) || !["main", "master"].includes(item.code.branch) ||
           !/^[a-f0-9]{40}$/.test(item.code.commit) || !item.code.receiptRef)) throw new Error("version_mismatch");
         const evidence = { ...item, completeness: read.completeness, truncated: item.truncated || read.truncated,
           evidenceRef: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${kind}:${++evidenceSequence}:${index}`, caseRef: phaseContext.caseRef,
@@ -715,12 +717,15 @@ export class Troubleshooting {
         observation = read.evidence.length ? read.value as SimulatorObservation | null : null;
         return read;
       }
-      if (tool === "code.search") {
-        if (query !== null) throw new Error("invalid_request");
-        const read = await guarded("code.search", (context) => ports.code.search(context,
-          { repositoryRef: "simulator-source", snapshotRef: context.snapshotRef }),
+      if (tool === "code.search" || tool === "code.snippet" || tool === "code.trace") {
+        const operation = tool.slice(5) as "search" | "snippet" | "trace";
+        if (query !== null && (typeof query !== "object" || Array.isArray(query) || "snapshotRef" in query)) throw new Error("invalid_request");
+        const bound = codeQuery(operation, { ...(query ?? { repositoryRef: "simulator-source" }), snapshotRef: phaseContext.snapshotRef });
+        if (!phaseContext.resourceRefs.includes(bound.repositoryRef) || ("targetRepositoryRef" in bound && bound.targetRepositoryRef &&
+          !phaseContext.resourceRefs.includes(bound.targetRepositoryRef))) throw new Error("denied");
+        return guarded(tool, (context) => operation === "search" ? ports.code.search(context, bound as CodeSearchQuery)
+          : operation === "snippet" ? ports.code.snippet(context, bound as CodeSnippetQuery) : ports.code.trace(context, bound as CodeTraceQuery),
           (read, auditRef) => acceptEvidence(read, "code", auditRef));
-        return read;
       }
       throw new Error("denied");
     };
