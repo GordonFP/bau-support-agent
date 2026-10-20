@@ -50,6 +50,29 @@ function declaredFormal(simulator = 9, psp = 9) {
   return input;
 }
 
+for (const checkedAt of ['2026-09-01T00:00:00.000Z', '2026-10-02T00:00:30.000Z']) {
+  test(`fact checks from before this round's execution cannot certify its original reports (${checkedAt})`, () => {
+    const input = declaredFormal();
+    for (const run of input.results.runs) for (const check of run.factChecks) check.checkedAt = checkedAt;
+    const result = evaluate(input);
+    assert.equal(result.valid, false);
+    assert.equal(result.decision, 'cannot_determine');
+    assert.ok(result.issues?.includes('fact_review_before_run'));
+  });
+}
+
+test('current-run fact review can precede delivery, but its review timestamp cannot be omitted', () => {
+  const input = declaredFormal();
+  for (const run of input.results.runs) for (const check of run.factChecks) check.checkedAt = run.timeline.acceptedAt!;
+  const reviewed = evaluate(input);
+  assert.equal(reviewed.valid, true);
+  if (!reviewed.valid) return;
+  assert.equal(reviewed.facts.coverage, 1);
+  assert.equal(reviewed.decision, 'eligible_for_owner_decision');
+  const runs = input.results.runs.map((run, i) => i === 0 ? { ...run, factChecks: run.factChecks.map(({ checkedAt: _checkedAt, ...check }) => check) } : run);
+  assert.equal(evaluate({ ...input, results: { ...input.results, runs } }).valid, false);
+});
+
 test('complete formal arithmetic yields only owner eligibility or No-Go; missing evidence stays undecidable and actual safety failure always stops', () => {
   assert.equal(evaluate(declaredFormal()).decision, 'eligible_for_owner_decision');
   assert.equal(evaluate(declaredFormal(8, 10)).decision, 'no_go');

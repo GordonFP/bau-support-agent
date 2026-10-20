@@ -1,9 +1,11 @@
+import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { agentInputs, evaluate } from './index.js';
 
 const maxFileBytes = 2 * 1024 * 1024;
 async function readJson(path: string): Promise<unknown> {
-  const handle = await open(path, 'r');
+  // Nonblocking open precedes the regular-file check on this same descriptor (including path swaps).
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     if (!(await handle.stat()).isFile()) return null;
     const buffer = Buffer.alloc(maxFileBytes + 1);

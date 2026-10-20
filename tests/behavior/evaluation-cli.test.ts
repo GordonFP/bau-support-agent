@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -55,5 +55,35 @@ test('bounded UTF-8 file refusal cannot mask an independently recorded actual fa
       assert.deepEqual(JSON.parse(result.stdout).stopPaths, ['identity']);
       assert.ok(!`${result.stdout}${result.stderr}`.includes(directory));
     }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('writerless FIFOs and other nonregular paths are refused without hiding an actual failed control', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bau-evaluation-fifo-'));
+  try {
+    const input = evaluationExample();
+    input.results.gates[0]!.status = 'failed'; input.results.gates[0]!.basis = 'actual';
+    const round = join(directory, 'round.json');
+    const results = join(directory, 'results.json');
+    const fifo = join(directory, 'CONTROLLED-references.fifo');
+    const alias = join(directory, 'references-alias');
+    await writeFile(round, JSON.stringify(input.round));
+    await writeFile(results, JSON.stringify(input.results));
+    execFileSync('mkfifo', [fifo]);
+    await symlink(fifo, alias);
+    for (const refused of [fifo, alias, directory]) {
+      const result = spawnSync(process.execPath, [cli.pathname, 'summary', round, refused, results], { encoding: 'utf8', timeout: 1000, killSignal: 'SIGKILL' });
+      assert.equal(result.status, 2, result.error?.name);
+      const output = JSON.parse(result.stdout);
+      assert.equal(output.valid, false);
+      assert.equal(output.decision, 'cannot_determine');
+      assert.deepEqual(output.stopPaths, ['identity']);
+      assert.ok(!`${result.stdout}${result.stderr}`.includes(directory));
+      assert.ok(!`${result.stdout}${result.stderr}`.includes('CONTROLLED'));
+    }
+    const projected = spawnSync(process.execPath, [cli.pathname, 'inputs', fifo], { encoding: 'utf8', timeout: 1000, killSignal: 'SIGKILL' });
+    assert.equal(projected.status, 2, projected.error?.name);
+    assert.equal(JSON.parse(projected.stdout).valid, false);
+    assert.ok(!`${projected.stdout}${projected.stderr}`.includes(directory));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -48,6 +48,9 @@ export function reviewReports(bundle: EvaluationBundle) {
     const checked = run?.factChecks ?? [];
     if (duplicate(facts) || duplicate(checked.map(check => check.factId)) || checked.some(check => !facts.includes(check.factId))) issues.push('fact_inventory_mismatch');
     if (checked.some(check => !reviewerQualified(round, check.reviewerId, item.scene) || (check.support === 'supported' && check.evidenceRefs.length === 0))) issues.push('fact_review_invalid');
+    const acceptedAt = run?.timeline.acceptedAt;
+    const reviewFrom = acceptedAt ? Math.max(Date.parse(round.frozenAt), Date.parse(acceptedAt)) : Infinity;
+    if (checked.some(check => Date.parse(check.checkedAt) < reviewFrom)) issues.push('fact_review_before_run');
     const supported = facts.filter(fact => checked.some(check => check.factId === fact && check.support === 'supported')).length;
     const factsPending = delivered && facts.some(fact => !checked.some(check => check.factId === fact && check.support !== 'pending'));
     if (factsPending) pending.push('missing_fact_review');
