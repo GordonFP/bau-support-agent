@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import type { CallContext, LogQuery, Ports, ReadResult, SourceEvidence } from "../../troubleshooting/application/ports.js";
 import type { SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
 import type { AuditDetails } from "../../troubleshooting/application/records.js";
+import { caseResources } from "../../troubleshooting/application/resource-scope.js";
+import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
 import { MAX_ACTIVE_CASES, MAX_LOG_RECORDS, TOOL_CALL_MS } from "../../troubleshooting/application/limits.js";
 import { McpBoundary } from "../mcp/boundary.js";
 import { McpFailure } from "../mcp/failure.js";
@@ -22,15 +24,15 @@ const failure = (reason: ConstructorParameters<typeof McpFailure>[0]): never => 
 const exact = (value: object, keys: readonly string[]) => { if (Object.keys(value).some((key) => !keys.includes(key))) failure("invalid_request"); };
 export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: McpBoundary): Pick<Ports, "logs" | "sanitization"> {
   const profile = structuredClone(supplied.profile), options = { ...supplied };
-  const approved = [...(supplied.approvedCaseResourceRefs ?? ["simulator-source"])].sort();
-  if (approved.length < 1 || approved.length > 3 || new Set(approved).size !== approved.length || !approved.includes("simulator-source") || approved.some((ref) => !/^[a-z][a-z0-9-]{0,79}$/.test(ref))) failure("contract_unverified");
+  let approved: readonly string[];
+  try { approved = caseResources(supplied.approvedCaseResourceRefs ?? ["simulator-source"]); } catch { return failure("contract_unverified"); }
   const child = fileURLToPath(new URL("./child.js", import.meta.url));
   const endpoint = { command: process.execPath, args: [child, profile.reference.path, profile.reference.sha256], artifact: { path: child, sha256: createHash("sha256").update(readFileSync(child)).digest("hex") } };
   const cases = new Map<string, { rows: number; windows: Set<string>; coverage: number }>();
   boundary.onClear((caseRef) => { options.releaseCase?.(caseRef); cases.delete(caseRef); });
   const authorize = async (context: CallContext) => {
     if (!context.caseRef || !context.callId || !context.approvalRef || !context.policyVersion || !context.snapshotRef || !Number.isSafeInteger(context.phaseId) || context.phaseId < 1 ||
-      canonical([...context.resourceRefs].sort()) !== canonical(approved) || !await ports.authorization.allows("mcp.logs.read", { ...context, resourceRefs: ["simulator-source"] })) failure("denied");
+      canonical([...context.resourceRefs].sort()) !== canonical([...approved].sort()) || !await ports.authorization.allows("mcp.logs.read", { ...context, resourceRefs: ["simulator-source"] })) failure("denied");
   };
   return { sanitization: boundary.sanitization, logs: { read: async (caller, suppliedQuery): Promise<ReadResult<SimulatorObservation | null>> => {
     const query = structuredClone(suppliedQuery);
@@ -116,7 +118,10 @@ export function kibanaLogPorts(ports: Ports, supplied: KibanaOptions, boundary: 
       });
     } catch (error) {
       const reason = error instanceof McpFailure ? error.reason : "unavailable";
-      if (reason !== "audit_unavailable") try { await ports.audit.complete(context, "mcp.logs.read", reason, details); } catch { return failure("audit_unavailable"); }
+      if (reason !== "audit_unavailable") try {
+        if (reason === "denied") await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
+        else await ports.audit.complete(context, "mcp.logs.read", reason, details);
+      } catch { return failure("audit_unavailable"); }
       return failure(reason);
     }
   } } };

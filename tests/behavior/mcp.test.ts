@@ -424,3 +424,28 @@ test("zero observations preserve unknown completeness and sanitized source warni
   assert.match(JSON.stringify(record), /upstream completeness unknown/);
   assert.doesNotMatch(JSON.stringify(record), /SYNTHETIC-SECRET/);
 });
+
+for (const kind of ["logs", "code"] as const) test(`independent B ${kind} denial persists denied authorization in C before any MCP process starts`, async () => {
+  const { SqliteRecords } = await import("../../src/adapters/records/sqlite.js");
+  const directory = await mkdtemp(join(tmpdir(), "bau-mcp-denied-audit-")), receipt = join(directory, "operations");
+  const action = `mcp.${kind === "logs" ? "logs.read" : "code.search"}`;
+  let store: InstanceType<typeof SqliteRecords> | undefined;
+  const mock = createMockTroubleshooting({ denyActions: [action], controlPorts: (ports) => {
+    store = new SqliteRecords(directory, ports);
+    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+  } });
+  try {
+    await mock.receive(); await mock.closed;
+    const before = mock.events.filter((event) => ["model.generate", "delivery.send"].includes(event.action)).length;
+    const source = { ...endpoint(), args: [service, "normal", receipt] };
+    const adapter = mcpEvidencePorts(mock.ports, { logs: source, code: source, resolveIdentifier: (_context, id) => id });
+    const denied = kind === "logs" ? adapter.logs.read(context(), query) : adapter.code.search(context(), { repositoryRef: "simulator-source", snapshotRef: "simulator-snapshot-1" });
+    await assert.rejects(denied, /^Error: denied$/);
+    const retained = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(retained?.scope === "full");
+    const audit = retained.audits.find((row) => row.action === "authorization.denied" && row.stage === "complete");
+    assert.ok(audit); assert.deepEqual(audit.authorization, { decision: "denied", reason: "denied" });
+    assert.equal(retained.audits.some((row) => row.action === action && row.outcome === "denied"), false);
+    await assert.rejects(readFile(receipt), { code: "ENOENT" });
+    assert.equal(mock.events.filter((event) => ["model.generate", "delivery.send"].includes(event.action)).length, before);
+  } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
+});

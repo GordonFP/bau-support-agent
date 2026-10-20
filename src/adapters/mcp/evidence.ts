@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { CallContext, LogQuery, Ports, ReadResult, SafeReason } from "../../troubleshooting/application/ports.js";
 import type { AuditDetails } from "../../troubleshooting/application/records.js";
+import { caseResources } from "../../troubleshooting/application/resource-scope.js";
+import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
 import { MAX_ACTIVE_CASES, MAX_INBOUND_BYTES, MAX_LOG_RECORDS } from "../../troubleshooting/application/limits.js";
 import { McpBoundary, type OwnedMcpEndpoint } from "./boundary.js";
 import { EVIDENCE_SCHEMA, FRAGMENT_BYTES, SANITIZATION_VERSION, canonical, digest, syntheticManifest, type EvidenceManifest } from "./manifest.js";
@@ -25,9 +27,8 @@ const exact = (value: object, keys: readonly string[]) => { if (Object.keys(valu
 export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, boundary = new McpBoundary(ports)): Pick<Ports, "logs" | "code" | "sanitization"> {
   const copyEndpoint = ({ close, ...data }: Endpoint): Endpoint => ({ ...structuredClone(data), ...(close ? { close } : {}) });
   const options = { ...supplied, logs: copyEndpoint(supplied.logs), code: copyEndpoint(supplied.code) };
-  const approved = [...(supplied.approvedCaseResourceRefs ?? ["simulator-source"])].sort();
-  if (approved.length < 1 || approved.length > 3 || new Set(approved).size !== approved.length || !approved.includes("simulator-source") ||
-    approved.some((ref) => !/^[a-z][a-z0-9-]{0,79}$/.test(ref))) throw new McpFailure("contract_unverified");
+  let approved: readonly string[];
+  try { approved = caseResources(supplied.approvedCaseResourceRefs ?? ["simulator-source"]); } catch { throw new McpFailure("contract_unverified"); }
   const cases = new Map<string, { records: number; windows: Set<string>; coverage: number; identifiers: Map<string, string> }>();
   boundary.onClear((caseRef) => {
     cases.get(caseRef)?.identifiers.clear();
@@ -41,7 +42,7 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
   const authorize = async (context: CallContext, action: string) => {
     current(context);
     if (!context.caseRef || !Number.isSafeInteger(context.phaseId) || context.phaseId < 1 || !context.callId ||
-      !context.policyVersion || !context.approvalRef || canonical([...context.resourceRefs].sort()) !== canonical(approved) ||
+      !context.policyVersion || !context.approvalRef || canonical([...context.resourceRefs].sort()) !== canonical([...approved].sort()) ||
       !context.snapshotRef || !await ports.authorization.allows(action, { ...context, resourceRefs: ["simulator-source"] })) throw new McpFailure("denied");
     current(context);
   };
@@ -172,7 +173,10 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
     } catch (error) {
       const reason = reasonOf(error);
       if (reason !== "audit_unavailable") {
-        try { await ports.audit.complete(context, action, reason, details); } catch { throw new McpFailure("audit_unavailable"); }
+        try {
+          if (reason === "denied") await recordDenial(ports.audit, deniedContext(context, context.caseRef, ports));
+          else await ports.audit.complete(context, action, reason, details);
+        } catch { throw new McpFailure("audit_unavailable"); }
       }
       throw new McpFailure(reason);
     }

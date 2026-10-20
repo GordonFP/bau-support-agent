@@ -207,3 +207,33 @@ test("B refuses a missing pinned import in the actual artifact closure before na
     await assert.rejects(adapter.logs.read(context(mock.ports.clock.now()), query), /^Error: unavailable$/); assert.equal(server.requests.length, 0);
   }, (value) => { value.modules.splice(1, 1); });
 });
+
+for (const persistence of ["mock", "sqlite"] as const) test(`B authorization refusal persists a denied decision through C ${persistence} export`, async () => {
+  const { SqliteRecords } = await import("../../src/adapters/records/sqlite.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "bau-denied-log-audit-"));
+  let store: InstanceType<typeof SqliteRecords> | undefined;
+  const mock = createMockTroubleshooting({ denyActions: ["mcp.logs.read"], controlPorts: (ports) => {
+    if (persistence === "mock") return {};
+    store = new SqliteRecords(directory, ports);
+    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+  } });
+  const server = await kibanaServer(), artifact = await kibanaProfile(server.url);
+  try {
+    await mock.receive(); await mock.closed;
+    const before = mock.events.filter((event) => ["model.generate", "delivery.send"].includes(event.action)).length;
+    const profile = await loadKibanaProfile(artifact);
+    const adapter = kibanaLogPorts(mock.ports, { profile, resolveIdentifier: (_context, id) => id }, new McpBoundary(mock.ports));
+    await assert.rejects(adapter.logs.read(context(mock.ports.clock.now()), query), /^Error: denied$/);
+    const retained = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(retained?.scope === "full");
+    const denial = retained.audits.find((row) => row.action === "authorization.denied" && row.stage === "complete");
+    assert.ok(denial); assert.deepEqual(denial.authorization, { decision: "denied", reason: "denied" });
+    assert.equal(denial.principalRef, mock.inbound.principalRef);
+    assert.equal(retained.audits.some((row) => row.action === "mcp.logs.read" && row.outcome === "denied"), false);
+    assert.equal(server.requests.length, 0);
+    assert.equal(mock.events.filter((event) => ["model.generate", "delivery.send"].includes(event.action)).length, before);
+    assert.doesNotMatch(JSON.stringify(retained), /SYNTHETIC-SECRET|127\.0\.0\.1|controlled\.json/);
+  } finally { store?.close(); await artifact.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
+});

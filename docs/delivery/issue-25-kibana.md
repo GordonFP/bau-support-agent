@@ -25,3 +25,11 @@ Actual verification on Node 24.22.0, TypeScript 7.0.2, 2026-10-21:
 - Postman CLI 1.74.0 ran the owned Kibana simulation; the actual candidate/adapter made its physical HTTP request, returned unknown evidence, refused an unapproved contract and received 501 for an unmodeled route. This is basic HTTP-contract proof. Node fixtures provide the exact reset/byte/gzip/cancellation tests. OpenAPI JSON syntax and simulation YAML parsing passed; no provider/cloud deployment or full Elasticsearch emulator is claimed.
 
 Actual company field/timezone/association semantics, identity/index ACL, deployed Kibana version/protocol, resource isolation, real cancellation and G3 authorization remain incomplete. Local execution cannot close those gates or parent 14. The generic existing report artifact still identifies the offline synthetic diagnostic policy.
+
+## Review follow-up
+
+The standards review reproduced contradictory authorization metadata on an independent B refusal. Kibana and the original synthetic MCP log/code profiles now use the existing safe denied context and `authorization.denied` audit operation. They preserve other finite error handling and return `audit_unavailable` if either denial audit write fails. Public B→C export regressions inspect the actual authorization decision (including SQLite persistence), and independently observed source receipts remain absent on denial. Denial-audit failure tests prove no retry or source/model/report work.
+
+Both log factories now reuse the application's frozen `caseResources` bootstrap validator. Sorting is used only on copies for equality, preserving the full approved resource set and snapshot pins. Public constructor/call tests cover the 64/65-character boundary, input-array mutation isolation and refusal of the mutated scope. No dependency, private operation, native tool or permission was added.
+
+On the `3f67f36` baseline, all 306 portable macOS tests passed with concurrency 2 after these eight new regressions. Project typecheck/build, the strict Kibana/MCP/code/management source closure with `skipLibCheck:false`, both SDK consumer checks and native Teams preflight passed. The independent spec review found no confirmed specification deviation. Final integration and platform/native rerun results follow below; prior Postman HTTP proof is unchanged and is not represented as rerun by this fix.
