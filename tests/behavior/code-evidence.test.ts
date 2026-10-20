@@ -7,6 +7,35 @@ import { McpBoundary } from "../../src/adapters/mcp/boundary.js";
 import { Troubleshooting } from "../../src/troubleshooting/application/troubleshooting.js";
 import type { CallContext } from "../../src/troubleshooting/application/ports.js";
 import { ManualClock } from "../fixtures/clock.js";
+import { pspFixture } from "../fixtures/psp.js";
+
+for (const scenario of ["simulator", "psp"] as const) for (const operation of ["search", "snippet", "trace"] as const) {
+  test(`${scenario} ${operation} audits the approved requested repository on the original call`, async () => {
+    const action = `code.${operation}`;
+    const mock = createMockTroubleshooting({ pspObservation: pspFixture,
+      resourceRefs: ["simulator-source", "psp-log-source", "psp-code", "shared-code"],
+      agent: async (_context, request) => {
+        await request.invoke("logs.read", null);
+        await request.invoke(action, { repositoryRef: "shared-code", ...(operation === "search" ? { term: "sharedCheck" }
+          : { symbol: "shared.check", file: "shared.ts", ...(operation === "trace" ? { direction: "outbound", targetRepositoryRef: "psp-code" } : {}) }) });
+        return request.generate(request.diagnose());
+      } });
+    await mock.receive(scenario === "psp" ? { input: { scenario, applicationId: pspFixture.applicationRef,
+      shopId: pspFixture.target.shopRef, bindingId: pspFixture.target.bindingRef, question: "Read the approved shared repository." } } : {});
+    await mock.closed;
+    const saved = await mock.ports.records.export(mock.inbound, "case-1"); assert.ok(saved?.scope === "full");
+    assert.equal(saved.view.state, "completed");
+    const query = mock.events.find((entry) => entry.action === action)!.input as { repositoryRef: string };
+    assert.equal(query.repositoryRef, "shared-code");
+    const evidence = saved.records.filter((entry) => entry.kind === "evidence").map((entry) => entry.payload as { kind: string; code?: { repositoryRef: string } });
+    assert.equal(evidence.find((entry) => entry.kind === "code")!.code!.repositoryRef, "shared-code");
+    const audits = saved.audits.filter((entry) => entry.action === action);
+    assert.deepEqual(audits.map((entry) => entry.stage), ["intent", "complete"]);
+    assert.equal(audits[0]!.callId, audits[1]!.callId);
+    assert.ok(saved.records.some((entry) => entry.recordRef === `${audits[0]!.callId}:output`));
+    for (const audit of audits) assert.deepEqual(audit.scope, { repositoryRef: "shared-code", snapshotRef: "simulator-snapshot-1" });
+  });
+}
 
 test("the confirmed B snippet and trace operations return version-bound code evidence through the case", { timeout: 2000 }, async () => {
   const mock = createMockTroubleshooting({ agent: async (_context, request) => {

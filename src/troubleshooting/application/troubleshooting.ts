@@ -620,7 +620,8 @@ export class Troubleshooting {
     };
     const contextFor = (action: string): CallContext => Object.freeze({ ...phaseContext, callId: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${action}:${++callSequence}` });
     const guarded = async <T>(action: string, operation: (context: CallContext) => Promise<T>, acceptResult?: (result: T, auditRef: string) => void | Promise<void>,
-      attempt?: { callId: string; operationRef: string; deadline: number; recoverable: (error: unknown) => boolean }): Promise<T> => {
+      attempt?: { callId: string; operationRef: string; deadline: number; recoverable: (error: unknown) => boolean },
+      codeScope?: { readonly repositoryRef: string; readonly snapshotRef: string }): Promise<T> => {
       const assertAllowed = () => assertCurrent();
       if (ports.clock.now() >= phaseContext.deadline) throw new Error("timeout");
       assertAllowed();
@@ -628,7 +629,7 @@ export class Troubleshooting {
       const context = Object.freeze({ ...(attempt ? { ...phaseContext, callId: attempt.callId, operationRef: attempt.operationRef } : contextFor(action)),
         deadline: Math.min(phaseContext.deadline, attempt?.deadline ?? ports.clock.now() + cap) });
       const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef, ...this.scope!.queryWindow, pageSize: 100 } }
-        : action.startsWith("code.") ? { scope: { repositoryRef, snapshotRef: phaseContext.snapshotRef } }
+        : codeScope ? { scope: codeScope }
         : action === "model.generate" ? { model: this.scope!.modelProfile === "local_protocol"
           ? { profile: "local_protocol", protocol: "synthetic-responses-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
           : { profile: "memory_mock", protocol: "mock-json-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "offline-model-1" } }
@@ -838,7 +839,8 @@ export class Troubleshooting {
           !repositoryRefs.includes(bound.targetRepositoryRef))) throw new Error("denied");
         return guarded(tool, (context) => operation === "search" ? ports.code.search(context, bound as CodeSearchQuery)
           : operation === "snippet" ? ports.code.snippet(context, bound as CodeSnippetQuery) : ports.code.trace(context, bound as CodeTraceQuery),
-          (read, auditRef) => acceptEvidence(read, "code", auditRef));
+          (read, auditRef) => acceptEvidence(read, "code", auditRef), undefined,
+          { repositoryRef: bound.repositoryRef, snapshotRef: bound.snapshotRef });
       }
       throw new Error("denied");
     };
