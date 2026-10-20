@@ -1,7 +1,8 @@
 import { Troubleshooting } from "../../troubleshooting/application/troubleshooting.js";
+import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
 import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
-import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, VerifiedInbound } from "../../troubleshooting/application/ports.js";
+import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
 
 // All values and identities in this adapter are synthetic. No transport is created.
 export const simulatorFixture: SimulatorObservation = {
@@ -12,6 +13,7 @@ export const simulatorFixture: SimulatorObservation = {
 };
 
 export interface MockOptions {
+  readonly authorizedActors?: readonly TrustedActor[];
   readonly observation?: SimulatorObservation | null;
   readonly completeness?: "complete" | "partial" | "unknown";
   readonly principalRef?: string;
@@ -40,6 +42,10 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   };
   const events: { action: string; input: unknown }[] = [];
   const reserved = new Map<string, number>();
+  const admissions = new Map<string, { caseRef: string; principalRef: string; active: boolean }>();
+  const authorizedActors = structuredClone(options.authorizedActors ?? [
+    { principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1" },
+  ]);
   let sanitizationCount = 0;
   const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1", queryWindow: options.queryWindow ?? {
     from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z",
@@ -57,10 +63,21 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     code: { repositoryRef: "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
       snapshotRef: "simulator-snapshot-1", indexedAt: "2026-10-19T08:00:00.000Z", receiptRef: "synthetic-snapshot-receipt-1" } };
   const ports: Ports = {
+    admission: {
+      async confirm(record) {
+        events.push({ action: "admission.confirm", input: record });
+        const existing = admissions.get(record.key);
+        if (existing) return { status: "duplicate", caseRef: existing.caseRef, principalRef: existing.principalRef };
+        if ([...admissions.values()].filter((item) => item.active).length >= MAX_ACTIVE_CASES) return { status: "full" };
+        admissions.set(record.key, { caseRef: record.caseRef, principalRef: record.principalRef, active: true });
+        return { status: "confirmed" };
+      },
+      async release(caseRef) { for (const item of admissions.values()) if (item.caseRef === caseRef) item.active = false; },
+    },
     clock: options.clock ?? { now: () => 0, utc: () => "2026-10-19T09:00:00.000Z" },
     authorization: { async allows(action, context) {
-      return context.tenantRef === "tenant-1" && context.principalRef === "principal-1" &&
-        context.destinationRef === "private-conversation-1" && context.resourceRefs.every((ref) => ref === "simulator-source") &&
+      return authorizedActors.some((actor) => actor.tenantRef === context.tenantRef && actor.principalRef === context.principalRef &&
+        actor.destinationRef === context.destinationRef) && context.resourceRefs.every((ref) => ref === "simulator-source") &&
         !options.denyActions?.includes(action);
     } },
     sanitization: {

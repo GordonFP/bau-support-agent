@@ -14,6 +14,8 @@ export interface VerifiedInbound {
   readonly input: { readonly applicationId?: string; readonly customerId?: string; readonly question: string };
 }
 
+export type TrustedActor = Pick<VerifiedInbound, "principalRef" | "tenantRef" | "destinationRef">;
+
 export interface CallContext {
   readonly caseRef: string;
   readonly phaseId: number;
@@ -99,11 +101,17 @@ export interface ReadResult<T> {
 }
 export interface RuntimeRequest {
   readonly question: string;
+  readonly progress: (value: unknown) => void;
   readonly invoke: (tool: string, query: unknown) => Promise<unknown>;
   readonly generate: (draft: DiagnosticReport) => Promise<unknown>;
   readonly diagnose: () => DiagnosticReport;
 }
 export interface Ports {
+  readonly admission: {
+    confirm(record: { readonly key: string; readonly caseRef: string; readonly principalRef: string }): Promise<
+      { readonly status: "confirmed" } | { readonly status: "duplicate"; readonly caseRef: string; readonly principalRef: string } | { readonly status: "full" }>;
+    release(caseRef: string): Promise<void>;
+  };
   readonly clock: { now(): number; utc(): string; schedule?(deadline: number, callback: () => void): () => void };
   readonly authorization: { allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
   readonly sanitization: { sanitize<T>(value: T, caseRef: string): T; safe(value: unknown): boolean; clear(caseRef: string): void };

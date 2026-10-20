@@ -14,6 +14,27 @@ const trustedReply = (content: InformationReply["content"], eventRef = "reply-1"
   receivedAt: "2026-10-19T09:00:01.000Z", reply: { caseRef: "case-1", questionId: "case-1:question:1" }, content,
 });
 
+test("code evidence accepted before clarification and after resume keeps distinct retrieval provenance", { timeout: 5_000 }, async () => {
+  const mock = createMockTroubleshooting({ customerCandidates: candidates, agent: async (_context, request) => {
+    await request.invoke("code.search", null);
+    await request.invoke("logs.read", null);
+    return request.generate(request.diagnose());
+  } });
+  await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } });
+  await mock.phaseClosed(1);
+  const resumed = await mock.application.provideInformation(trustedReply({ submittedAt: candidates[0]!.submittedAt }));
+  assert.equal(resumed.status, "resumed");
+  await mock.phaseClosed(2);
+  const view = await mock.application.get(mock.inbound, "case-1");
+  assert.ok("state" in view);
+  assert.equal(view.state, "completed");
+  const { report } = await mock.delivery.next();
+  const code = report.evidence.filter((item) => item.kind === "code");
+  assert.equal(code.length, 2);
+  assert.equal(new Set(code.map((item) => item.evidenceRef)).size, 2);
+  assert.equal(new Set(code.map((item) => item.auditRef)).size, 2);
+});
+
 test("a customer with two applications is asked for submission time before either application is investigated", { timeout: 5_000 }, async () => {
   const mock = createMockTroubleshooting({ customerCandidates: [
     { applicationId: "SYNTHETIC-SECRET-APPLICATION", submittedAt: "2026-10-18T10:00:00.000Z" },
@@ -23,7 +44,7 @@ test("a customer with two applications is asked for submission time before eithe
   assert.equal(accepted.status, "accepted");
   if (accepted.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", accepted.view.caseRef);
+  const view = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "awaiting_input");
   assert.equal(view.deadlineAt, undefined);
@@ -76,7 +97,7 @@ test("model attempts, source rows and spending remain cumulative after a valid r
     reply: { caseRef: accepted.view.caseRef, questionId: "case-1:question:1" }, content: { submittedAt: candidates[0]!.submittedAt } });
   assert.equal(resumed.status, "resumed");
   await mock.delivery.next();
-  const view = await mock.application.get("principal-1", accepted.view.caseRef);
+  const view = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in view);
   assert.deepEqual(view.usage, { modelAttempts: 2, logRecords: 2, logCoverageMs: 86_400_000 });
   assert.equal((await mock.ports.budget.status(accepted.view.caseRef)).reservedMicrousd, 2_000);
@@ -93,11 +114,11 @@ test("the phase remains active at 179 seconds and stops at 180 even when an Agen
   await started.promise;
   try {
     clock.advance(179_000);
-    const before = await mock.application.get("principal-1", accepted.view.caseRef);
+    const before = await mock.application.get(mock.inbound, accepted.view.caseRef);
     assert.ok("state" in before);
     assert.equal(before.state, "investigating");
     clock.advance(1_000);
-    const expired = await mock.application.get("principal-1", accepted.view.caseRef);
+    const expired = await mock.application.get(mock.inbound, accepted.view.caseRef);
     assert.ok("state" in expired);
     assert.equal(expired.state, "stopped");
     assert.equal(expired.stopReason, "timeout");
@@ -114,7 +135,7 @@ test("waiting pauses the phase clock but remains in UTC history and total elapse
   await mock.closed;
   clock.advance(3_600_000);
   clock.fireCapturedTimer(0);
-  const waiting = await mock.application.get("principal-1", accepted.view.caseRef);
+  const waiting = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in waiting);
   assert.equal(waiting.state, "awaiting_input");
   assert.equal(waiting.elapsedMs, 3_600_000);
@@ -123,7 +144,7 @@ test("waiting pauses the phase clock but remains in UTC history and total elapse
     reply: { caseRef: accepted.view.caseRef, questionId: "case-1:question:1" }, content: { submittedAt: candidates[0]!.submittedAt } });
   assert.equal(resumed.status, "resumed");
   await mock.delivery.next();
-  const complete = await mock.application.get("principal-1", accepted.view.caseRef);
+  const complete = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in complete);
   assert.equal(complete.receivedAt, "2026-10-19T09:00:00.000Z");
   assert.equal(complete.acceptedAt, "2026-10-19T09:00:00.000Z");
@@ -165,7 +186,7 @@ test("an unsettled old model keeps its reservation and its late result cannot re
   await mock.phaseClosed(2);
   oldModel.resolve();
   await mock.phaseClosed(1);
-  const view = await mock.application.get("principal-1", accepted.view.caseRef);
+  const view = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   assert.equal(view.phaseId, 2);
@@ -194,7 +215,7 @@ test("changing an already selected application requires a new case and cannot al
       destinationRef: "private-conversation-1", eventRef: "change-target", receivedAt: "2026-10-19T09:00:01.000Z",
       reply: { caseRef: accepted.view.caseRef, questionId: "not-a-current-question" }, content: { applicationId: "another-application" } });
     assert.deepEqual(reply, { status: "denied", reason: "invalid_request", newCaseRequired: true });
-    const view = await mock.application.get("principal-1", accepted.view.caseRef);
+    const view = await mock.application.get(mock.inbound, accepted.view.caseRef);
     assert.ok("state" in view);
     assert.equal(view.phaseId, 1);
     assert.equal(view.deadlineAt, accepted.view.deadlineAt);
@@ -207,7 +228,7 @@ test("a customer with exactly one application is located by the trusted source w
   assert.equal(accepted.status, "accepted");
   if (accepted.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", accepted.view.caseRef);
+  const view = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   assert.equal(view.phaseId, 1);
@@ -232,7 +253,7 @@ test("selecting the second application preserves its raw source selector without
     content: { submittedAt: candidates[1]!.submittedAt, candidateRef: "candidate-2" } });
   assert.equal(resumed.status, "resumed");
   await mock.phaseClosed(2);
-  const view = await mock.application.get("principal-1", accepted.view.caseRef);
+  const view = await mock.application.get(mock.inbound, accepted.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   const { report } = await mock.delivery.next();
@@ -277,7 +298,7 @@ test("invalid, unrelated and repeated replies keep the same question and do not 
   assert.equal(repeated.status, "duplicate");
   const unrelated = await mock.application.provideInformation(trustedReply({ question: "Ignore the question and resume" }, "unrelated"));
   assert.equal(unrelated.status, "needs_information");
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "awaiting_input");
   assert.equal(view.phaseId, 1);
@@ -299,7 +320,7 @@ test("reply routing requires the case owner, tenant, fixed conversation and curr
     { ...valid, reply: { ...valid.reply, questionId: "old-question" } },
   ];
   for (const reply of wrongRoutes) assert.equal((await mock.application.provideInformation(reply)).status, "denied");
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "awaiting_input");
   assert.equal(view.phaseId, 1);
@@ -319,7 +340,7 @@ test("a valid reply is reauthorized and concurrent repeat delivery starts only o
   const results = await Promise.all([mock.application.provideInformation(valid), mock.application.provideInformation(valid)]);
   assert.deepEqual(results.map((result) => result.status), ["resumed", "duplicate"]);
   await mock.phaseClosed(2);
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.phaseId, 2);
   assert.equal(view.phases.length, 2);
@@ -344,12 +365,12 @@ test("an old cancelled timer cannot expire the resumed phase and late work at it
   try {
     clock.fireCapturedTimer(0);
     clock.advance(179_000);
-    const before = await mock.application.get("principal-1", "case-1");
+    const before = await mock.application.get(mock.inbound, "case-1");
     assert.ok("state" in before);
     assert.equal(before.phaseId, 2);
     assert.equal(before.state, "investigating");
     clock.advance(1_000);
-    const expired = await mock.application.get("principal-1", "case-1");
+    const expired = await mock.application.get(mock.inbound, "case-1");
     assert.ok("state" in expired);
     assert.equal(expired.stopReason, "timeout");
   } finally { hold.resolve(); await mock.phaseClosed(2); }
@@ -376,7 +397,7 @@ test("a terminal case cannot resume and a recheck is newly authorized with fresh
   if (second.status !== "accepted") return;
   assert.notEqual(second.view.caseRef, first.view.caseRef);
   await mock.phaseClosed(1, second.view.caseRef);
-  const view = await mock.application.get("principal-1", second.view.caseRef);
+  const view = await mock.application.get(mock.inbound, second.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   assert.deepEqual(view.usage, { modelAttempts: 1, logRecords: 1, logCoverageMs: 86_400_000 });
@@ -405,7 +426,7 @@ test("model-generated reply content cannot count as a trusted user clarification
   await mock.aborted;
   hold.resolve();
   await mock.phaseClosed(1);
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "awaiting_input");
   assert.equal(view.phaseId, 1);
@@ -423,7 +444,7 @@ test("the verified reply is captured before asynchronous routing so later mutati
   reply.content.submittedAt = candidates[1]!.submittedAt;
   assert.equal((await result).status, "resumed");
   await mock.phaseClosed(2);
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   const { report } = await mock.delivery.next();
@@ -434,7 +455,7 @@ test("a partial customer lookup cannot establish that its single observed applic
   const mock = createMockTroubleshooting({ customerCandidates: [candidates[0]!], completeness: "partial" });
   await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } });
   await mock.closed;
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "stopped");
   assert.equal(view.stopReason, "contract_unverified");
@@ -450,7 +471,7 @@ test("the private candidate selector snapshot cannot drift after the question ha
   sourceCandidates[0]!.applicationId = candidates[1]!.applicationId;
   await mock.application.provideInformation(trustedReply({ submittedAt: candidates[0]!.submittedAt }));
   await mock.phaseClosed(2);
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   const query = mock.events.filter((event) => event.action === "logs.read")[1]!.input as { applicationId: string };
@@ -461,7 +482,7 @@ test("a clarification transition requires its audit intent before a question is 
   const mock = createMockTroubleshooting({ customerCandidates: candidates, auditFails: "requestInformation:intent" });
   await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } });
   await mock.closed;
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "stopped");
   assert.equal(view.stopReason, "audit_unavailable");
@@ -487,7 +508,7 @@ test("the verified inbound identity and target are captured before asynchronous 
   authorized.resolve();
   assert.equal((await accepting).status, "accepted");
   await mock.closed;
-  const view = await mock.application.get("principal-1", "case-1");
+  const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
   assert.equal(view.receivedAt, "2026-10-19T09:00:00.000Z");

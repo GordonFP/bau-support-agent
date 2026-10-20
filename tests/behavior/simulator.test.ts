@@ -12,7 +12,7 @@ test("a cross-day request reports the submitted tenth shop's D-1 coverage gap", 
   assert.deepEqual(report.simulator.dataReadiness, { satisfied: 9, missing: 1, unknown: 0 });
   assert.deepEqual(report.simulator.shops[9], {
     shopRef: "shop-10", authorization: "active", targetDate: "2026-10-18",
-    completeThrough: "2026-10-17", readiness: "missing", evidenceRefs: ["case-1:log:0"],
+    completeThrough: "2026-10-17", readiness: "missing", evidenceRefs: report.evidence.filter((item) => item.kind === "log").map((item) => item.evidenceRef),
   });
   assert.equal(report.diagnosticStatus, "lead");
   assert.equal(report.possibleCauses.length, 0);
@@ -29,7 +29,7 @@ test("unsafe Agent output is rejected before disclosure rather than repaired int
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "stopped");
   assert.equal(view.stopReason, "unsafe_content");
@@ -68,7 +68,7 @@ test("evidence from another application is not accepted as support for this case
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "stopped");
   assert.equal(view.stopReason, "invalid_request");
@@ -81,7 +81,7 @@ test("a source observation must match the application selected by the inbound re
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "stopped");
   assert.equal(view.stopReason, "invalid_request");
@@ -97,7 +97,7 @@ test("a valid model candidate remains valid when UTC time advances during genera
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "completed");
 });
@@ -141,7 +141,7 @@ test("revoked source access is denied before that source, model or delivery is c
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.stopReason, "denied");
   assert.equal(mock.events.some((event) => ["logs.read", "code.search", "model.generate", "delivery.send"].includes(event.action)), false);
@@ -153,7 +153,7 @@ test("an Agent request for an unlisted tool cannot reach any external capability
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.stopReason, "denied");
   assert.equal(mock.events.some((event) => ["logs.read", "code.search", "model.generate", "delivery.send"].includes(event.action)), false);
@@ -167,7 +167,7 @@ for (const reference of ["missing-evidence", "other-case:log:0"]) {
     assert.equal(acceptance.status, "accepted");
     if (acceptance.status !== "accepted") return;
     await mock.closed;
-    const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+    const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
     assert.ok("state" in view);
     assert.equal(view.stopReason, "unsafe_content");
     assert.equal(mock.events.some((event) => event.action === "delivery.send"), false);
@@ -201,7 +201,7 @@ test("missing source intent audit prevents the source call and all later disclos
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.stopReason, "audit_unavailable");
   assert.equal(mock.events.some((event) => ["logs.read", "code.search", "model.generate", "delivery.send"].includes(event.action)), false);
@@ -213,7 +213,7 @@ test("current disclosure authorization is checked even after a safe report has b
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.stopReason, "denied");
   assert.equal(mock.events.some((event) => event.action === "model.generate"), true);
@@ -226,7 +226,7 @@ test("an asynchronous startup sanitization failure ends safely and cleans up the
   assert.equal(acceptance.status, "accepted");
   if (acceptance.status !== "accepted") return;
   await mock.closed;
-  const view = await mock.application.get("principal-1", acceptance.view.caseRef);
+  const view = await mock.application.get(mock.inbound, acceptance.view.caseRef);
   assert.ok("state" in view);
   assert.equal(view.state, "stopped");
   assert.equal(view.stopReason, "unavailable");
