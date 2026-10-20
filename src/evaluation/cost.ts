@@ -26,7 +26,8 @@ export function measureCosts({ round, results }: EvaluationBundle) {
     for (const [position, attempt] of run.attempts.entries()) {
       const began = Date.parse(attempt.startedAt);
       const ended = attempt.endedAt === null ? null : Date.parse(attempt.endedAt);
-      if (run.timeline.acceptedAt === null || began < Date.parse(run.timeline.acceptedAt) || (ended !== null && ended < began) || (run.timeline.finishedAt !== null && Math.max(began, ended ?? began) > Date.parse(run.timeline.finishedAt)) || (attempt.status !== 'unknown' && ended === null)) issues.push('invalid_attempt_interval');
+      // The logical case stops admitting work at finishedAt; an already owned call can settle later.
+      if (run.timeline.acceptedAt === null || began < Date.parse(run.timeline.acceptedAt) || (ended !== null && ended < began) || (run.timeline.finishedAt !== null && began > Date.parse(run.timeline.finishedAt)) || (attempt.status !== 'unknown' && ended === null)) issues.push('invalid_attempt_interval');
       if (attempt.retryOf !== null) {
         const previous = run.attempts.slice(0, position).find(candidate => candidate.attemptId === attempt.retryOf);
         if (!previous || previous.endedAt === null || began < Date.parse(previous.endedAt)) issues.push('invalid_retry_lineage');

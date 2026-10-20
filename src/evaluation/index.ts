@@ -1,17 +1,18 @@
-import { bundleSchema, gateSchema, roundSchema, scenes } from './format.js';
+import { bundleSchema, gates, roundSchema, scenes } from './format.js';
 import { reviewReports } from './review.js';
 import { checkRecords } from './records.js';
 import { measureTimes } from './time.js';
 import { measureCosts } from './cost.js';
 
 function actualStops(input: unknown): string[] {
-  // A well-formed actual failure is actionable even when another record is incomplete.
+  // Recognize only the finite failure signal; other missing/extra fields cannot erase a stop.
   if (!input || typeof input !== 'object' || !('results' in input)) return [];
   const results = input.results;
   if (!results || typeof results !== 'object' || !('gates' in results) || !Array.isArray(results.gates)) return [];
   return [...new Set(results.gates.flatMap(value => {
-    const gate = gateSchema.safeParse(value);
-    return gate.success && gate.data.status === 'failed' && gate.data.basis === 'actual' ? [gate.data.gate] : [];
+    if (!value || typeof value !== 'object' || !('gate' in value) || !('status' in value) || !('basis' in value)) return [];
+    const gate = gates.find(candidate => candidate === value.gate);
+    return gate && value.status === 'failed' && value.basis === 'actual' ? [gate] : [];
   }))];
 }
 

@@ -29,7 +29,7 @@ export const roundSchema = z.strictObject({
   cases: z.array(z.strictObject({
     caseId: id, runId: id, scene, category: z.enum(['common', 'abnormal', 'evidence_gap']), referenceId: id,
     source: z.enum(['synthetic', 'actual']), sampleApprovalRef: id.nullable(), materials: z.enum(['ready', 'missing']),
-    input: z.strictObject({ question: text, supplements: z.array(text).max(32), resourceRefs: z.array(id).min(1).max(3), logWindow: z.strictObject({ start: timestamp, end: timestamp }).nullable(), snapshotRef: id, indexRef: id }),
+    input: z.strictObject({ question: text, supplements: z.array(text).max(32), resourceRefs: z.array(id).min(1).max(4), logWindow: z.strictObject({ start: timestamp, end: timestamp }).nullable(), snapshotRef: id, indexRef: id }),
   })).max(24),
 });
 export const referencesSchema = z.strictObject({

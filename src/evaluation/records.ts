@@ -12,6 +12,7 @@ export function checkRecords({ round, references, results }: EvaluationBundle) {
     const count = round.cases.filter(item => item.scene === scene).length;
     if (count < 12) pending.push('missing_frozen_cases');
     if (count > 12) issues.push('case_distribution');
+    if (['common', 'abnormal', 'evidence_gap'].some(category => !round.cases.some(item => item.scene === scene && item.category === category))) pending.push('missing_category_coverage');
     if (!reviewerQualified(round, round.businessReviewers[scene], scene)) pending.push('missing_business_reviewer');
   }
   for (const item of round.cases) {

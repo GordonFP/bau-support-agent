@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 export function evaluationExample(simulatorUseful = 9, pspUseful = 9) {
   const versions = { application: 'app-1', artifact: 'artifact-1', skill: 'skill-1', prompt: 'prompt-1', manifest: 'manifest-1', policy: 'policy-1', modelRoute: 'model-1', dependencies: 'deps-1' };
   const cases = (['simulator', 'psp'] as const).flatMap(scene => Array.from({ length: 12 }, (_, i) => ({
-    caseId: `${scene}-${i + 1}`, runId: `run-${scene}-${i + 1}`, scene, category: 'common' as const,
+    caseId: `${scene}-${i + 1}`, runId: `run-${scene}-${i + 1}`, scene, category: (i < 4 ? 'common' : i < 8 ? 'abnormal' : 'evidence_gap') as 'common' | 'abnormal' | 'evidence_gap',
     referenceId: `reference-${scene}-${i + 1}`, source: 'synthetic' as 'synthetic' | 'actual', sampleApprovalRef: null as string | null,
     materials: 'ready' as const,
     input: { question: 'Synthetic troubleshooting question', supplements: ['Synthetic supplement'], resourceRefs: ['synthetic-source'], logWindow: null, snapshotRef: 'snapshot-1', indexRef: 'index-1' },

@@ -16,6 +16,18 @@ test('a partial frozen round retains each original denominator and names missing
   assert.ok(evaluate(input).pending.includes('missing_reference_material'));
 });
 
+test('each scene needs common, abnormal and evidence-gap coverage without adding a category quota', () => {
+  const input = evaluationExample();
+  input.round.kind = 'formal';
+  for (const item of input.round.cases) { item.source = 'actual'; item.sampleApprovalRef = 'sample-approval-1'; }
+  for (const gate of input.results.gates) gate.basis = 'actual';
+  for (const item of input.round.cases.filter(item => item.scene === 'psp')) item.category = 'common';
+  const result = evaluate(input);
+  assert.equal(result.valid, true);
+  assert.equal(result.decision, 'cannot_determine');
+  assert.ok(result.pending.includes('missing_category_coverage'));
+});
+
 test('rounds cannot mix duplicate identities, foreign references, or overwritten run lineage', () => {
   const duplicate = evaluationExample(); duplicate.results.runs[1]!.runId = duplicate.results.runs[0]!.runId;
   assert.equal(evaluate(duplicate).valid, false);

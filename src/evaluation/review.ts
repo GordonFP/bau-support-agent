@@ -41,7 +41,7 @@ export function reviewReports(bundle: EvaluationBundle) {
     const delivered = Boolean(run?.report?.deliveredAt);
     const initialQualified = delivered && ratingUseful(run?.primary ?? null);
     const selected = Boolean(selection?.selectedCaseIds.includes(item.caseId));
-    const secondRequired = delivered && (!initialQualified || Boolean(run?.disputed) || selected);
+    const secondRequired = delivered && (!initialQualified || Boolean(run?.disputed) || selected || Boolean(run?.factChecks.some(check => check.support === 'unsupported')));
     const answer = references.answers.find(candidate => candidate.caseId === item.caseId);
     const keys = answer?.keyChecks.map(check => check.checkId) ?? [];
     const facts = run?.report?.criticalFactIds ?? [];
@@ -79,9 +79,9 @@ export function reviewReports(bundle: EvaluationBundle) {
         } else reviewStatus = 'resolved';
       } else if (run.resolution) issues.push('resolution_without_second_review');
     }
-    const reviewsComplete = Boolean(run?.primary) && keys.every(key => run?.primary?.checkedKeys.includes(key)) && (!run?.secondary || keys.every(key => run.secondary?.checkedKeys.includes(key)));
+    const reviewsComplete = Boolean(run?.primary) && keys.every(key => run?.primary?.checkedKeys.includes(key)) && (!secondRequired || Boolean(run?.secondary)) && (!run?.secondary || keys.every(key => run.secondary?.checkedKeys.includes(key)));
     const useful = delivered && ratingUseful(rating) && factsSupported && !factsPending && reviewsComplete && (reviewStatus === 'resolved' || reviewStatus === 'primary') && Boolean(answer);
-    return { caseId: item.caseId, scene: item.scene, delivered, diagnostic: run?.report?.diagnostic ?? null, status: run?.status ?? 'missing', initialQualified, selected, secondRequired, reviewStatus, useful, facts: { total: delivered ? facts.length : 0, supported: delivered ? supported : 0, coverage: delivered && facts.length > 0 ? supported / facts.length : null } };
+    return { caseId: item.caseId, scene: item.scene, delivered, diagnostic: run?.report?.diagnostic ?? null, status: run?.status ?? 'missing', initialQualified, selected, secondRequired, reviewStatus, reviewsComplete, useful, facts: { total: delivered ? facts.length : 0, supported: delivered ? supported : 0, coverage: delivered && facts.length > 0 ? supported / facts.length : null } };
   });
-  return { cases, review: { initialQualified: initialPool.length, randomMinimum, selected: selection?.selectedCaseIds.length ?? 0, requiredSecond: cases.filter(item => item.secondRequired).length, completedSecond: cases.filter(item => item.secondRequired && item.reviewStatus === 'resolved').length }, issues, pending };
+  return { cases, review: { initialQualified: initialPool.length, randomMinimum, selected: selection?.selectedCaseIds.length ?? 0, requiredSecond: cases.filter(item => item.secondRequired).length, completedSecond: cases.filter(item => item.secondRequired && item.reviewsComplete && item.reviewStatus === 'resolved').length }, issues, pending };
 }

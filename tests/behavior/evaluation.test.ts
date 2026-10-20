@@ -68,6 +68,10 @@ test('complete formal arithmetic yields only owner eligibility or No-Go; missing
   assert.equal(malformed.valid, false);
   assert.deepEqual(malformed.stopPaths, ['authorization']);
   assert.ok(!JSON.stringify(malformed).includes('CONTROLLED'));
+  const malformedGate = { ...stopped, results: { ...stopped.results, gates: stopped.results.gates.map(gate => gate.gate === 'authorization' ? { gate: 'authorization', status: 'failed', basis: 'actual', extra: 'CONTROLLED secret' } : gate) } };
+  const incompleteFailure = evaluate(malformedGate);
+  assert.equal(incompleteFailure.valid, false);
+  assert.deepEqual(incompleteFailure.stopPaths, ['authorization']);
 });
 
 for (const [pool, minimum] of [[1, 1], [9, 3], [12, 3]] as const) {
@@ -200,6 +204,16 @@ test('Agent input projection excludes controlled answers, review material, appro
   assert.ok(!JSON.stringify(extra).includes('CONTROLLED'));
 });
 
+test('evaluation can record the existing PSP log plus three-repository authorized scope without granting it', () => {
+  const input = evaluationExample();
+  input.round.cases[12]!.input.resourceRefs = ['psp-log-source', 'synthetic-repo-1', 'synthetic-repo-2', 'synthetic-repo-3'];
+  assert.equal(evaluate(input).valid, true);
+  const projected = agentInputs(input.round);
+  assert.equal(projected.valid, true);
+  if (!projected.valid) return;
+  assert.equal(projected.inputs.cases[12]!.input.resourceRefs.length, 4);
+});
+
 test('missing second-review key checks cannot be counted useful, even when the scores agree', () => {
   const input = evaluationExample();
   input.results.runs[0]!.secondary.checkedKeys = [];
@@ -207,6 +221,7 @@ test('missing second-review key checks cannot be counted useful, even when the s
   assert.equal(result.valid, true);
   if (!result.valid) return;
   assert.equal(result.cases[0]!.useful, false);
+  assert.equal(result.review.completedSecond, 23);
   assert.equal(result.decision, 'cannot_determine');
   assert.ok(result.pending.includes('missing_reference_checks'));
 });
@@ -245,4 +260,38 @@ test('manual, scoring and second-review costs are separate records; missing actu
   assert.equal(result.costs.human.scoring.unknownFees, 23);
   assert.equal(result.costs.human.scoring.completeActualMicrousd, null);
   assert.equal(result.costs.model.knownActualMicrousd, 2400);
+});
+
+test('an unsampled report with unsupported critical facts still needs second review without rewriting the initial business pool', () => {
+  const input = declaredFormal();
+  input.results.sampling.selectedCaseIds = ['simulator-6', 'psp-7', 'simulator-1', 'simulator-3', 'psp-8'];
+  input.results.runs[1]!.factChecks[0]!.support = 'unsupported';
+  const runs = input.results.runs.map((run, i) => i === 1 ? { ...run, secondary: null } : run);
+  const result = evaluate({ ...input, results: { ...input.results, runs } });
+  assert.equal(result.valid, true);
+  if (!result.valid) return;
+  assert.equal(result.review.initialQualified, 18);
+  assert.equal(result.review.randomMinimum, 5);
+  assert.equal(result.cases[1]!.secondRequired, true);
+  assert.equal(result.cases[1]!.useful, false);
+  assert.equal(result.decision, 'cannot_determine');
+  assert.ok(result.pending.includes('missing_second_review'));
+});
+
+test('a cancelled case retains its original late physical completion and fee, without allowing a new post-terminal call', () => {
+  const input = evaluationExample();
+  const runs = input.results.runs.map((run, i) => i === 9 ? {
+    ...run, status: 'cancelled', failureRef: 'cancel-receipt-1', report: null, primary: null, secondary: null, factChecks: [],
+    timeline: { ...run.timeline, finishedAt: '2026-10-02T00:02:00Z', phases: [{ id: 'phase-1', startedAt: '2026-10-02T00:01:00Z', endedAt: '2026-10-02T00:02:00Z' }] },
+    attempts: [{ ...run.attempts[0]!, startedAt: '2026-10-02T00:01:30Z', endedAt: '2026-10-02T00:03:00Z' }],
+  } : run);
+  const result = evaluate({ ...input, results: { ...input.results, runs } });
+  assert.equal(result.valid, true);
+  if (!result.valid) return;
+  assert.equal(result.times.cases[9]!.reportMs, null);
+  assert.equal(result.times.cases[9]!.phaseMs, 60000);
+  assert.equal(result.costs.cases[9]!.model!.completeActualMicrousd, 100);
+  assert.equal(result.costs.cases[9]!.attempts!.succeeded, 1);
+  runs[9]!.attempts[0]!.startedAt = '2026-10-02T00:02:01Z';
+  assert.equal(evaluate({ ...input, results: { ...input.results, runs } }).valid, false);
 });
