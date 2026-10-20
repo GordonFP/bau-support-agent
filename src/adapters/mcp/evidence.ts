@@ -17,6 +17,7 @@ export interface McpEvidenceOptions {
   // no model/tool data can install bindings or select endpoints.
   readonly resolveIdentifier: (context: CallContext, identifier: string) => string;
   readonly releaseCase?: (caseRef: string) => void;
+  readonly approvedCaseResourceRefs?: readonly string[];
 }
 const reasonOf = (error: unknown): SafeReason => error instanceof McpFailure ? error.reason : "unavailable";
 const exact = (value: object, keys: readonly string[]) => { if (Object.keys(value).some((key) => !keys.includes(key))) throw new McpFailure("invalid_request"); };
@@ -24,6 +25,9 @@ const exact = (value: object, keys: readonly string[]) => { if (Object.keys(valu
 export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, boundary = new McpBoundary(ports)): Pick<Ports, "logs" | "code" | "sanitization"> {
   const copyEndpoint = ({ close, ...data }: Endpoint): Endpoint => ({ ...structuredClone(data), ...(close ? { close } : {}) });
   const options = { ...supplied, logs: copyEndpoint(supplied.logs), code: copyEndpoint(supplied.code) };
+  const approved = [...(supplied.approvedCaseResourceRefs ?? ["simulator-source"])].sort();
+  if (approved.length < 1 || approved.length > 3 || new Set(approved).size !== approved.length || !approved.includes("simulator-source") ||
+    approved.some((ref) => !/^[a-z][a-z0-9-]{0,79}$/.test(ref))) throw new McpFailure("contract_unverified");
   const cases = new Map<string, { records: number; windows: Set<string>; coverage: number; identifiers: Map<string, string> }>();
   boundary.onClear((caseRef) => {
     cases.get(caseRef)?.identifiers.clear();
@@ -37,8 +41,8 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
   const authorize = async (context: CallContext, action: string) => {
     current(context);
     if (!context.caseRef || !Number.isSafeInteger(context.phaseId) || context.phaseId < 1 || !context.callId ||
-      !context.policyVersion || !context.approvalRef || context.resourceRefs.length !== 1 || context.resourceRefs[0] !== "simulator-source" ||
-      !context.snapshotRef || !await ports.authorization.allows(action, context)) throw new McpFailure("denied");
+      !context.policyVersion || !context.approvalRef || canonical([...context.resourceRefs].sort()) !== canonical(approved) ||
+      !context.snapshotRef || !await ports.authorization.allows(action, { ...context, resourceRefs: ["simulator-source"] })) throw new McpFailure("denied");
     current(context);
   };
   const call = async (context: CallContext, kind: "logs" | "code", query: LogQuery | { readonly repositoryRef: string; readonly snapshotRef: string }): Promise<Payload> => {

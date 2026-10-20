@@ -105,3 +105,15 @@ test("case cleanup attempts every adapter and original sanitizer and retains fai
   assert.equal(otherClears, 1);
   assert.ok(originalClears >= 2);
 });
+
+test("host-approved full case resources remain pinned across independent log and code profiles", async () => {
+  const mock = createMockTroubleshooting(); const boundary = new McpBoundary(mock.ports);
+  const approvedCaseResourceRefs = ["simulator-source", "payments-source"];
+  const shared = { logs: endpoint(), code: endpoint(), resolveIdentifier, approvedCaseResourceRefs };
+  const adapter = mcpEvidencePorts(mock.ports, shared, boundary);
+  const full = { ...context(), resourceRefs: approvedCaseResourceRefs };
+  await adapter.logs.read(full, query);
+  await adapter.code.search(full, { repositoryRef: "simulator-source", snapshotRef: full.snapshotRef });
+  await assert.rejects(adapter.logs.read({ ...full, resourceRefs: [...approvedCaseResourceRefs, "foreign-source"] }, query), /denied/);
+  await assert.rejects(adapter.logs.read({ ...full, snapshotRef: "changed-snapshot" }, query), /denied/);
+});
