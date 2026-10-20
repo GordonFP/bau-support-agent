@@ -91,6 +91,7 @@ export class TroubleshootingCase {
   private phase = 1;
   private selectedTarget: string | undefined;
   private materialRevision = 0;
+  private readonly sourceWarnings = new Set<string>();
 
   constructor(readonly caseRef: string) {}
 
@@ -122,7 +123,14 @@ export class TroubleshootingCase {
     this.awaiting = false;
   }
 
-  forget(): void { this.stop(); this.evidence.clear(); this.selectedTarget = undefined; }
+  forget(): void { this.stop(); this.evidence.clear(); this.sourceWarnings.clear(); this.selectedTarget = undefined; }
+
+  acceptWarnings(warnings: readonly string[]): void {
+    if (this.ended || this.awaiting) throw new Error("invalid_request");
+    for (const warning of warnings) if (!this.sourceWarnings.has(warning)) {
+      this.sourceWarnings.add(warning); this.materialRevision++;
+    }
+  }
 
   acceptEvidence(evidence: EvidenceReference): void {
     if (this.ended || this.awaiting || evidence.caseRef !== this.caseRef || this.evidence.has(evidence.evidenceRef)) {
@@ -139,6 +147,7 @@ export class TroubleshootingCase {
     const observedAt = logEvidence[0]?.observedAt ?? null;
     const limitations = ["Synthetic Mock evidence; actual source fields, SDKs and diagnostic quality are unverified.",
       "A fixed code snapshot does not prove the historical production deployment version."];
+    limitations.push(...[...this.sourceWarnings].map((warning) => `untrusted source warning: ${warning}`));
     for (const item of evidence) {
       if (item.completeness !== "complete" || item.truncated) limitations.push(`${item.evidenceRef}: ${item.completeness}; truncated=${item.truncated}.`);
       if (item.observedAt === null && item.kind === "log") limitations.push(`${item.evidenceRef}: event observation time is unknown.`);

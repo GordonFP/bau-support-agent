@@ -533,6 +533,10 @@ export class Troubleshooting {
         let output: T;
         try { output = await operation(context); }
         catch (error) {
+          if (error instanceof Error && error.message === "audit_unavailable") {
+            this.auditBoundary?.fail(context, action, "complete");
+            throw new Error("audit_unavailable");
+          }
           try { await ports.audit.complete(context, action, discarded() ? "discarded" : "failed"); } catch { throw new Error("audit_unavailable"); }
           throw error;
         }
@@ -589,6 +593,11 @@ export class Troubleshooting {
     };
     const acceptEvidence = async (read: ReadResult<unknown>, kind: "log" | "code", auditRef: string) => {
       if (!read || !["complete", "partial", "unknown"].includes(read.completeness) || !Array.isArray(read.evidence)) throw new Error("schema_mismatch");
+      if (!Array.isArray(read.warnings) || read.warnings.some((warning) => typeof warning !== "string")) throw new Error("schema_mismatch");
+      investigation.acceptWarnings(read.warnings);
+      if (!read.evidence.length && (read.completeness !== "complete" || read.truncated)) {
+        investigation.acceptWarnings([`${kind}: ${read.completeness}; truncated=${read.truncated}; zero observations.`]);
+      }
       const targetRef = kind === "log" ? (read.value as SimulatorObservation | null)?.applicationRef : observation?.applicationRef;
       if (kind === "log" && targetRef && targetRef !== selectedApplicationRef) throw new Error("invalid_request");
       if (kind === "log" && selectedSubmittedOn && (read.value as SimulatorObservation | null)?.submittedOn !== selectedSubmittedOn) throw new Error("invalid_request");
