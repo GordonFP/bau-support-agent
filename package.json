@@ -1,0 +1,17 @@
+{
+  "name": "bau-support-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.22.0" },
+  "scripts": {
+    "check:runtime": "node scripts/check-runtime.mjs",
+    "typecheck": "npm run check:runtime && tsc --project tsconfig.json --noEmit",
+    "build": "npm run check:runtime && tsc --project tsconfig.json",
+    "test": "npm run build && node --test dist/tests/behavior/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "typescript": "7.0.2"
+  }
+}

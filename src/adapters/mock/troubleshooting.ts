@@ -1,0 +1,117 @@
+import { Troubleshooting } from "../../troubleshooting/application/troubleshooting.js";
+import type { OfflineScope } from "../../troubleshooting/application/troubleshooting.js";
+import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
+import type { CallContext, Ports, RuntimeRequest, SourceEvidence, VerifiedInbound } from "../../troubleshooting/application/ports.js";
+
+// All values and identities in this adapter are synthetic. No transport is created.
+export const simulatorFixture: SimulatorObservation = {
+  applicationRef: "SYNTHETIC-SECRET-APPLICATION", submittedOn: "2026-10-18",
+  shops: Array.from({ length: 10 }, (_, index) => ({ shopRef: `shop-${index + 1}`, authorization: "active",
+    completeThrough: index === 9 ? "2026-10-17" : "2026-10-18", coverageComplete: true })),
+  calculation: { started: null, succeeded: null, estimate: null }, causes: [],
+};
+
+export interface MockOptions {
+  readonly observation?: SimulatorObservation | null;
+  readonly completeness?: "complete" | "partial" | "unknown";
+  readonly principalRef?: string;
+  readonly denyActions?: readonly string[];
+  readonly unavailableControls?: readonly (keyof Ports)[];
+  readonly candidate?: (draft: DiagnosticReport) => unknown;
+  readonly agent?: (context: CallContext, request: RuntimeRequest) => Promise<unknown>;
+  readonly auditFails?: string;
+  readonly evidenceTargetRef?: string;
+  readonly clock?: Ports["clock"];
+  readonly queryWindow?: OfflineScope["queryWindow"];
+  readonly sanitizeFailsAt?: number;
+}
+
+export function createMockTroubleshooting(options: MockOptions = {}) {
+  const sent = Promise.withResolvers<{ destinationRef: string; report: DiagnosticReport; deliveryKey: string }>();
+  const closed = Promise.withResolvers<void>();
+  const events: { action: string; input: unknown }[] = [];
+  const reserved = new Map<string, number>();
+  let sanitizationCount = 0;
+  const scope: OfflineScope = { mode: "mock", snapshotRef: "simulator-snapshot-1", queryWindow: options.queryWindow ?? {
+    from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z",
+  } };
+  const inbound: VerifiedInbound = { eventRef: "event-1", tenantRef: "tenant-1",
+    principalRef: options.principalRef ?? "principal-1", destinationRef: "private-conversation-1", conversationKind: "private",
+    receivedAt: "2026-10-19T09:00:00.000Z", input: { applicationId: "SYNTHETIC-SECRET-APPLICATION", question: "Why is SYNTHETIC-SECRET-APPLICATION still waiting?" } };
+  const evidenceBase = { sourceRef: "simulator-source", acquiredAt: "2026-10-19T09:00:01.000Z", completeness: "complete" as const,
+    truncated: false, targetRef: options.evidenceTargetRef ?? "SYNTHETIC-SECRET-APPLICATION" };
+  const log: SourceEvidence = { ...evidenceBase, kind: "log", locator: "synthetic-log:1", observedAt: "2026-10-18T23:00:00.000Z",
+    text: "Synthetic submitted-shop coverage observation for SYNTHETIC-SECRET-APPLICATION.",
+    log: { ...scope.queryWindow, queryRef: "synthetic-query-1" } };
+  const code: SourceEvidence = { ...evidenceBase, kind: "code", locator: "simulator.ts:10", observedAt: null,
+    text: "Synthetic rule: all submitted shops require verified complete coverage through the submission date.",
+    code: { repositoryRef: "simulator-source", branch: "main", commit: "1111111111111111111111111111111111111111",
+      snapshotRef: "simulator-snapshot-1", indexedAt: "2026-10-19T08:00:00.000Z", receiptRef: "synthetic-snapshot-receipt-1" } };
+  const ports: Ports = {
+    clock: options.clock ?? { now: () => 0, utc: () => "2026-10-19T09:00:00.000Z" },
+    authorization: { async allows(action, context) {
+      return context.tenantRef === "tenant-1" && context.principalRef === "principal-1" &&
+        context.destinationRef === "private-conversation-1" && context.resourceRefs.every((ref) => ref === "simulator-source") &&
+        !options.denyActions?.includes(action);
+    } },
+    sanitization: {
+      sanitize<T>(value: T, caseRef: string): T {
+        if (++sanitizationCount === options.sanitizeFailsAt) throw new Error("synthetic-sensitive-upstream-error");
+        const json = JSON.stringify(value).replaceAll("SYNTHETIC-SECRET-APPLICATION", `[${caseRef}:application]`);
+        return JSON.parse(json) as T;
+      },
+      safe: (value) => !/SYNTHETIC-SECRET|https?:\/\/|<script/i.test(JSON.stringify(value)),
+      clear() {},
+    },
+    audit: {
+      async intent(context, action) {
+        if (options.auditFails === `${action}:intent`) throw new Error("synthetic-audit-failure");
+        events.push({ action: `audit:${action}:intent`, input: structuredClone({ ...context, signal: undefined }) });
+        return `${context.callId}:intent`;
+      },
+      async complete(context, action, outcome) {
+        if (options.auditFails === `${action}:complete`) throw new Error("synthetic-audit-failure");
+        events.push({ action: `audit:${action}:complete`, input: { callId: context.callId, outcome } });
+      },
+    },
+    budget: {
+      async reserve(context, upperBoundMicrousd) { reserved.set(context.callId, upperBoundMicrousd); return true; },
+      async settle(context, actualMicrousd) { if (actualMicrousd !== null) reserved.set(context.callId, actualMicrousd); },
+      async status() { return { reservedMicrousd: [...reserved.values()].reduce((sum, amount) => sum + amount, 0) }; },
+    },
+    logs: { async read(context, query) {
+      events.push({ action: "logs.read", input: query });
+      const observation = options.observation === undefined ? simulatorFixture : options.observation;
+      return { value: structuredClone(observation), evidence: observation ? [structuredClone(log)] : [],
+        completeness: options.completeness ?? "complete", truncated: false, warnings: [] };
+    } },
+    code: { async search(context, query) {
+      events.push({ action: "code.search", input: query });
+      return { value: null, evidence: [structuredClone(code)], completeness: "complete", truncated: false, warnings: [] };
+    } },
+    agent: {
+      run: options.agent ?? (async (_context, request) => {
+        await request.invoke("logs.read", null);
+        await request.invoke("code.search", null);
+        return request.generate(request.diagnose());
+      }),
+      async abort() {},
+      async close() { closed.resolve(); },
+    },
+    model: { async generate(context, draft) {
+      events.push({ action: "model.generate", input: structuredClone(draft) });
+      return { candidate: options.candidate ? options.candidate(draft) : structuredClone(draft), actualMicrousd: 1_000 };
+    } },
+    delivery: { async send(destinationRef, report, deliveryKey) {
+      events.push({ action: "delivery.send", input: { destinationRef, report, deliveryKey } });
+      sent.resolve({ destinationRef, report, deliveryKey });
+      return "delivered";
+    } },
+  };
+  const configured: Partial<Ports> = { ...ports };
+  for (const key of options.unavailableControls ?? []) delete configured[key];
+  const application = new Troubleshooting(configured, scope);
+  return { application, ports, events, inbound, closed: closed.promise,
+    receive: (override: Partial<VerifiedInbound> = {}) => application.accept({ ...inbound, ...override }),
+    delivery: { next: () => sent.promise } };
+}
