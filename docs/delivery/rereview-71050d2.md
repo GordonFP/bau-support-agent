@@ -57,7 +57,31 @@ BAU_KIBANA_TEST_ARTIFACT_CONFIG=/tmp/bau-spec14-context/kibana-test-artifact.jso
 
 根代理在最终 `b5c7efc` 编译结果再次独立回放：`root-f01-independent-b5c7efc.log` 仍为 32 客户端断开、原 read 未结束且仅 1 flight、独立已完成案件 HTTP 200；`root-original-f02-f03-b5c7efc.log` 仍为混合精度 `.500Z`、40 案在宿主关闭前后 retained 均 0、调查 0／Agent.close 40。R01 原公开请求与第三次 delivery 查权撤权顺序保留，仅接入同一 authority 的 current 能力并替换 import；`root-identity-denied-b5c7efc.log` 为 revoked=true、物理输出仅 status，`root-identity-allowed-b5c7efc.log` 为 revoked=false、物理输出 status+simulator。两次本地 HTTP 断言通过，Postman exit 均 0；允许对照存在报告不表示撤权后仍发送，没有采用探针中该字段名称作相反结论。
 
-新镜像及 source/OCI 合同尚在执行，不记通过。
+## 本轮实际重建镜像
+
+真实构建器以 clean Git archive `99f75db5d56dcb1b9d9226eedb3db5b4d6723714` 为来源实际构建成功，显式取消 BAU_IMAGE_DOCKER override，使用默认 `/usr/local/bin/docker`，没有复用标签的可变身份作为证据。新目录为 `/tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714/`，保存实际 `source/`、iidfile、inspect、build log、Docker save archive、inventory、OCI layout 和 receipt。历史 `/tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3` 未覆盖，不作为本轮来源证明。
+
+| 身份 | 实际值 |
+| --- | --- |
+| Source commit / revision | `99f75db5d56dcb1b9d9226eedb3db5b4d6723714` |
+| Source archive SHA256 | `4b927cb56dc36499a61c4377bccdc3422f2154e59b952a76908379f9a8714d91` |
+| Docker config / iidfile | `sha256:0921baf529ddc2fc66f2476f61c2e1dceee5fa641df8f54329924e1b537ff5b9` |
+| OCI manifest | `sha256:f09becf437b0f3a508b7a06da285fa7e6e6db49f27ec487b37b9b038a594ec6d` |
+| OCI index | `sha256:81ebbb08744935cc730dada5db1f4e337f6eac02b62222a8fe2a5c35ec89e2d6` |
+| Docker save archive | `sha256:fce98201390f252f9559016315171365a25a1ed94e5d4ba18193aff08a2d888b` |
+| Inventory SHA256 | `63756eed1c65803eacc04f260253471fd71dd3407d2da1629410365b59ce4874` |
+| Lock SHA256 | `e77e5783fa35a84b5d110111d337e13198bdde93b3db67453ec2ecf32db42ecc` |
+| Runtime Skill SHA256 | `e204643dabd38e47d884b5aee74846b060e18fee46a50b3a6ddfd336f3d16a69` |
+| 平台／工具链／应用文件 | `linux/arm64`、Node24.22.0、TypeScript7.0.2、65 个 JS 与实际 inventory 逐字节匹配。 |
+
+`final-image-build-99f75db.log` 实际构建通过；`final-image-contracts-99f75db.log` 原容器／OCI 合同 **6/6，0 fail/skip**，使用上述不可变 config ID 与实际 OCI layout，覆盖非 root／无网／只读／资源上限、存储拒绝、两个场景、重复键与预算、取消／超时／未知关闭、审计失败、OCI 内容链与篡改拒绝。`final-image-source-99f75db.log` source canary **1/1**，忽略的额外 TS／陈旧 JS 均不进入 archive 编译，实际镜像 65 个 JS 与固定来源逐字节匹配。只清理合同自有容器与 volume，没有 registry 上传或部署；最终 `final-owned-containers.log` 与 `final-owned-volumes.log` 均无该合同前缀残留。根代理另只读核对 config／inspect revision／inventory 实际散列与 source 的 65 项清单、字节数及 SHA 均一致；与旧 `77b36f7` 镜像相比，只有 Teams host、troubleshooting application 和 Simulator domain 三个 JS 改变，符合本轮源码范围。最终提交仅在此 source pin 后追加交付文档，不改变镜像应用字节。
+
+```sh
+env -u BAU_IMAGE_DOCKER node scripts/build-image.mjs /tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714
+BAU_CONTAINER_IMAGE=sha256:0921baf529ddc2fc66f2476f61c2e1dceee5fa641df8f54329924e1b537ff5b9 BAU_OCI_LAYOUT=/tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714/oci node --test --test-concurrency=1 dist/tests/contracts/container-runtime.test.js dist/tests/contracts/image-oci.test.js
+BAU_IMAGE_INVENTORY=/tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714/inventory.json node --test dist/tests/contracts/image-source.test.js
+```
+
 
 ## 范围与未执行项
 
