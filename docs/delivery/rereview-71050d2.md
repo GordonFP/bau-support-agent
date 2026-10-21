@@ -89,7 +89,34 @@ BAU_IMAGE_INVENTORY=/tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4
 
 最终生产检查点 `c8a96e497b3e6f51d2ad212b89270051f57db7d4`，总行为数 **508**。macOS **508/508**（`final-macos-c8a96e4.log`）、原相同受限 Linux **508/508**（`final-linux-c8a96e4.log`），均 0 fail/skip；最新自有完整严格闭包通过（`final-own-strict-c8a96e4.log`），项目类型／构建日志见上。Pi／Teams 依赖及 consumer 未改变，正负 consumer 与互操作仍以本轮 b5 的实际结果为检查点，不冒称重新执行。
 
-此增量的普通 Spec／Standards 复核均 **0 确认 finding／0 硬违约／0 有意义 smell**（`code-review-c8a96e4.md`），确认该失败位在受跟踪原 Promise 结束前锁定，普通 read 的拒绝不设置该位；它与 `270083b` 的两轴结果一起覆盖本轮完整代码。b5 的原 F01/F02/F03 和 R01 独立回放保留为该组检查点，c8 后续仅改变调查前 Agent.close 失败传播。最新 joined native **3/3，0 fail/skip**（`final-joined-native-c8a96e4.log`），与上轮完全相同固定制品／loopback 合成配置。根代理用同一独立公开 A probe 对 99f75db 的实际 source/tree 编译基线与 c8 候选复验：`root-late-close-failure-baseline99.log` 为原 closeAttempts=1、调查=0 却 closed；`root-late-close-failure-c8a96e4.log` 为 closeAttempts=1、调查=0、unknown。双方均确认原 confirm 未 settled 时 shutdown 仍 pending；探针直接调用 A 的 application.close，将成功 resolve 记作 closed、rejection 按宿主契约映射为 unknown；这条探针没有启动真实 Teams 宿主，不声称直接实测 host.stop。两个脚本 exit 0 代表对应预期观察成立，基线脚本断言的是已知 bug 现象，不能记成缺陷检测已通过。新固定 archive 镜像尚在执行，不沿用 99f75db 历史镜像作为最终证明。
+此增量的普通 Spec／Standards 复核均 **0 确认 finding／0 硬违约／0 有意义 smell**（`code-review-c8a96e4.md`），确认该失败位在受跟踪原 Promise 结束前锁定，普通 read 的拒绝不设置该位；它与 `270083b` 的两轴结果一起覆盖本轮完整代码。b5 的原 F01/F02/F03 和 R01 独立回放保留为该组检查点，c8 后续仅改变调查前 Agent.close 失败传播。最新 joined native **3/3，0 fail/skip**（`final-joined-native-c8a96e4.log`），与上轮完全相同固定制品／loopback 合成配置。根代理用同一独立公开 A probe 对 99f75db 的实际 source/tree 编译基线与 c8 候选复验：`root-late-close-failure-baseline99.log` 为原 closeAttempts=1、调查=0 却 closed；`root-late-close-failure-c8a96e4.log` 为 closeAttempts=1、调查=0、unknown。双方均确认原 confirm 未 settled 时 shutdown 仍 pending；探针直接调用 A 的 application.close，将成功 resolve 记作 closed、rejection 按宿主契约映射为 unknown；这条探针没有启动真实 Teams 宿主，不声称直接实测 host.stop。两个脚本 exit 0 代表对应预期观察成立，基线脚本断言的是已知 bug 现象，不能记成缺陷检测已通过。最终固定 archive 镜像及实际合同如下；99f75db 仅作历史检查点。
+
+## 最终实际镜像与收据
+
+本轮最终实际构建从 clean Git archive `300c1636ee0edaf00c8f11195c63c897e017756f` 编译，生产字节等于 `c8a96e4`。显式取消 BAU_IMAGE_DOCKER override、使用默认真实 Docker，fresh 目录 `/tmp/bau-image-rereview-710-300c1636ee0edaf00c8f11195c63c897e017756f/` 保存全部实际 build／source／inspect／iidfile／Docker archive／inventory／OCI／receipt。旧 99f75db 制品保留，未覆盖。
+
+| 身份 | 实际值 |
+| --- | --- |
+| Source commit / revision | `300c1636ee0edaf00c8f11195c63c897e017756f` |
+| Source archive SHA256 | `689cb4c3b6034e19ae88e7f03ebf2b4555f2d54505bdb05858e16a2b492f9927` |
+| Docker config / iidfile | `sha256:34f68e9fc5f7f427d45ba69c0cd3e1ec1789dddf65b521d0c0fe26161fd32e07` |
+| OCI manifest | `sha256:b6f238adf87a0dc83aa07f1c8d1df9a30c4b82a9e3a9ee0b5ab4f4ac121113c0` |
+| OCI index | `sha256:fdbd22bf1dbcaa15d68229dddbeec4473c87cdb9629c80a4d2ba89bd46cc6866` |
+| Docker save archive | `sha256:ce2f19585c3807a294d8f0c567021079ab30b2877929aec2143f81bc0542ec12` |
+| Inventory SHA256 | `a5679bfb88d07087f43c31600bb9f95e788114bbbfbf9692f5adc1f679a5f568` |
+| Lock SHA256 | `e77e5783fa35a84b5d110111d337e13198bdde93b3db67453ec2ecf32db42ecc` |
+| Runtime Skill SHA256 | `e204643dabd38e47d884b5aee74846b060e18fee46a50b3a6ddfd336f3d16a69` |
+| 平台／工具链／应用文件 | `linux/arm64`、Node24.22.0、TypeScript7.0.2、65 个实际应用 JS。 |
+
+`final-image-build-300c163.log` 构建 exit 0；`final-image-contracts-300c163.log` 原实际容器／OCI 合同 **6/6，0 fail/skip**；`final-image-source-300c163.log` source canary **1/1，0 fail/skip**。使用上述不可变 config ID，保留非 root／无网／只读／资源与存储拒绝、两个场景、重复键／费用、取消／超时／未知关闭、审计失败、OCI 内容链／篡改拒绝及忽略额外 TS／陈旧 JS 的原断言，最终实际 inventory 的 65 个 JS 与固定 archive 编译逐字节匹配。根代理独立只读核对 config／inspect revision／实际 inventory 散列与 source 清单均一致；对中间 99f75db 制品只有 troubleshooting application 一个 JS 改变，符合新增关闭失败传播范围。`final-owned-containers-300c163.log`、`final-owned-volumes-300c163.log` 无合同前缀残留；没有清理其他既有容器或卷。
+
+```sh
+env -u BAU_IMAGE_DOCKER node scripts/build-image.mjs /tmp/bau-image-rereview-710-300c1636ee0edaf00c8f11195c63c897e017756f
+BAU_CONTAINER_IMAGE=sha256:34f68e9fc5f7f427d45ba69c0cd3e1ec1789dddf65b521d0c0fe26161fd32e07 BAU_OCI_LAYOUT=/tmp/bau-image-rereview-710-300c1636ee0edaf00c8f11195c63c897e017756f/oci node --test --test-concurrency=1 dist/tests/contracts/container-runtime.test.js dist/tests/contracts/image-oci.test.js
+BAU_IMAGE_INVENTORY=/tmp/bau-image-rereview-710-300c1636ee0edaf00c8f11195c63c897e017756f/inventory.json node --test dist/tests/contracts/image-source.test.js
+```
+
+此来源 pin 后只追加交付收据文档；没有 registry 上传、远程拉取验证或部署。本轮自身 `git diff --check` 通过，旧历史许可证原文检查限制不变。
 
 ## 范围与未执行项
 
