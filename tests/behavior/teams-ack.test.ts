@@ -112,9 +112,9 @@ test("final Teams query denies metadata when identity is revoked during resource
   const post = (body: unknown) => fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
   try {
     await host.start(); await post(service.activity()); await mock.closed;
-    let reads = 0;
+    let reads = 0, gets = 0;
     const allows = mock.ports.authorization.allows;
-    mock.ports.authorization.allows = async (action, context) => { const allowed = await allows(action, context); if (action === "get" && ++reads === 2) { held.resolve(); await release.promise; } return allowed; };
+    mock.ports.authorization.allows = async (action, context) => { const allowed = await allows(action, context); if ((action === "get" && ++gets === 2 || action === "records.read" && ++reads === 2)) { held.resolve(); await release.promise; } return allowed; };
     const querying = post({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-1" })), id: "held-get" });
     await held.promise; denyActions.push("teams.identity"); release.resolve();
     assert.deepEqual(await (await querying).json(), { status: "denied" });
@@ -149,4 +149,16 @@ test("restored Teams query keeps the identity fence current during final SQLite 
     await held.promise; denyActions.push("teams.identity"); release.resolve();
     assert.deepEqual(await (await querying).json(), { status: "denied" });
   } finally { release.resolve(); await host?.stop(); store?.close(); await service.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+for (const result of ["truthy", Promise.resolve(false)]) test(`Teams refuses a nonboolean synchronous current-policy result ${typeof result}`, async () => {
+  const service = await teamsServices(), mock = createMockTroubleshooting();
+  mock.ports.authorization.current = (() => result) as never;
+  const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
+  try {
+    await host.start();
+    const reply = await fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(service.activity()) });
+    assert.deepEqual(await reply.json(), { status: "denied" }); assert.equal(service.writes.length, 0);
+    assert.equal(mock.events.some((event) => event.action === "admission.confirm"), false);
+  } finally { await host.stop(); await service.close(); }
 });

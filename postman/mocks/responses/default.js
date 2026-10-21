@@ -8,9 +8,9 @@ const server = http.createServer(async (request, response) => {
     if (request.method !== "POST" || new URL(request.url, "http://localhost").pathname !== "/v1/responses") return fail(response, 501);
     let body = request.body;
     if (body === undefined) {
-      let raw = "";
-      for await (const chunk of request) { raw += String(chunk); if (Buffer.byteLength(raw) > 48_000) return fail(response, 413); }
-      body = JSON.parse(raw);
+      const chunks = []; let bytes = 0;
+      for await (const chunk of request) { const value = Buffer.from(chunk); bytes += value.length; if (bytes > 48_000) return fail(response, 413); chunks.push(value); }
+      body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
     }
     if (typeof body === "string") body = JSON.parse(body);
     if (!body || body.model !== "gpt6.1-sol" || body.max_output_tokens !== 4_000 || body.stream !== true || body.store !== false ||
@@ -28,9 +28,9 @@ const server = http.createServer(async (request, response) => {
     const text = name ? "" : JSON.stringify(candidate);
     const item = name ? { type: "function_call", id: `fc_${name}`, call_id: `call_${name}`, name, arguments: "{}", status: "completed" }
       : { type: "message", id: "msg_synthetic", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] };
-    // Local synthetic definition: ceil(UTF-8 bytes of generated candidate/arguments + reasoning framing / 2).
+    // Local synthetic definition bounds the actual assistant text/tool calls plus reasoning, including escaping.
     // Enforced BEFORE emitting any generated delta; reasoning is disabled/empty in this profile.
-    const generated = JSON.stringify({ candidate: name ? { name, arguments: {} } : candidate, reasoning: "" });
+    const generated = JSON.stringify({ content: name ? [{ type: "toolCall", id: `call_${name}`, name, arguments: {} }] : [{ type: "text", text }], reasoning: "" });
     if (Math.ceil(Buffer.byteLength(generated) / 2) > 4_000) return fail(response, 400);
     const events = [{ type: "response.created", response: { id: "resp_synthetic" } },
       { type: "response.output_item.added", output_index: 0, item: name ? { ...item, arguments: "" } : { ...item, content: [] } }];

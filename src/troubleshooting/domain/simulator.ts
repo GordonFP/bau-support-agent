@@ -99,6 +99,8 @@ export class TroubleshootingCase {
   private awaiting = false;
   private phase = 1;
   private selectedTarget: string | undefined;
+  private simulatorSubmission: string | undefined;
+  private simulatorEvidenceRefs: readonly string[] = [];
   private selectedPspTarget: string | undefined;
   private materialRevision = 0;
   private readonly sourceWarnings = new Set<string>();
@@ -112,6 +114,17 @@ export class TroubleshootingCase {
     if (this.ended || (this.selectedTarget !== undefined && this.selectedTarget !== applicationRef)) throw new Error("invalid_request");
     if (this.selectedTarget !== applicationRef) this.materialRevision++;
     this.selectedTarget = applicationRef;
+  }
+
+  acceptSimulatorObservation(observation: SimulatorObservation | null, evidenceRefs: readonly string[]): void {
+    if (this.ended || this.awaiting) throw new Error("invalid_request");
+    if (observation) {
+      const submission = JSON.stringify([observation.applicationRef, observation.submittedOn, [...observation.shops.map((shop) => shop.shopRef)].sort()]);
+      if (this.simulatorSubmission !== undefined && this.simulatorSubmission !== submission) throw new Error("invalid_request");
+      this.simulatorSubmission = submission;
+    }
+    this.simulatorEvidenceRefs = Object.freeze([...evidenceRefs]);
+    this.materialRevision++;
   }
 
   selectPspTarget(observation: PspObservation): void {
@@ -142,7 +155,7 @@ export class TroubleshootingCase {
     this.awaiting = false;
   }
 
-  forget(): void { this.stop(); this.evidence.clear(); this.sourceWarnings.clear(); this.selectedTarget = undefined; this.selectedPspTarget = undefined; }
+  forget(): void { this.stop(); this.evidence.clear(); this.sourceWarnings.clear(); this.selectedTarget = undefined; this.selectedPspTarget = undefined; this.simulatorSubmission = undefined; this.simulatorEvidenceRefs = []; }
 
   acceptWarnings(warnings: readonly string[]): void {
     if (this.ended || this.awaiting) throw new Error("invalid_request");
@@ -161,11 +174,15 @@ export class TroubleshootingCase {
 
   diagnose(observation: SimulatorObservation | null, problem: string, formedAt: string): SimulatorReport {
     const evidence = [...this.evidence.values()];
-    const logEvidence = evidence.filter((item) => item.kind === "log");
-    const logRefs = logEvidence.map((item) => item.evidenceRef);
-    const observedAt = logEvidence[0]?.observedAt ?? null;
+    const supporting = evidence.filter((item) => item.kind === "log" && this.simulatorEvidenceRefs.includes(item.evidenceRef));
+    const logEvidence = supporting.filter((item) => item.observedAt !== null && Number.isFinite(Date.parse(item.observedAt)) && Date.parse(item.observedAt) <= Date.parse(formedAt));
+    const temporalConflict = logEvidence.length !== supporting.length;
+    if (!logEvidence.length || temporalConflict) observation = null;
+    const logRefs = temporalConflict ? [] : logEvidence.map((item) => item.evidenceRef);
+    const observedAt = logEvidence.reduce<string | null>((latest, item) => item.observedAt && (!latest || item.observedAt > latest) ? item.observedAt : latest, null);
     const limitations = ["Synthetic Mock evidence; actual source fields, SDKs and diagnostic quality are unverified.",
       "A fixed code snapshot does not prove the historical production deployment version."];
+    if (temporalConflict) limitations.push("Observation time is unknown or after report formation; this temporal conflict cannot support structured results.");
     limitations.push(...[...this.sourceWarnings].map((warning) => `untrusted source warning: ${warning}`));
     for (const item of evidence) {
       if (item.completeness !== "complete" || item.truncated) limitations.push(`${item.evidenceRef}: ${item.completeness}; truncated=${item.truncated}.`);

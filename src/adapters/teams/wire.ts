@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod/v4";
 import type { App } from "@microsoft/teams.apps";
@@ -19,7 +20,8 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
   const local = new AsyncLocalStorage<Lease>();
   const stopping = new AbortController();
   const work = new Set<Promise<unknown>>();
-  const operations = new Map<string, { binding: string; result: Promise<DeliveryResult> }>();
+  const operations = new Map<string, { binding: string; result: Promise<DeliveryResult>; settled: boolean; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"] }>();
+  let overflowed = false;
   const questions = new Map<string, { caseRef: string; questionId: string; destinationRef: string }>();
   const cap = configuration.maxActivityBytes ?? MAX_MESSAGE_BYTES;
   if (!Number.isSafeInteger(cap) || cap < 2_048 || cap > MAX_MESSAGE_BYTES) throw new Error("contract_unverified");
@@ -45,7 +47,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       if (!await ports.authorization.allows("teams.identity", { ...mapping.actor, resourceRefs: [] })) throw new Error("denied");
       check(lease);
       const current = () => { check(lease); userClaims(payload, configuration, mapping);
-        if (!ports.authorization.current?.("teams.identity", { ...mapping.actor, resourceRefs: [] })) throw new Error("denied"); };
+        if (ports.authorization.current?.("teams.identity", { ...mapping.actor, resourceRefs: [] }) !== true) throw new Error("denied"); };
       current(); return current;
     }));
     return await beforeDeadline(ports.clock, deadline, () => task, lease.signal, () => controller.abort());
@@ -101,15 +103,45 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
   const send = (destinationRef: string, deliveryKey: string, attempt?: DeliveryAttempt, notice?: DeliveryNotice): Promise<DeliveryResult> => {
     if (!attempt || stopping.signal.aborted || !deliveryKey.startsWith(`${attempt.caseRef}:`)) return Promise.resolve("failed");
     const mappings = configuration.mappings.filter((mapping) => mapping.actor.destinationRef === destinationRef);
-    if (mappings.length !== 1 || work.size >= MAX_ACTIVE_CASES || operations.size >= 4_096) return Promise.resolve("failed");
+    if (mappings.length !== 1) return Promise.resolve("failed");
     const mapping = mappings[0]!;
     const id = JSON.stringify([deliveryKey, attempt.segment]);
     const binding = JSON.stringify([destinationRef, attempt.caseRef, attempt.phaseId, attempt.text]);
     const previous = operations.get(id);
     if (previous) return previous.binding === binding ? previous.result : Promise.resolve("failed");
+    if (work.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     const lease: Lease = { kind: "write", mapping, attempt, deadline: attempt.deadline, signal: AbortSignal.any([attempt.signal, stopping.signal]), wrote: false };
+    const persisted = async (entry: { actor: TeamsMapping["actor"]; caseRef: string; deliveryKey: string; segment: number; binding: string }): Promise<{ known: boolean; result?: DeliveryResult }> => {
+      const read = track(Promise.resolve().then(() => ports.records.read(entry.actor, entry.caseRef)));
+      const saved = await beforeDeadline(ports.clock, Math.min(lease.deadline, ports.clock.now() + 5_000), () => read, lease.signal);
+      check(lease);
+      if (saved?.scope !== "full") return { known: false };
+      const delivery = saved.deliveries.find((item) => item.deliveryKey === entry.deliveryKey && item.segment === entry.segment);
+      const completed = delivery && saved.audits.some((item) => item.stage === "complete" && item.callId === delivery.callId &&
+        ["delivery.send", "delivery.notice", "delivery.fault"].includes(String(item.action)));
+      if (!completed) return { known: true };
+      if (delivery.bindingRef !== createHash("sha256").update(entry.binding).digest("hex")) return { known: true, result: "failed" };
+      return { known: true, result: { status: delivery.status, ...(delivery.receiptRef ? { receiptRef: delivery.receiptRef } : {}) } };
+    };
     const result: Promise<DeliveryResult> = track(local.run(lease, async (): Promise<DeliveryResult> => {
       try {
+        // Install the in-flight deduplication entry synchronously before reconciliation awaits.
+        await Promise.resolve(); check(lease);
+        if (operations.size > 4_096) {
+          overflowed = true;
+          const candidates = [...operations.entries()].filter(([key, entry]) => key !== id && entry.settled);
+          for (const [key, entry] of candidates) {
+            if (operations.size <= 4_096) break;
+            const durable = await persisted(entry);
+            if (durable.known && durable.result !== undefined && operations.get(key) === entry) operations.delete(key);
+          }
+          if (operations.size > 4_096) { operations.delete(id); return "failed"; }
+        }
+        if (overflowed) {
+          const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
+          if (!prior.known) return "failed";
+          if (prior.result !== undefined) return prior.result;
+        }
         check(lease);
         const sent = await app.send(mapping.conversationId, { type: "message", text: attempt.text, textFormat: "plain" });
         const receipt = receiptSchema.parse({ id: sent.id });
@@ -117,9 +149,12 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
         if (notice?.kind === "question" && questions.has(receiptRef) && questions.get(receiptRef)!.questionId !== notice.question.questionId) return "unknown";
         if (notice?.kind === "question") questions.set(receiptRef, { caseRef: attempt.caseRef, questionId: notice.question.questionId, destinationRef });
         return { status: "delivered", receiptRef };
-      } catch { return lease.wrote ? "unknown" : "failed"; }
+      } catch { if (!lease.wrote && operations.size > 4_096) operations.delete(id); return lease.wrote ? "unknown" : "failed"; }
     }));
-    operations.set(id, { binding, result }); return result;
+    const entry = { binding, result, settled: false, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
+    operations.set(id, entry);
+    void result.then(() => { entry.settled = true; }, () => { entry.settled = true; });
+    return result;
   };
   const delivery: Ports["delivery"] = {
     // JSON-rendered application content has at most 2x JSON escaping overhead; final native body is checked again.

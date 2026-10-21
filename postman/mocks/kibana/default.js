@@ -36,7 +36,8 @@ http.createServer(async (request, response) => {
         _id: point.eventRef, _index: "synthetic-psp", _score: null, _source: { event_id: point.eventRef, event_time: point.observedAt,
           application_id: value.applicationRef, customer_id: value.customerRef, shop_id: value.target.shopRef, binding_id: value.target.bindingRef, verification: value } }));
     }
+    rows = rows.filter((row) => Date.parse(range.gte) <= Date.parse(row._source.event_time) && Date.parse(row._source.event_time) < Date.parse(range.lt));
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rawResponse: { took: 1, timed_out: false, _shards: { total: 1, successful: 1, failed: 0 },
-      hits: { total: { value: rows.length, relation: "eq" }, hits: search.from === 0 ? rows : [] } } }));
+      hits: { total: { value: rows.length, relation: "eq" }, hits: rows.slice(search.from, search.from + search.size) } } }));
   } catch { if (!response.headersSent) fail(response, 400); else response.end(); }
 }).listen(process.env.PORT || 4501);

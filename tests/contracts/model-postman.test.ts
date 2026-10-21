@@ -39,7 +39,7 @@ test("the local upstream enforces its 4k total-generation definition before emit
   assert.ok(process.env.POSTMAN_CLI);
   const simulation = await postmanResponses(process.env.POSTMAN_CLI);
   try {
-    const framingBytes = Buffer.byteLength('{"candidate":{"text":""},"reasoning":""}');
+    const framingBytes = Buffer.byteLength('{"content":[{"type":"text","text":"{\\"text\\":\\"\\"}"}],"reasoning":""}');
     for (const excess of [0, 1]) {
       const body = { model: "gpt6.1-sol", stream: true, store: false, max_output_tokens: 4_000,
         tools: ["logs_read", "code_search"].map((name) => ({ type: "function", name, parameters: { type: "object", properties: {}, additionalProperties: false } })),

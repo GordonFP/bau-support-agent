@@ -98,7 +98,7 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
           } else if (operation === "trace" && "direction" in query) {
             result = traceResult(await native.callTool(tool, { ...output, function_name: `${repository.project}.${query.symbol}`,
               direction: query.direction, depth: 2, limit: 5, include_evidence: true,
-              ...(query.targetRepositoryRef ? { mode: "cross_service" } : {}) }), repository, query.symbol, query.direction, selected.receipt.repositories, !!query.targetRepositoryRef);
+              ...(query.targetRepositoryRef ? { mode: "cross_service" } : {}) }), repository, query.symbol, query.direction, selected.receipt.repositories, query.targetRepositoryRef);
           } else throw new McpFailure("invalid_request");
           verificationWork = selected.verify(); await verificationWork; native.current(); await authorize(bound); native.current();
           const targetRef = options.resolveTarget(bound);
@@ -113,7 +113,7 @@ export function codebaseMemoryPorts(ports: Ports, boundary: McpBoundary, supplie
           })), completeness, truncated: result.partial,
           warnings: ["Static code relationships do not prove this execution or a historical production deployment.",
             "Index coverage is best effort; zero hits do not prove absence.", ...(result.partial ? ["Native result is partial or truncated."] : []),
-            ...(result.unknown ? ["The fixed native cross-service response omits destination metadata; no cross-repository destination is proven."] : [])] });
+            ...(result.unknown ? ["The native cross-service result omits or does not match the requested destination; no requested cross-repository destination is proven."] : [])] });
           if (read.evidence.some((item) => Buffer.byteLength(item.text) > FRAGMENT_BYTES)) throw new McpFailure("unsafe_content");
           boundary.chargeEvidence(bound, read);
           native.current(); await authorize(bound); native.current();

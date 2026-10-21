@@ -1,8 +1,10 @@
 import { ModelFailure } from "../../troubleshooting/application/model-failure.js";
 
+import { transportFailure } from "./transport-failure.js";
+
 const MAX_RESPONSE_BYTES = 1_048_576;
 
-export function boundedResponse(response: Response, failed: (error: Error) => void): { response: Response; finished: Promise<void> } {
+export function boundedResponse(response: Response, failed: (error: Error) => void, signal: AbortSignal): { response: Response; finished: Promise<void> } {
   if (!response.body) throw new ModelFailure("schema_mismatch");
   const reader = response.body.getReader();
   const utf8 = new TextDecoder("utf-8", { fatal: true });
@@ -15,17 +17,20 @@ export function boundedResponse(response: Response, failed: (error: Error) => vo
       void (async () => {
         try {
           for (;;) {
-            const result = await reader.read();
+            let result: ReadableStreamReadResult<Uint8Array>;
+            try { result = await reader.read(); }
+            catch (error) { throw transportFailure(error, true, signal); }
             if (result.done) break;
             bytes += result.value.byteLength;
             if (bytes > MAX_RESPONSE_BYTES) throw new ModelFailure("schema_mismatch");
-            utf8.decode(result.value, { stream: true });
+            try { utf8.decode(result.value, { stream: true }); } catch { throw new ModelFailure("schema_mismatch"); }
             if (!consumerClosed) controller.enqueue(result.value);
           }
-          utf8.decode(); finished.resolve();
+          try { utf8.decode(); } catch { throw new ModelFailure("schema_mismatch"); }
+          finished.resolve();
           if (!consumerClosed) controller.close();
-        } catch {
-          const error = new ModelFailure("schema_mismatch");
+        } catch (failure) {
+          const error = failure instanceof Error ? failure : new ModelFailure("schema_mismatch");
           failed(error); finished.reject(error);
           if (!consumerClosed) controller.error(error);
           void reader.cancel().catch(() => {});

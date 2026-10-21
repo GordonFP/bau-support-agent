@@ -57,7 +57,7 @@ test("an unknown accepted-status write stops before investigation instead of dis
   assert.ok("state" in view); assert.equal(view.state, "stopped");
 });
 
-for (const failure of ["revoked", "null", "status", "receipt"] as const) test(`D completes persisted send intent after ${failure}`, async () => {
+for (const failure of ["revoked", "null", "status", "receipt", "receipt_object"] as const) test(`D completes persisted send intent after ${failure}`, async () => {
   const denyActions: string[] = [];
   const mock = createMockTroubleshooting({ denyActions, controlPorts: (ports) => {
     const audit = ports.audit;
@@ -68,7 +68,7 @@ for (const failure of ["revoked", "null", "status", "receipt"] as const) test(`D
     } } };
   } });
   let writes = 0;
-  mock.ports.delivery.send = async () => { writes++; return (failure === "null" ? null : failure === "status" ? { status: "invalid" } : { status: "delivered", receiptRef: "invalid" }) as never; };
+  mock.ports.delivery.send = async () => { writes++; return (failure === "null" ? null : failure === "status" ? { status: "invalid" } : failure === "receipt_object" ? { status: "delivered", receiptRef: { toString: () => "a".repeat(64) } } : { status: "delivered", receiptRef: "invalid" }) as never; };
   await mock.receive(); await mock.closed;
   const stored = await mock.ports.records.read(mock.inbound, "case-1");
   assert.ok(stored?.scope === "full");

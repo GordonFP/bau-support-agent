@@ -519,3 +519,35 @@ test("the verified inbound identity and target are captured before asynchronous 
   assert.equal(report.targetSummary, "[case-1:application]");
   assert.equal(report.problem, "Original request");
 });
+
+test("resumed phase times out while its initial view persistence is still pending", async () => {
+  const clock = new ManualClock(), held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const mock = createMockTroubleshooting({ clock, customerCandidates: candidates, controlPorts: (ports) => {
+    const records = ports.records;
+    return { records: { ...records, append: async (context, record) => {
+      if (record.kind === "view" && context.phaseId === 2 && (record.payload as { state: string }).state === "investigating") { held.resolve(); await release.promise; }
+      return records.append(context, record);
+    } } };
+  } });
+  try {
+    await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } }); await mock.phaseClosed(1);
+    const replying = mock.application.provideInformation(trustedReply({ submittedAt: candidates[0]!.submittedAt }));
+    await held.promise; clock.advance(180_001); await new Promise(setImmediate);
+    const view = await mock.application.get(mock.inbound, "case-1");
+    assert.ok("state" in view); assert.equal(view.state, "stopped"); assert.equal(view.stopReason, "timeout");
+    assert.equal((await replying).status, "denied");
+    assert.equal(mock.events.filter((event) => event.action === "logs.read").length, 1);
+  } finally { release.resolve(); }
+});
+
+for (const count of [1, 2]) test(`customer selection with ${count} candidates uses the source business day across UTC midnight`, async () => {
+  const submittedAt = "2026-10-18T16:30:00.000Z";
+  const mock = createMockTroubleshooting({ observation: { ...simulatorFixture, submittedOn: "2026-10-19" }, customerCandidates: [
+    { applicationId: "SYNTHETIC-SECRET-APPLICATION", submittedAt },
+    ...(count === 2 ? [{ applicationId: "OTHER-APPLICATION", submittedAt: "2026-10-18T18:00:00.000Z" }] : []),
+  ] });
+  await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } }); await mock.phaseClosed(1);
+  if (count === 2) { assert.equal((await mock.application.provideInformation(trustedReply({ submittedAt, candidateRef: "candidate-1" }))).status, "resumed"); await mock.phaseClosed(2); }
+  const view = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in view); assert.equal(view.state, "completed");
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "simulator"); assert.equal(report.simulator.submittedOn, "2026-10-19");
+});

@@ -91,7 +91,8 @@ export function snippetResult(value: unknown, repository: RepositoryReceipt, sym
     partial: end - start + 1 > 20 || data.truncated === true || data.has_more === true };
 }
 export function traceResult(value: unknown, repository: RepositoryReceipt, symbolName: string, direction: "inbound" | "outbound",
-  repositories: readonly RepositoryReceipt[], crossService = false): NativeRead {
+  repositories: readonly RepositoryReceipt[], targetRepositoryRef?: string): NativeRead {
+  const crossService = targetRepositoryRef !== undefined;
   const data = nativePayload(value);
   if (data.function !== `${repository.project}.${symbolName}` || data.direction !== direction ||
     (crossService && data.mode !== "cross_service")) return fail();
@@ -115,6 +116,7 @@ export function traceResult(value: unknown, repository: RepositoryReceipt, symbo
       const target = repositories.find((candidate) => qn.startsWith(`${candidate.project}.`));
       if (!target) throw new McpFailure("denied");
       symbol(qn, target);
+      if (targetRepositoryRef && target.repositoryRef !== targetRepositoryRef) { unknown = true; continue; }
       if (number(row.hop) > 2 || !["lsp", "ast", "heuristic", "name", "semantic"].includes(String(row.strategy)) ||
         typeof row.confidence !== "number" || row.confidence < 0 || row.confidence > 1) return fail();
       evidence.push({ repository: target, locator: `symbol:${qn}`, text: `Static possible call relation: ${repository.project}.${symbolName} ${direction} ${qn}; hop ${row.hop}. This does not prove execution.` });

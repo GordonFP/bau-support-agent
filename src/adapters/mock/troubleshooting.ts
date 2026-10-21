@@ -9,7 +9,7 @@ import type { OfflineScope } from "../../troubleshooting/application/troubleshoo
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
 import { pspEvents, type PspObservation } from "../../troubleshooting/domain/psp.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
-import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole } from "../../troubleshooting/application/records.js";
+import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole, SavedContext } from "../../troubleshooting/application/records.js";
 import { RetentionLifecycle, type RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
 import { recordAccessContext, recordActor, recordDisclosure, recordRole } from "../../troubleshooting/application/record-access.js";
 import { MockModelBudget } from "./model-budget.js";
@@ -96,7 +96,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   const codeFor = (repositoryRef: string): SourceEvidence => repositoryRef === "simulator-source" ? structuredClone(code)
     : { ...structuredClone(code), sourceRef: repositoryRef, locator: "psp.ts:10",
       text: "Synthetic PSP code alone does not prove this shop's executed verification path.", code: { ...code.code!, repositoryRef } };
-  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void) => Promise<void>) => {
+  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>) => {
     actor = recordActor(actor);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
     const saved = cases.get(caseRef);
@@ -111,7 +111,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     const result = structuredClone({ scope: "full" as const, view: saved.initial.view, records: saved.records,
       audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
     await ports.audit.complete(context, action, "allowed");
-    try { await beforeDisclose?.(() => { if (ports.authorization.current && !ports.authorization.current(action, { ...owner, ...actor })) throw new Error("denied"); }); }
+    try { await beforeDisclose?.(() => { if (ports.authorization.current && ports.authorization.current(action, { ...owner, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...owner, phaseId: saved.initial.view.phaseId })); }
     catch { await recordDenial(ports.audit, context); return null; }
     const currentRole = await recordRole(ports.authorization, actor, owner, action);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
@@ -121,7 +121,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     }
     return recordDisclosure(result, role);
   };
-  const readRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void) => Promise<void>) => {
+  const readRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>) => {
     try { return await authorizedRecord(actor, caseRef, action, beforeDisclose); } catch { throw new Error("unavailable"); }
   };
   const ports: Ports = {
@@ -148,6 +148,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       async export(actor, caseRef) { return readRecord(actor, caseRef, "records.export"); },
     },
     admission: {
+      async lookup(key) { const item = admissions.get(key); return item ? { caseRef: item.caseRef, principalRef: item.principalRef } : null; },
       async confirm(record) {
         if (ports.retention?.closed()) throw new Error("denied");
         events.push({ action: "admission.confirm", input: { key: record.key, caseRef: record.caseRef, principalRef: record.principalRef } });
@@ -199,7 +200,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         audits.push(structuredClone(auditRecord(context, action, "intent", "pending", ports.clock.utc(), details, costFor(context.callId))));
         if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery) {
           cases.get(context.caseRef)?.deliveries.push({ schemaVersion: 1, caseRef: context.caseRef, callId: context.callId,
-            deliveryKey: details.delivery.deliveryKey, segment: details.delivery.segment, status: "unknown" });
+            deliveryKey: details.delivery.deliveryKey, segment: details.delivery.segment, ...(details.delivery.bindingRef ? { bindingRef: details.delivery.bindingRef } : {}), status: "unknown" });
         }
         return `${context.callId}:intent`;
       },

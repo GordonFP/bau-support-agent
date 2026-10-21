@@ -325,3 +325,45 @@ test("a partial third native index and failed GitLab synchronization retain the 
       symbol: "simulator.runSimulator", file: "simulator.ts" })).evidence.length, 1);
   } finally { await gitlab.close(); await removeOwnedTree(root); }
 });
+
+for (const mode of ["coverage_empty", "coverage_duplicate", "coverage_unexpected"] as const) test(`management rejects ${mode} instead of publishing complete coverage`, { timeout: 60_000 }, async () => {
+  const { dockerResultProxy } = await import("../fixtures/docker-result-proxy.js");
+  const gitlab = await syntheticGitLab(), root = await mkdtemp(join(tmpdir(), "bau-coverage-exact-"));
+  try {
+    const docker = await dockerResultProxy(root, mode), config = join(root, "bad-coverage.json");
+    await writeFile(config, JSON.stringify({ mode: "local_synthetic", root, ...profile, docker, gitlab: gitlab.url, repositories: gitlab.repositories.slice(0, 1) }));
+    await assert.rejects(execute(process.execPath, [cli, config], { timeout: 45_000, maxBuffer: 16_384 }));
+    await assert.rejects(access(join(root, "current.json"))); await assert.rejects(access(join(root, "update.lock")));
+    assert.deepEqual(await readdir(join(root, "collections")), []);
+  } finally { await gitlab.close(); await removeOwnedTree(root); }
+});
+
+test("non-root post-freeze publication failure removes its owned staging tree and releases the confirmed-stopped writer lock", { timeout: 90_000 }, async () => {
+  assert.notEqual(process.getuid?.(), 0, "The controller must exercise real non-root directory permissions.");
+  const { mkdir, rename } = await import("node:fs/promises");
+  const gitlab = await syntheticGitLab(), root = await mkdtemp(join(tmpdir(), "bau-post-freeze-"));
+  try {
+    const previous = await publish(root, gitlab), original = await readFile(join(root, "current.json"), "utf8");
+    await rename(join(root, "current.json"), join(root, "last-successful.json")); await mkdir(join(root, "current.json"));
+    await assert.rejects(publish(root, gitlab));
+    await assert.rejects(access(join(root, "update.lock")));
+    assert.deepEqual(await readdir(join(root, "collections")), [previous.snapshotRef]);
+    await rm(join(root, "current.json"), { recursive: true }); await rename(join(root, "last-successful.json"), join(root, "current.json"));
+    assert.equal(await readFile(join(root, "current.json"), "utf8"), original);
+    const next = await publish(root, gitlab); assert.notEqual(next.snapshotRef, previous.snapshotRef);
+  } finally { await gitlab.close(); await removeOwnedTree(root); }
+});
+
+test("B three-repository trace cannot substitute another approved destination for the requested target", { timeout: 60_000 }, async () => {
+  const { dockerResultProxy } = await import("../fixtures/docker-result-proxy.js");
+  const gitlab = await syntheticGitLab(), root = await mkdtemp(join(tmpdir(), "bau-targeted-trace-"));
+  try {
+    const receipt = await publish(root, gitlab, 3), docker = await dockerResultProxy(root, "trace_other_target");
+    const collection = new SnapshotCollection(root);
+    const { native, context } = setup(root, receipt.snapshotRef, ["simulator-source", "estimate-source", "psp-source"], localReadService({ ...profile, docker }, (snapshot) => collection.path(snapshot)));
+    const read = await native.code.trace(context("requested-B-returned-C"), { repositoryRef: "simulator-source", snapshotRef: receipt.snapshotRef,
+      symbol: "simulator.requestEstimate", file: "simulator.ts", direction: "outbound", targetRepositoryRef: "estimate-source" });
+    assert.equal(read.completeness, "unknown"); assert.equal(read.evidence.some((item) => item.code?.repositoryRef === "psp-source"), false);
+    assert.match(read.warnings.join(" "), /destination|target/);
+  } finally { await gitlab.close(); await removeOwnedTree(root); }
+});

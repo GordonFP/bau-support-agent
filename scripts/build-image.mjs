@@ -9,13 +9,13 @@ import assert from "node:assert/strict";
 import { prepareImageSource } from "./image-source.mjs";
 
 const execute = promisify(execFile);
-const docker = "/usr/local/bin/docker";
+const docker = process.env.BAU_IMAGE_DOCKER ?? "/usr/local/bin/docker"; // Independent administrator/test command boundary.
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const run = async (command, args, maximum = 2097152) => (await execute(command, args, { cwd: root, maxBuffer: maximum, timeout: 180000 })).stdout;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 try {
   const output = process.argv[2];
-  if (process.argv.length !== 3 || !isAbsolute(output ?? "") || process.versions.node !== "24.22.0") throw new Error("invalid_request");
+  if (process.argv.length !== 3 || !isAbsolute(docker) || !isAbsolute(output ?? "") || process.versions.node !== "24.22.0") throw new Error("invalid_request");
   if ((await run("git", ["status", "--porcelain=v1"])).trim()) throw new Error("clean_source_required");
   await mkdir(output, { mode: 0o700 }); // New owned artifact directory; never overwrite evidence.
   const prepared = await prepareImageSource(join(output, "source"));

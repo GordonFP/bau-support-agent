@@ -25,6 +25,11 @@ async function freeze(root: string): Promise<void> {
   }
   await chmod(root, 0o555);
 }
+async function writableDirectories(root: string): Promise<void> {
+  try { await chmod(root, 0o700); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  for (const entry of await readdir(root, { withFileTypes: true })) if (entry.isDirectory()) await writableDirectories(join(root, entry.name));
+}
 export async function publishSnapshot(rawConfig: unknown): Promise<CollectionReceipt> {
   const config = configSchema.parse(rawConfig);
   const remote = new URL(config.gitlab);
@@ -41,6 +46,7 @@ export async function publishSnapshot(rawConfig: unknown): Promise<CollectionRec
   const stage = join(config.root, "collections", snapshotRef);
   let container: ReturnType<typeof ownedContainer> | undefined;
   let published = false;
+  let pending: string | undefined;
   let phase: "draining" | "synchronizing" | "indexing" | "cross_repository" | "provenance" | "exporting" | "stopping" | "freezing" = "draining";
   try {
     await writeFile(join(lock, "owner.json"), JSON.stringify({ pid: process.pid, snapshotRef }), { mode: 0o600 });
@@ -126,11 +132,14 @@ export async function publishSnapshot(rawConfig: unknown): Promise<CollectionRec
         if (JSON.stringify(metadata.columns) !== JSON.stringify(["b.name", "b.head_sha"]) ||
           JSON.stringify(metadata.rows) !== JSON.stringify([[repository.branch, expected.commit]])) throw new Error("version_mismatch");
         const status = await call(repository.repositoryRef, "index_status", { project: repository.project, verbose: true, diagnostics: "full", format: "json" });
-        const coverage = await call(repository.repositoryRef, "check_index_coverage", { project: repository.project, paths: expected.source.files.filter((file) => /\.(ts|js|py)$/.test(file)), format: "json" });
+        const requestedPaths = expected.source.files.filter((file) => /\.(ts|js|py)$/.test(file));
+        const coverage = await call(repository.repositoryRef, "check_index_coverage", { project: repository.project, paths: requestedPaths, format: "json" });
         const recorded = object(coverage.metadata);
         if (status.status !== "ready" || !z.iso.datetime().safeParse(status.indexed_at).success ||
           recorded.recording_status !== "complete" || recorded.hash_records_complete !== true || recorded.generation_matches !== true ||
-          coverage.path_has_more !== false || !Array.isArray(coverage.paths) || coverage.paths.some((path) => object(path).freshness !== "metadata_match")) throw new Error("contract_unverified");
+          coverage.path_has_more !== false || !Array.isArray(coverage.paths) || coverage.paths.length !== requestedPaths.length ||
+          new Set(coverage.paths.map((path) => object(path).requested_path)).size !== requestedPaths.length ||
+          coverage.paths.some((path) => { const item = object(path); return !requestedPaths.includes(String(item.requested_path)) || item.path !== item.requested_path || item.freshness !== "metadata_match"; })) throw new Error("contract_unverified");
         const source = await sourceDigest(join(stage, "sources", repository.repositoryRef));
         if (source.sha256 !== expected.source.sha256) throw new Error("version_mismatch");
         repositories.push({ repositoryRef: repository.repositoryRef, project: repository.project, branch: repository.branch, commit: expected.commit,
@@ -160,7 +169,7 @@ export async function publishSnapshot(rawConfig: unknown): Promise<CollectionRec
     await writeFile(join(stage, "proof.json"), JSON.stringify(proof));
     await writeFile(join(stage, "receipt.json"), JSON.stringify(receipt));
     await freeze(stage);
-    const pending = join(config.root, `current-${randomUUID()}.json`);
+    pending = join(config.root, `current-${randomUUID()}.json`);
     await writeFile(pending, JSON.stringify(receipt), { mode: 0o444, flag: "wx" });
     await rename(pending, join(config.root, "current.json"));
     published = true;
@@ -172,8 +181,13 @@ export async function publishSnapshot(rawConfig: unknown): Promise<CollectionRec
   } finally {
     // Never unpause readers while an unknown management process may still write.
     await container?.close();
-    if (!published) await rm(stage, { recursive: true, force: true });
-    await rm(lock, { recursive: true });
+    try {
+      if (!published) { await writableDirectories(stage); await rm(stage, { recursive: true, force: true }); }
+    } finally {
+      // close() above proved writer absence. Cleanup faults must not strand the writer lock.
+      try { if (!published && pending) await rm(pending, { force: true }); }
+      finally { await rm(lock, { recursive: true }); }
+    }
   }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

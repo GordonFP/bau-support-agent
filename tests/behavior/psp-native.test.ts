@@ -123,3 +123,15 @@ test("B rejects colliding sanitized PSP candidate bindings rather than overwriti
       { sourceRef: "psp-log-source", customerId: pspFixture.customerRef, from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z", pageSize: 100 }), /^Error: unsafe_content$/);
   } finally { mock.ports.sanitization.clear("case-1"); await pi.close("case-1"); }
 });
+
+
+test("B binding overflow has one rejected completion and no successful audit", async () => {
+  const { mock, pi } = await nativeTroubleshooting("http://127.0.0.1:1/v1", { pspObservation: pspFixture }, "psp:targets_overflow");
+  try {
+    await assert.rejects(mock.ports.logs.read({ caseRef: "case-1", phaseId: 1, callId: "binding-overflow", principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1",
+      policyVersion: "synthetic-policy", approvalRef: "synthetic-approval", resourceRefs: ["simulator-source", "psp-log-source", "psp-code"], snapshotRef: "simulator-snapshot-1", budgetRef: "case-1", deadline: mock.ports.clock.now() + 30_000, signal: new AbortController().signal },
+      { sourceRef: "psp-log-source", customerId: pspFixture.customerRef, from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z", pageSize: 100 }), /^Error: unsafe_content$/);
+    const completions = mock.events.filter((event) => event.action === "audit:mcp.logs.read:complete").map((event) => event.input as { outcome: string });
+    assert.deepEqual(completions.map((item) => item.outcome), ["unsafe_content"]);
+  } finally { mock.ports.sanitization.clear("case-1"); await pi.close("case-1"); }
+});

@@ -54,7 +54,7 @@ export function createResponsesGateway(options: { readonly route: "mock" | "loca
         if (options.clock && options.clock.now() >= context.deadline) throw new Error("timeout");
         dispatched = true;
         const response = await fetch(url, { ...init, body: canonicalInput, redirect: "error" });
-        const bounded = boundedResponse(response, (error) => { failure = error; });
+        const bounded = boundedResponse(response, (error) => { failure ??= error; }, context.signal);
         responseFinished = bounded.finished;
         return bounded.response;
       } catch (error) { failure = transportFailure(error, dispatched, context.signal); throw failure; }
@@ -69,6 +69,8 @@ export function createResponsesGateway(options: { readonly route: "mock" | "loca
     if (options.clock && options.clock.now() >= context.deadline) throw new ModelFailure("timeout", terminal ? "ended" : "unknown", charge);
     if (context.signal.aborted) throw new ModelFailure("cancelled", terminal ? "ended" : "unknown", charge);
     if (failure) {
+      // The native codec may abort its reader after a valid non-success terminal event.
+      if (terminal && !(failure instanceof ModelFailure)) throw new ModelFailure("schema_mismatch", "ended", charge);
       if (failure instanceof ModelFailure && terminal) throw new ModelFailure(failure.kind, "ended", charge ?? failure.charge);
       throw failure;
     }

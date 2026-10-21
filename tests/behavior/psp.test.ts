@@ -422,3 +422,23 @@ test("a PSP execution timestamp before the selected business binding does not pr
   await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef, bindingId: observation.target.bindingRef, question: "Check the binding's execution evidence." } }); await mock.closed;
   const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp"); assert.deepEqual(report.psp.branches, []);
 });
+
+for (const finalStatus of ["uncontrolled", "unknown"] as const) test(`old target binding pass cannot satisfy a currently ${finalStatus} binding`, async () => {
+  const observation = { ...pspFixture, final: { status: finalStatus, eventRef: finalStatus === "unknown" ? null : pspFixture.final.eventRef,
+    observedAt: finalStatus === "unknown" ? null : pspFixture.final.observedAt }, linkedShops: [{ applicationRef: pspFixture.applicationRef,
+    customerRef: pspFixture.customerRef, shopRef: pspFixture.target.shopRef, bindingRef: "old-binding", status: "passed" as const,
+    eventRef: "old-binding-pass", observedAt: "2026-10-18T09:30:00.000Z" }] };
+  const mock = createMockTroubleshooting({ pspObservation: observation });
+  await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef, bindingId: observation.target.bindingRef, question: "Which binding is current?" } }); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp"); assert.equal(report.psp.prerequisite, "unknown"); assert.deepEqual(report.psp.prerequisiteEvidenceRefs, []);
+});
+
+test("different bindings for another shop require currency evidence before counting a pass", async () => {
+  const observation = { ...pspFixture, final: { ...pspFixture.final, status: "unknown" as const }, linkedShops: [
+    { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: "other-shop", bindingRef: "old-binding", status: "passed" as const, eventRef: "old-pass", observedAt: "2026-10-18T09:00:00.000Z" },
+    { applicationRef: pspFixture.applicationRef, customerRef: pspFixture.customerRef, shopRef: "other-shop", bindingRef: "new-binding", status: "unknown" as const, eventRef: "new-unknown", observedAt: "2026-10-18T10:00:00.000Z" },
+  ] };
+  const mock = createMockTroubleshooting({ pspObservation: observation });
+  await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef, bindingId: observation.target.bindingRef, question: "Which binding is current?" } }); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp"); assert.equal(report.psp.prerequisite, "unknown");
+});

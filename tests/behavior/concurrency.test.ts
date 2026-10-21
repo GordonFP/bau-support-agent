@@ -358,7 +358,7 @@ test("pending admissions are bounded before authorization can build a waiting qu
     return allows(action, context);
   };
   const requests = Array.from({ length: 33 }, (_, index) => mock.receive({ eventRef: `event-${index}` }));
-  try { assert.equal(started, 32); }
+  try { await new Promise(setImmediate); assert.equal(started, 32); }
   finally { gate.resolve(); }
   const results = await Promise.all(requests);
   assert.equal(results.filter((result) => result.status === "accepted").length, 32);
@@ -511,6 +511,7 @@ test("expired admission waits return locally while their unconfirmed controls ke
     return allows(action, context);
   };
   const pending = Array.from({ length: 32 }, (_, index) => mock.receive({ eventRef: `stalled-${index}` }));
+  await new Promise(setImmediate);
   clock.advance(180_000);
   const results = await Promise.all(pending);
   assert.ok(results.every((result) => !("view" in result) && result.reason === "timeout"));
@@ -556,4 +557,29 @@ test("Mock private ingress accepts the supported PSP business fields while rejec
   await mock.closed;
   assert.equal((await mock.delivery.next()).report.scene, "psp");
   assert.deepEqual(await intake.receive(Buffer.from(JSON.stringify({ ...request, resourceRefs: ["psp-code"] }))), { status: "denied", reason: "invalid_request" });
+});
+
+test("completed cases release original execution contexts while durable terminal views and duplicate keys remain usable", async () => {
+  const { execFile } = await import("node:child_process"), { promisify } = await import("node:util");
+  const result = await promisify(execFile)(process.execPath, ["--expose-gc", new URL("../fixtures/case-release.js", import.meta.url).pathname], { timeout: 10_000 });
+  const saved = JSON.parse(result.stdout) as { retained: number; view: { state: string }; cancel: unknown; reply: { status: string; newCaseRequired: boolean }; duplicate: { status: string }; investigations: number };
+  assert.equal(saved.retained, 0); assert.equal(saved.view.state, "completed"); assert.deepEqual(saved.cancel, saved.view);
+  assert.equal(saved.reply.status, "terminal"); assert.equal(saved.reply.newCaseRequired, true);
+  assert.equal(saved.duplicate.status, "duplicate"); assert.equal(saved.investigations, 40);
+});
+
+test("released terminal A operations keep owner and action authorization independently of C review access", async () => {
+  const technician = { principalRef: "technician", tenantRef: "tenant-1", destinationRef: "technical" }, denyActions: string[] = [];
+  const mock = createMockTroubleshooting({ denyActions, recordGrants: [{ actor: technician, role: "technical", caseRefs: ["case-1"], resourceRefs: ["simulator-source"] }] });
+  await mock.receive(); await mock.closed; await new Promise(setImmediate);
+  assert.ok((await mock.ports.records.read(technician, "case-1"))?.scope === "full");
+  assert.deepEqual(await mock.application.get(technician, "case-1"), { status: "denied" });
+  assert.deepEqual(await mock.application.cancel(technician, "case-1"), { status: "denied" });
+  for (const malformed of [null, undefined]) assert.equal((await mock.application.provideInformation(malformed as never)).status, "denied");
+  denyActions.push("get", "cancel", "provideInformation", "accept");
+  assert.ok((await mock.ports.records.read(mock.inbound, "case-1"))?.scope === "full");
+  assert.deepEqual(await mock.application.get(mock.inbound, "case-1"), { status: "denied" });
+  assert.deepEqual(await mock.application.cancel(mock.inbound, "case-1"), { status: "denied" });
+  assert.equal((await mock.application.provideInformation({ ...mock.inbound, reply: { caseRef: "case-1", questionId: "old" }, content: {} })).status, "denied");
+  assert.equal((await mock.receive()).status, "denied");
 });

@@ -38,10 +38,11 @@ export interface DeliveryRecord {
   readonly callId: string;
   readonly status: "delivered" | "unknown" | "failed";
   readonly receiptRef?: string;
+  readonly bindingRef?: string;
 }
 export interface CaseRecords {
   append(context: CallContext, record: CaseRecord): Promise<void>;
-  read(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void) => Promise<void>): Promise<RecordDisclosure | null>;
+  read(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>): Promise<RecordDisclosure | null>;
   export(actor: TrustedActor, caseRef: string): Promise<RecordDisclosure | null>;
 }
 
@@ -54,5 +55,5 @@ export interface AuditDetails {
   readonly scope?: { readonly sourceRef?: string; readonly repositoryRef?: string; readonly snapshotRef?: string;
     readonly from?: string; readonly to?: string; readonly pageSize?: number };
   readonly result?: { readonly completeness: "complete" | "partial" | "unknown"; readonly truncated: boolean; readonly evidenceCount: number };
-  readonly delivery?: { readonly deliveryKey: string; readonly segment: number; readonly receiptRef?: string; readonly status?: "delivered" | "unknown" | "failed" };
+  readonly delivery?: { readonly deliveryKey: string; readonly segment: number; readonly bindingRef?: string; readonly receiptRef?: string; readonly status?: "delivered" | "unknown" | "failed" };
 }

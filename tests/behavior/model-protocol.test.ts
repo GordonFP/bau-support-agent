@@ -260,7 +260,7 @@ test("valid incomplete or failed native endings release execution while retainin
       assert.equal(mock.events.some((event) => ["logs.read", "code.search", "delivery.send"].includes(event.action)), false);
       assert.equal(server.requests.length, 1);
       const view = await mock.application.get(mock.inbound, "case-1");
-      assert.ok("state" in view && view.state === "stopped" && view.stopReason === "schema_mismatch");
+      assert.ok("state" in view && view.state === "stopped" && view.stopReason === "schema_mismatch", JSON.stringify(view));
       const budget = await mock.ports.budget.status("case-1");
       assert.equal(budget.reservedMicrousd, 180_000);
       assert.equal(budget.unsettledCalls, 0);
@@ -614,4 +614,25 @@ test("native failed retries, upstream errors, unsafe responses and foreign repor
       assert.equal(retained.includes("/private/synthetic"), false, mode);
     } finally { await server.close(); }
   }
+});
+
+test("a socket reset after Responses headers receives the one controlled network retry", async () => {
+  let attempts = 0;
+  const server = await responsesServer((body, response) => {
+    if (++attempts === 1) {
+      response.writeHead(200, { "content-type": "text/event-stream" }); response.flushHeaders();
+      response.write('event: response.created\ndata: {"type":"response.created","response":{"id":"interrupted"}}\n\n');
+      setTimeout(() => response.destroy(), 30); return;
+    }
+    sendText(response, JSON.stringify(reportIn(body)));
+  });
+  const mock = createMockTroubleshooting({ modelPolicy: responsesModelPolicy, modelProfile: "local_protocol" });
+  mock.ports.model.generate = createResponsesGateway({ route: "local_protocol", contract: responsesModelPolicy.protocol, baseUrl: server.baseUrl, clock: mock.ports.clock }).generate;
+  try {
+    await mock.receive(); await mock.closed;
+    const view = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in view); assert.equal(view.state, "completed");
+    assert.equal(attempts, 2);
+    const budget = await mock.ports.budget.status("case-1"); assert.equal(budget.attempts, 2); assert.equal(budget.unsettledCalls, 1);
+    assert.equal(budget.reservedMicrousd, 360_000);
+  } finally { await server.close(); }
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DiagnosticReport } from "../domain/simulator.js";
 import type { CallContext, InformationQuestion, Ports } from "./ports.js";
 import { recordDenial } from "./authorization-audit.js";
@@ -49,12 +50,12 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
       if (ports.clock.now() >= context.deadline) throw new Error("timeout");
     };
     await authorized();
-    const delivery = { deliveryKey, segment: index + 1 };
+    const delivery = { deliveryKey, segment: index + 1, bindingRef: createHash("sha256").update(JSON.stringify([context.destinationRef, context.caseRef, context.phaseId, text])).digest("hex") };
     await ports.audit.intent(current, action, { delivery });
     const attempt: DeliveryAttempt = Object.freeze({
       caseRef: context.caseRef, phaseId: context.phaseId, segment: index + 1, total: parts.length,
       text, deadline: context.deadline, signal: context.signal,
-      current: () => { check(); if (!ports.authorization.current?.(action, current) || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
+      current: () => { check(); if (ports.authorization.current?.(action, current) !== true || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
       beforeWrite: async (actual = text) => {
         if (actual !== text || !ports.sanitization.safe(text)) throw new Error("unsafe_content");
         await authorized();
@@ -68,10 +69,11 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
       invoked = true;
       const result = kind === "report" ? await ports.delivery.send(context.destinationRef, safe as DiagnosticReport, deliveryKey, attempt)
         : await ports.delivery.notice!(context.destinationRef, safe as DeliveryNotice, deliveryKey, attempt);
-      if (result === null || result === undefined) throw new Error("schema_mismatch");
+      if (typeof result !== "string" && (!result || typeof result !== "object" || Array.isArray(result) ||
+        Object.keys(result).some((key) => !["status", "receiptRef"].includes(key)))) throw new Error("schema_mismatch");
       status = typeof result === "string" ? result : result.status;
       receiptRef = typeof result === "object" ? result.receiptRef : undefined;
-      if (!["delivered", "unknown", "failed"].includes(status) || receiptRef !== undefined && !/^[a-f0-9]{64}$/.test(receiptRef)) throw new Error("schema_mismatch");
+      if (!["delivered", "unknown", "failed"].includes(status) || receiptRef !== undefined && (typeof receiptRef !== "string" || !/^[a-f0-9]{64}$/.test(receiptRef))) throw new Error("schema_mismatch");
     } catch (error) {
       const status = invoked ? "unknown" : "failed";
       await ports.audit.complete(current, action, status, { delivery: { ...delivery, status } });

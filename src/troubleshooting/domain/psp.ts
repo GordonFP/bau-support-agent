@@ -84,11 +84,12 @@ export function diagnosePsp(caseRef: string, observation: PspObservation | null,
     if (shop.applicationRef !== bound!.applicationRef || shop.customerRef !== bound!.customerRef || !shop.shopRef || !shop.bindingRef || !refs(shop).length) continue;
     if (shop.shopRef === bound!.target.shopRef && shop.bindingRef === bound!.target.bindingRef && !targetRefs(shop).length) continue;
     linkedHistory.push(shop);
-    const key = JSON.stringify([shop.shopRef, shop.bindingRef]);
+    if (shop.shopRef === bound!.target.shopRef && shop.bindingRef !== bound!.target.bindingRef) continue;
+    const key = shop.shopRef;
     groups.set(key, [...(groups.get(key) ?? []), shop]);
   }
   if (bound && finalRefs.length) {
-    const key = JSON.stringify([bound.target.shopRef, bound.target.bindingRef]);
+    const key = bound.target.shopRef;
     groups.set(key, [...(groups.get(key) ?? []), { applicationRef: bound.applicationRef, customerRef: bound.customerRef,
       shopRef: bound.target.shopRef, bindingRef: bound.target.bindingRef,
       status: final.status === "controlled" ? "passed" : final.status === "uncontrolled" ? "not_passed" : "unknown",
@@ -96,6 +97,11 @@ export function diagnosePsp(caseRef: string, observation: PspObservation | null,
   }
   const passed: PspObservation["linkedShops"][number][] = [];
   for (const shops of groups.values()) {
+    if (new Set(shops.map((shop) => shop.bindingRef)).size !== 1) {
+      conflicts.push({ statement: "Different bindings for one shop lack authoritative current-binding evidence; no pass establishes the prerequisite.",
+        evidenceRefs: [...new Set(shops.flatMap(refs))], scope: shops[0]!.shopRef, observedAt: null, limitations: ["Binding currency is unknown."] });
+      continue;
+    }
     const latest = Math.max(...shops.map((shop) => Date.parse(shop.observedAt!)));
     const current = shops.filter((shop) => Date.parse(shop.observedAt!) === latest);
     const sourceConflict = new Set(current.map((shop) => shop.status)).size > 1;

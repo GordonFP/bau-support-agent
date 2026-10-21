@@ -254,3 +254,50 @@ test("diagnosing before tools does not discard evidence accepted later in the sa
   assert.equal(report.evidence.length, 2);
   assert.equal(report.targetSummary, "[case-1:application]");
 });
+
+for (const conflict of ["date", "shops"] as const) test(`repeated Simulator reads cannot change the original submission ${conflict}`, async () => {
+  const mock = createMockTroubleshooting({ agent: async (_context, request) => {
+    await request.invoke("logs.read", null); await request.invoke("logs.read", null); return request.generate(request.diagnose());
+  } });
+  const read = mock.ports.logs.read; let calls = 0;
+  mock.ports.logs.read = async (context, query) => {
+    const page = await read(context, query);
+    if (++calls === 1) return page;
+    return { ...page, value: { ...simulatorFixture, submittedOn: conflict === "date" ? "2026-10-19" : simulatorFixture.submittedOn,
+      shops: conflict === "shops" ? simulatorFixture.shops.slice(1) : simulatorFixture.shops } };
+  };
+  await mock.receive(); await mock.closed;
+  const view = await mock.application.get(mock.inbound, "case-1");
+  assert.ok("state" in view); assert.equal(view.stopReason, "invalid_request");
+  assert.equal(mock.events.some((event) => event.action === "delivery.send"), false);
+});
+
+test("new Simulator calculation facts cite the read that actually supplied them", async () => {
+  const mock = createMockTroubleshooting({ agent: async (_context, request) => {
+    await request.invoke("logs.read", null); await request.invoke("logs.read", null); return request.generate(request.diagnose());
+  } });
+  const read = mock.ports.logs.read; let calls = 0;
+  mock.ports.logs.read = async (context, query) => {
+    const page = await read(context, query);
+    if (++calls === 1) return { ...page, evidence: page.evidence.map((item) => ({ ...item, observedAt: "2026-10-18T10:00:00.000Z" })) };
+    return { ...page, value: { ...simulatorFixture, calculation: { started: true, succeeded: true, estimate: "synthetic estimate" } },
+      evidence: page.evidence.map((item) => ({ ...item, observedAt: "2026-10-19T07:00:00.000Z" })) };
+  };
+  await mock.receive(); await mock.closed;
+  const report = (await mock.delivery.next()).report;
+  const success = report.facts.find((fact) => fact.statement.startsWith("Calculation success"))!;
+  assert.equal(success.observedAt, "2026-10-19T07:00:00.000Z");
+  assert.ok(success.evidenceRefs.every((ref) => report.evidence.find((item) => item.evidenceRef === ref)?.observedAt === success.observedAt));
+});
+
+for (const mixed of [false, true]) test(`future Simulator observations cannot establish verified readiness or calculation (${mixed ? "mixed" : "future only"})`, async () => {
+  const mock = createMockTroubleshooting({ observation: { ...simulatorFixture, calculation: { started: true, succeeded: true, estimate: "synthetic estimate" } } });
+  const read = mock.ports.logs.read;
+  mock.ports.logs.read = async (context, query) => { const page = await read(context, query); return { ...page,
+    evidence: [...(mixed ? page.evidence : []), ...page.evidence.map((item) => ({ ...item, locator: "future-observation", observedAt: "2026-10-20T12:00:00.000Z" }))] }; };
+  await mock.receive(); await mock.closed;
+  const report = (await mock.delivery.next()).report; assert.ok(report.scene === "simulator");
+  assert.deepEqual(report.facts, []); assert.deepEqual(report.possibleCauses, []);
+  assert.equal(report.simulator.dataReadiness.satisfied, 0); assert.equal(report.simulator.calculation.succeeded, null);
+  assert.match(report.limitations.join(" "), /observation time|temporal/i);
+});
