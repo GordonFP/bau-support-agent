@@ -3,7 +3,8 @@ import { TroubleshootingCase } from "../domain/simulator.js";
 import { boundedBody, CASE_EXECUTION_MS, CASE_MODEL_MICROUSD, CLEANUP_MS, MAX_ACTIVE_CASES, MAX_LOG_RECORDS, MAX_MODEL_ATTEMPTS, TOOL_CALL_MS, phaseWindow } from "./limits.js";
 import { beforeDeadline, schedule } from "./deadline.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
-import type { PspObservation } from "../domain/psp.js";
+import { SimulatorTarget, type LogRead } from "./simulator-target.js";
+import { PspTarget } from "./psp-target.js";
 import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationQuestion, InformationReply, InformationResult, Ports, PspTargetCandidates, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
 import type { AuditDetails, CaseRecord, SavedContext, StoredCase } from "./records.js";
 import { AuditBoundary } from "./audit-boundary.js";
@@ -37,11 +38,7 @@ interface RunningCase {
   recordSequence: number;
   cleanupDeadline?: number;
   cancelDeadline?: () => void;
-  candidates?: ApplicationCandidates["candidates"];
-  pspCandidates?: PspTargetCandidates["candidates"];
-  pspCustomerId?: string;
-  pspBoundAt?: string;
-  targetSubmittedOn?: string;
+  target?: SimulatorTarget | PspTarget;
   view: CaseView;
 }
 
@@ -108,10 +105,7 @@ class ReadyTroubleshooting {
         running.investigation.stop(); running.investigation.forget(); this.execution(running).controller.abort(); running.cancelDeadline?.();
         try { ports.sanitization.clear(this.execution(running).context.caseRef); } catch { cleanupFailed = true; }
         running.inbound = { ...running.inbound, input: { question: "" } };
-        delete running.candidates;
-        delete running.pspCandidates;
-        delete running.pspCustomerId;
-        delete running.pspBoundAt;
+        delete running.target;
       }
       this.cases.clear(); this.acceptances.clear(); this.pendingAdmissions.clear(); this.persistedLookups.clear();
       const closed = await Promise.allSettled([this.hostExecutions.close(), ...active.flatMap((running) => [
@@ -280,6 +274,7 @@ class ReadyTroubleshooting {
     const investigation = new TroubleshootingCase(caseRef);
     const running: RunningCase = { eventKey: key, executions: new Map(), inbound: structuredClone(inbound), phaseId: context.phaseId, view, investigation,
       replyTail: Promise.resolve(), replyFlights: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
+      target: inbound.input.scenario === "psp" ? new PspTarget(inbound.input, safeInput) : new SimulatorTarget(inbound.input, safeInput),
       recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
     let admitted = false;
     try {
@@ -380,16 +375,11 @@ class ReadyTroubleshooting {
       }
       if (running.view.state !== "awaiting_input" || running.view.question?.questionId !== reply.reply.questionId ||
         !reply.eventRef || !Number.isFinite(Date.parse(reply.receivedAt))) return { status: "denied", reason: "invalid_request" };
-      const psp = running.inbound.input.scenario === "psp";
-      const matches = (running.candidates ?? []).filter((candidate, index) => candidate.submittedAt === reply.content.submittedAt &&
-        (reply.content.candidateRef === undefined || reply.content.candidateRef === `candidate-${index + 1}`));
-      const pspMatches = (running.pspCandidates ?? []).filter((_candidate, index) => reply.content.candidateRef === `candidate-${index + 1}`);
-      if (psp ? pspMatches.length !== 1 || Object.keys(reply.content).some((key) => key !== "candidateRef")
-        : matches.length !== 1 || Object.keys(reply.content).some((key) => !["submittedAt", "candidateRef"].includes(key))) {
+      const target = running.target;
+      if (!target || !target.select(reply.content)) {
         running.replyEvents.add(reply.eventRef);
         return { status: "needs_information", view: this.viewOf(running, ports) };
       }
-      const candidate = psp ? pspMatches[0]! : matches[0]!;
       const context = { ...this.execution(running).context, callId: `${this.execution(running).context.caseRef}:reply:${reply.eventRef}` };
       const budget = await ports.budget.status(context.caseRef);
       if (running.view.state !== "awaiting_input") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
@@ -403,7 +393,7 @@ class ReadyTroubleshooting {
       await ports.audit.intent(context, "provideInformation");
       await ports.audit.complete(context, "provideInformation", "resumed");
       if (running.view.state !== "awaiting_input") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
-      running.investigation.selectTarget(ports.sanitization.sanitize(candidate.applicationId, context.caseRef));
+      if (target.applicationRef) running.investigation.selectTarget(target.applicationRef);
       const phaseId = running.investigation.resume();
       const controller = new AbortController();
       const phase = phaseWindow(ports.clock);
@@ -412,10 +402,6 @@ class ReadyTroubleshooting {
         deadline: phase.deadline, signal: controller.signal });
       running.executions.set(phaseId, this.hostExecutions.create(resumedContext, controller, ports.agent, () => this.releaseCase(running)));
       running.phaseId = phaseId;
-      running.inbound = { ...running.inbound, input: { applicationId: candidate.applicationId, question: running.inbound.input.question,
-        ...(psp && "shopId" in candidate ? { scenario: "psp", shopId: candidate.shopId, bindingId: candidate.bindingId } : {}) } };
-      if ("customerId" in candidate) running.pspCustomerId = candidate.customerId;
-      if ("boundAt" in candidate) running.pspBoundAt = candidate.boundAt;
       const { question: _question, waitingStartedAt: _waiting, ...view } = running.view;
       running.view = { ...view, phaseId, state: "investigating", phaseStartedAt: startedAt,
         deadlineAt: phase.deadlineAt,
@@ -489,7 +475,7 @@ class ReadyTroubleshooting {
       this.execution(running).controller.abort();
       try { ports.sanitization.clear(this.execution(running).context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
-      delete running.candidates; delete running.pspCandidates; delete running.pspCustomerId; delete running.pspBoundAt;
+      delete running.target;
       void this.trackWork(running, this.execution(running).context.phaseId, Promise.resolve().then(() => ports.admission.release(this.execution(running).context.caseRef))).catch(() => {});
     }
     const context = this.execution(running).context;
@@ -667,27 +653,16 @@ class ReadyTroubleshooting {
     const phaseContext = this.execution(running).context;
     const phaseController = this.execution(running).controller;
     const phaseInbound = running.inbound;
-    const phasePspCustomerId = running.pspCustomerId;
-    const phasePspBoundAt = running.pspBoundAt;
-    const psp = phaseInbound.input.scenario === "psp";
+    const target = running.target;
+    if (!target) throw new Error("invalid_request");
+    const psp = target.kind === "psp";
     const sourceRef = psp && this.scope.psp ? this.scope.psp.sourceRef : "simulator-source";
     const repositoryRef = psp && this.scope.psp ? this.scope.psp.repositoryRef : "simulator-source";
     const repositoryRefs = caseRepositories(phaseContext.resourceRefs);
     const investigation = running.investigation;
-    let observation: SimulatorObservation | null = null;
-    let pspObservation: PspObservation | null = null;
     let callSequence = 0;
     let evidenceSequence = 0;
     let safeInput: VerifiedInbound["input"];
-    let selectedApplicationId = phaseInbound.input.applicationId;
-    let selectedApplicationRef: string | undefined;
-    let selectedSubmittedOn = running.targetSubmittedOn;
-    let selectedShopId = phaseInbound.input.shopId;
-    let selectedBindingId = phaseInbound.input.bindingId;
-    let selectedShopRef: string | undefined;
-    let selectedBindingRef: string | undefined;
-    let selectedCustomerRef: string | undefined;
-    let selectedBoundAt = phasePspBoundAt;
     const assertCurrent = (allowEnded = false) => {
       if (this.retentionClosed()) throw new Error("cancelled");
       if (this.auditBoundary?.hasLost(phaseContext.caseRef)) throw new Error("audit_unavailable");
@@ -777,9 +752,8 @@ class ReadyTroubleshooting {
       if (!read.evidence.length && (read.completeness !== "complete" || read.truncated)) {
         investigation.acceptWarnings([`${kind}: ${read.completeness}; truncated=${read.truncated}; zero observations.`]);
       }
-      const targetRef = kind === "log" ? (read.value as SimulatorObservation | null)?.applicationRef : pspObservation?.applicationRef ?? observation?.applicationRef;
-      if (kind === "log" && targetRef && targetRef !== selectedApplicationRef) throw new Error("invalid_request");
-      if (kind === "log" && selectedSubmittedOn && (read.value as SimulatorObservation | null)?.submittedOn !== selectedSubmittedOn) throw new Error("invalid_request");
+      const targetRef = kind === "log" ? (read.value as SimulatorObservation | null)?.applicationRef : target.applicationRef;
+      if (kind === "log" && targetRef && targetRef !== target.applicationRef) throw new Error("invalid_request");
       const acceptedRefs: string[] = [];
       for (const [index, item] of read.evidence.entries()) {
         if (item.kind !== kind || (kind === "log" ? item.sourceRef !== sourceRef : !repositoryRefs.includes(item.sourceRef))) throw new Error("schema_mismatch");
@@ -820,14 +794,11 @@ class ReadyTroubleshooting {
       if (tool === "logs.read") {
         if (query !== null) throw new Error("invalid_request");
         if (running.view.usage.logRecords >= MAX_LOG_RECORDS) throw new Error("budget_exhausted");
-        let rawCandidates: ApplicationCandidates["candidates"] | undefined;
-        let rawPspCandidates: PspTargetCandidates["candidates"] | undefined;
+        let rawRead: LogRead | undefined;
         let logAuditRef = "";
         const read = await guarded("logs.read", async (context) => {
           const result = await ports.logs.read(context, {
-            sourceRef, ...(psp && selectedShopId ? { shopId: selectedShopId } : {}),
-            ...(psp && selectedBindingId ? { bindingId: selectedBindingId } : {}), ...(selectedApplicationId !== undefined
-              ? { applicationId: selectedApplicationId } : { customerId: phaseInbound.input.customerId! }),
+            sourceRef, ...target.query(),
             from: this.scope.queryWindow.from, to: this.scope.queryWindow.to, pageSize: 100,
           });
           assertCurrent();
@@ -841,67 +812,18 @@ class ReadyTroubleshooting {
             logRecords: running.view.usage.logRecords + result.evidence.length,
             logCoverageMs: running.view.usage.logCoverageMs + newCoverage } };
           await this.saveView(running, ports);
-          if (result.value && "kind" in result.value && result.value.kind === "application_candidates") rawCandidates = structuredClone(result.value.candidates);
-          if (result.value && "kind" in result.value && result.value.kind === "psp_target_candidates") rawPspCandidates = structuredClone(result.value.candidates);
+          rawRead = structuredClone(result);
           return result;
         }, (_read, auditRef) => { logAuditRef = auditRef; });
-        if (read.value && "kind" in read.value && read.value.kind === "psp_target_candidates") {
-          const targets = read.value.candidates;
-          if (!psp || read.completeness !== "complete" || read.truncated || !read.evidence.length || !rawPspCandidates ||
-            (selectedApplicationRef !== undefined && selectedShopRef !== undefined && selectedBindingRef !== undefined) ||
-            read.evidence.some((item) => item.kind !== "log" || item.sourceRef !== sourceRef || item.targetRef !== (selectedApplicationRef ?? safeInput.customerId)) ||
-            targets.length < 1 || targets.length > 100 || targets.some((item) => !item.applicationId || !item.customerId || !item.shopId || !item.bindingId ||
-              !Number.isFinite(Date.parse(item.boundAt)) || (selectedApplicationRef && item.applicationId !== selectedApplicationRef) ||
-              (safeInput.customerId && item.customerId !== safeInput.customerId) || (selectedShopRef && item.shopId !== selectedShopRef) ||
-              (selectedBindingRef && item.bindingId !== selectedBindingRef)) ||
-            new Set(targets.map((item) => JSON.stringify([item.applicationId, item.shopId, item.bindingId]))).size !== targets.length) throw new Error("invalid_request");
-          if (targets.length === 1) {
-            selectedApplicationId = rawPspCandidates[0]!.applicationId; selectedApplicationRef = targets[0]!.applicationId;
-            selectedShopId = rawPspCandidates[0]!.shopId; selectedShopRef = targets[0]!.shopId;
-            selectedBindingId = rawPspCandidates[0]!.bindingId; selectedBindingRef = targets[0]!.bindingId;
-            selectedCustomerRef = targets[0]!.customerId;
-            selectedBoundAt = targets[0]!.boundAt;
-            investigation.selectTarget(selectedApplicationRef);
-            return invoke("logs.read", null);
-          }
-          running.pspCandidates = rawPspCandidates;
-          return waitForInformation({ questionId: `${phaseContext.caseRef}:question:${phaseContext.phaseId}`, requiredFields: ["candidateRef"],
-            candidates: targets.map((item, index) => ({ candidateRef: `candidate-${index + 1}`, applicationId: item.applicationId,
-              shopId: item.shopId, bindingId: item.bindingId, boundAt: item.boundAt })), format: "trusted target selection",
-            prompt: "Select the evidenced shop and PSP binding; changing the investigation target requires a new case." });
+        if (!rawRead) throw new Error("invalid_request");
+        const resolution = target.resolve(rawRead, read, `${phaseContext.caseRef}:question:${phaseContext.phaseId}`);
+        if (resolution.kind === "selected") {
+          if (target.applicationRef) investigation.selectTarget(target.applicationRef);
+          return invoke("logs.read", null);
         }
-        if (read.value && "kind" in read.value && read.value.kind === "application_candidates") {
-          if (read.completeness !== "complete" || read.truncated || !read.evidence.length) throw new Error("contract_unverified");
-          if (selectedApplicationId !== undefined || read.value.customerRef !== safeInput.customerId ||
-            read.value.candidates.length < 1 || read.value.candidates.length > 100 || !rawCandidates ||
-            read.value.candidates.some((item) => !item.applicationId || !Number.isFinite(Date.parse(item.submittedAt)))) throw new Error("invalid_request");
-          if (read.value.candidates.length === 1) {
-            selectedApplicationId = rawCandidates[0]!.applicationId;
-            selectedApplicationRef = read.value.candidates[0]!.applicationId;
-            investigation.selectTarget(selectedApplicationRef);
-            return invoke("logs.read", null);
-          }
-          running.candidates = rawCandidates!;
-          return waitForInformation({
-            questionId: `${phaseContext.caseRef}:question:${phaseContext.phaseId}`, requiredFields: ["submittedAt"],
-            candidates: read.value.candidates.map((candidate, index) => ({ candidateRef: `candidate-${index + 1}`, submittedAt: candidate.submittedAt })),
-            format: "ISO-8601 UTC", prompt: "Select the submission time for this customer's application; do not change the investigation target.",
-          });
-        }
-        if (psp && read.value) {
-          const value = read.value as PspObservation;
-          if (value.kind !== "psp_observation" || !selectedShopRef || !selectedBindingRef || value.target.shopRef !== selectedShopRef || value.target.bindingRef !== selectedBindingRef ||
-            (selectedCustomerRef !== undefined && value.customerRef !== selectedCustomerRef) ||
-            (selectedBoundAt !== undefined && Date.parse(value.target.boundAt) !== Date.parse(selectedBoundAt))) throw new Error("invalid_request");
-          investigation.selectPspTarget(value);
-        }
+        if (resolution.kind === "question") return waitForInformation(resolution.question);
         const observationRefs = await acceptEvidence(read, "log", logAuditRef);
-        if (psp) pspObservation = read.evidence.length ? read.value as PspObservation | null : null;
-        else {
-          observation = read.evidence.length ? read.value as SimulatorObservation | null : null;
-          investigation.acceptSimulatorObservation(observation, observationRefs);
-          if (observation) { selectedSubmittedOn = observation.submittedOn; running.targetSubmittedOn = selectedSubmittedOn; }
-        }
+        target.accept(read, observationRefs, investigation);
         return read;
       }
       if (tool === "code.search" || tool === "code.snippet" || tool === "code.trace") {
@@ -921,7 +843,7 @@ class ReadyTroubleshooting {
     let draftVersion = -1;
     const diagnose = (): DiagnosticReport => {
       if (!draft || draftVersion !== investigation.materialVersion) {
-        draft = psp ? investigation.diagnosePsp(pspObservation, safeInput.question, ports.clock.utc()) : investigation.diagnose(observation, safeInput.question, ports.clock.utc());
+        draft = target.diagnose(investigation, safeInput.question, ports.clock.utc());
         draftVersion = investigation.materialVersion;
       }
       return draft;
@@ -934,10 +856,7 @@ class ReadyTroubleshooting {
         assertCurrent(); if (ports.clock.now() >= phaseContext.deadline) throw new Error("timeout");
       })), phaseController.signal);
       if (status !== "delivered") throw new Error("unavailable");
-      selectedApplicationRef = safeInput.applicationId;
-      selectedShopRef = safeInput.shopId; selectedBindingRef = safeInput.bindingId;
-      selectedCustomerRef = safeInput.customerId ?? (phasePspCustomerId ? ports.sanitization.sanitize(phasePspCustomerId, phaseContext.caseRef) : undefined);
-      if (selectedApplicationRef) investigation.selectTarget(selectedApplicationRef);
+      if (target.applicationRef) investigation.selectTarget(target.applicationRef);
       const model = new ModelExecution(ports, this.scope, this.execution(running, phaseContext.phaseId), {
         current: () => assertCurrent(),
         admit: async (context, envelope) => {
