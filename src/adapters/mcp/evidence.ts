@@ -181,8 +181,8 @@ export function mcpEvidencePorts(ports: Ports, supplied: McpEvidenceOptions, bou
             : pages.some((page) => page.completeness === "partial" || page.evidence.some((item) => item.completeness === "partial")) ? "partial" : "complete",
           truncated: pages.some((page) => page.truncated || page.evidence.some((item) => item.truncated)), warnings: pages.flatMap((page) => page.warnings) };
         const combined = new Map([...tally.identifiers, ...bindings]);
-      if (combined.size > 100 || [...combined].reduce((sum, [alias, raw]) => sum + Buffer.byteLength(alias) + Buffer.byteLength(raw), 0) > MAX_INBOUND_BYTES ||
-        [...bindings].some(([alias, raw]) => tally.identifiers.has(alias) && tally.identifiers.get(alias) !== raw)) throw new McpFailure("unsafe_content");
+        if (combined.size > 100 || [...combined].reduce((sum, [alias, raw]) => sum + Buffer.byteLength(alias) + Buffer.byteLength(raw), 0) > MAX_INBOUND_BYTES ||
+          [...bindings].some(([alias, raw]) => tally.identifiers.has(alias) && tally.identifiers.get(alias) !== raw)) throw new McpFailure("unsafe_content");
         try { await ports.audit.complete(context, action, "ok", { ...details, result: { completeness: result.completeness, truncated: result.truncated, evidenceCount: evidence.length } }); auditStage = "complete"; }
         catch { throw new McpFailure("audit_unavailable"); }
         await authorize(context, action, resourceRef);
