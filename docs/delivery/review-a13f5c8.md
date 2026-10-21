@@ -82,7 +82,27 @@ Linux 原命令保持所有限制（没有拉取、改变运行期 deadline 或�
 
 ## 制品、外部条件与既有限制
 
-新的应用字节必须用本轮修复后的构建器从固定 Git archive 重建实际镜像；旧 `/tmp/bau-image-final-review-8e68dd56af7553212a5b8f5c3b6d003105eb7294` 为历史镜像，不作为本轮 runtime 证明。新制品的 source SHA、Docker config、OCI manifest/index、inventory/lock/Skill digest 和实际检查结果在完成后追加。
+新制品已由本轮修复后的构建器从 clean 固定 Git archive 实际重建，目录为 `/tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3/`；其中 `receipt.json`、`image-id.txt`、`docker-inspect.json`、`docker-build.log`、`docker-save.tar`、`inventory.json`、`source/` 和 `oci/` 保存实际字节。旧 `/tmp/bau-image-final-review-8e68dd56af7553212a5b8f5c3b6d003105eb7294` 为历史镜像，不作为本轮 runtime 证明。
+
+| 身份 | 实际值 |
+| --- | --- |
+| Git sourceCommit / revision | `77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3`，生产字节等于 `7c03395`，此后只追加交付收据文档。 |
+| Source archive SHA256 | `10052594d1554bf734d3270665f5fedf242141fc981132ce4d289791612723c6` |
+| Docker config / 本次 iidfile | `sha256:4078489be6288f745b6ac95931d8cdbe5ff8d7ad8dd29f32c1a1c583bfdb37c5` |
+| OCI manifest | `sha256:ceb50629f48f43cd57753edead47b787024a623883f9479ec0ff846b82caea88` |
+| OCI index | `sha256:bea0fc6ead849941bb2493fff917053cbef1ce0860d4fa0aaeb755ab005436a2` |
+| Docker save archive | `sha256:33792074539e56690e59050c1563fa12c0d5f4ab6a6eb4c5a9ca215eedb1857a` |
+| Inventory SHA256 | `f03c29064b44db32ae07a0582d39709f063b2f1f14752e010f40a69f81ec07e5` |
+| Lock SHA256 | `e77e5783fa35a84b5d110111d337e13198bdde93b3db67453ec2ecf32db42ecc` |
+| Runtime Skill SHA256 | `e204643dabd38e47d884b5aee74846b060e18fee46a50b3a6ddfd336f3d16a69` |
+| 平台/编译 | `linux/arm64`、Node24.22.0、TypeScript7.0.2，65 个应用 JS 与实际 image inventory 逐字节一致。 |
+
+实际执行 `node scripts/build-image.mjs /tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3`，`final-image-build-77b36f7.log` 成功；最新交错标签替换合同 **1/1**（`final-image-build-contract-77b36f7.log`）。以以上不可变 config 和实际 OCI layout 运行原容器/OCI 合同 **6/6**（`final-image-contracts-77b36f7.log`）：非 root/无网/只读/资源限制、存储拒绝、两种场景、重复键与费用、取消/未知关闭/超时、审计失败、OCI 内容链及篡改拒绝均通过。source canary 合同 **1/1**（`final-image-source-77b36f7.log`）验证忽略的额外 TS 和陈旧 dist JS 均不进入 archive 编译，并与镜像 65 个 JS 散列/字节逐一匹配。合同自有容器和 volume 已清理，其他已有容器未操作；实际制品保留供集成核对，没有推送 registry、远程拉取验证或部署。
+
+```sh
+BAU_CONTAINER_IMAGE=sha256:4078489be6288f745b6ac95931d8cdbe5ff8d7ad8dd29f32c1a1c583bfdb37c5 BAU_OCI_LAYOUT=/tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3/oci node --test --test-concurrency=1 dist/tests/contracts/container-runtime.test.js dist/tests/contracts/image-oci.test.js
+BAU_IMAGE_INVENTORY=/tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3/inventory.json node --test dist/tests/contracts/image-source.test.js
+```
 
 Pi 上游 42 项声明 TS1543 与已批准的窄 `skipLibCheck:true` 限制继续保留；项目与自有完整声明闭包、正负 consumer 分别验证，不冒称 Pi 全部声明已通过。许可证原文 CRLF/末尾空行的整段原始 `git diff --check` 退出 2 也保留历史事实，不规范化原文或散列来伪造通过。本轮自身 diff 检查单独执行。原 Teams deadline 测试的历史间歇首败和根因未证实记录保持原样。
 
