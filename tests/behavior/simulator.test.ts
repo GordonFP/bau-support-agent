@@ -322,3 +322,12 @@ test("mixed UTC timestamp precision preserves the latest observation and its act
     }
   } finally { await mock.application.close(); }
 });
+
+test("unavailable controls preserve malformed input rejection across public intake and reply", async () => {
+  const mock = createMockTroubleshooting({ unavailableControls: ["audit"] });
+  assert.deepEqual(await mock.application.accept({ ...mock.inbound, input: { applicationId: "application-1", question: "x".repeat(70_000) } }),
+    { status: "denied", reason: "invalid_request" });
+  assert.deepEqual(await mock.application.provideInformation({ ...mock.inbound, reply: { caseRef: "case-1", questionId: "question-1" }, content: { candidateRef: "x".repeat(70_000) } }),
+    { status: "denied", reason: "invalid_request" });
+  assert.deepEqual(mock.events, []);
+});

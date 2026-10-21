@@ -39,10 +39,14 @@ export function modelEnvelope(turn: ModelTurn, canonicalInput: string, policy: M
     includesReasoning: true as const, hiddenRetries: 0 as const, planning: modelPlanning() });
 }
 
+export function verifiedModelPolicy(policy?: ModelPolicy): ModelPolicy | null {
+  const verified = policy?.protocol === responsesModelPolicy.protocol ? responsesModelPolicy : mockModelPolicy;
+  return policy && JSON.stringify(policy) === JSON.stringify(verified) ? verified : null;
+}
+
 export function validateModelEnvelope(turn: ModelTurn, envelope: ModelEnvelope, policy?: ModelPolicy): void {
   validateModelTurn(turn);
-  const verified = policy?.protocol === responsesModelPolicy.protocol ? responsesModelPolicy : mockModelPolicy;
-  if (!policy || JSON.stringify(policy) !== JSON.stringify(verified) || !envelope ||
+  if (!policy || !verifiedModelPolicy(policy) || !envelope ||
     Object.keys(envelope).sort().join() !== ["profile", "turnRef", "protocol", "tokenizer", "canonicalInput", "inputTokensUpperBound", "maxOutputTokens", "includesReasoning", "hiddenRetries", "planning"].sort().join() ||
     envelope.profile !== (policy.protocol === mockModelProtocol ? "memory_mock" : "local_protocol") ||
     envelope.turnRef !== modelTurnRef(turn) || envelope.protocol !== policy.protocol || envelope.tokenizer !== policy.tokenizer ||
