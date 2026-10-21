@@ -20,12 +20,15 @@ try {
   await mkdir(output, { mode: 0o700 }); // New owned artifact directory; never overwrite evidence.
   const prepared = await prepareImageSource(join(output, "source"));
   const { sourceCommit } = prepared;
-  const built = await execute(docker, ["build", "--pull=false", "--platform", "linux/arm64", "--progress=plain",
+  const iidfile = join(output, "image-id.txt");
+  const built = await execute(docker, ["build", "--iidfile", iidfile, "--pull=false", "--platform", "linux/arm64", "--progress=plain",
     "--label", `org.opencontainers.image.revision=${sourceCommit}`, "--tag", "bau-support-agent:issue-28-local", "."],
     { cwd: prepared.tree, maxBuffer: 2097152, timeout: 180000 });
   await writeFile(join(output, "docker-build.log"), built.stdout + built.stderr);
-  const inspect = JSON.parse(await run(docker, ["image", "inspect", "bau-support-agent:issue-28-local"]))[0];
-  if (inspect.Os !== "linux" || inspect.Architecture !== "arm64" || !/^sha256:[a-f0-9]{64}$/.test(inspect.Id)) throw new Error("contract_unverified");
+  const imageId = (await readFile(iidfile, "utf8")).trim();
+  if (!/^sha256:[a-f0-9]{64}$/.test(imageId)) throw new Error("contract_unverified");
+  const inspect = JSON.parse(await run(docker, ["image", "inspect", imageId]))[0];
+  if (inspect.Id !== imageId || inspect.Config?.Labels?.["org.opencontainers.image.revision"] !== sourceCommit || inspect.Os !== "linux" || inspect.Architecture !== "arm64" || !/^sha256:[a-f0-9]{64}$/.test(inspect.Id)) throw new Error("contract_unverified");
   await writeFile(join(output, "docker-inspect.json"), JSON.stringify(inspect, null, 2));
   const archive = join(output, "docker-save.tar");
   await run(docker, ["image", "save", "--output", archive, inspect.Id]);

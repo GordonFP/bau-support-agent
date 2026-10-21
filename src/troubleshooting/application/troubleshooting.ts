@@ -615,7 +615,7 @@ export class Troubleshooting {
             !await ports.authorization.allows("get", owner)) throw new Error("denied");
           const context = { ...owner, callId: `${caseRef}:get:${randomUUID()}`, deadline: ports.clock.now() + CLEANUP_MS, signal: new AbortController().signal };
           await ports.audit.intent(context, "get"); await ports.audit.complete(context, "get", "allowed");
-          await beforeDisclose?.(() => { resourceCurrent(); if (ports.authorization.current && ports.authorization.current("get", owner) !== true) throw new Error("denied"); }, owner);
+          await beforeDisclose?.(() => { if (this.retentionClosed()) throw new Error("denied"); resourceCurrent(); if (ports.authorization.current && ports.authorization.current("get", owner) !== true) throw new Error("denied"); }, owner);
         });
         return !this.retentionClosed() && authority && (!ports.authorization.current || ports.authorization.current("get", authority) === true) && saved?.view ? saved.view : { status: "denied" };
       }
@@ -627,7 +627,7 @@ export class Troubleshooting {
       const context = { ...running.context, callId: `${caseRef}:get:${randomUUID()}` };
       await ports.audit.intent(context, "get");
       await ports.audit.complete(context, "get", "allowed");
-      try { await beforeDisclose?.(() => { if (ports.authorization.current && ports.authorization.current("get", running.context) !== true) throw new Error("denied"); }, running.context); }
+      try { await beforeDisclose?.(() => { if (this.retentionClosed()) throw new Error("denied"); if (ports.authorization.current && ports.authorization.current("get", running.context) !== true) throw new Error("denied"); }, running.context); }
       catch { await recordDenial(ports.audit, context); return { status: "denied" }; }
       if (!await ports.authorization.allows("get", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
       return this.viewOf(running, ports);

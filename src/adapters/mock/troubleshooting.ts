@@ -111,7 +111,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     const result = structuredClone({ scope: "full" as const, view: saved.initial.view, records: saved.records,
       audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
     await ports.audit.complete(context, action, "allowed");
-    try { await beforeDisclose?.(() => { if (ports.authorization.current && ports.authorization.current(action, { ...owner, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...owner, phaseId: saved.initial.view.phaseId })); }
+    try { await beforeDisclose?.(() => { if (ports.retention?.closed()) throw new Error("denied"); if (ports.authorization.current && ports.authorization.current(action, { ...owner, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...owner, phaseId: saved.initial.view.phaseId })); }
     catch { await recordDenial(ports.audit, context); return null; }
     const currentRole = await recordRole(ports.authorization, actor, owner, action);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }

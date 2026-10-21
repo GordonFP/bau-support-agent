@@ -246,7 +246,7 @@ export class SqliteRecords {
     const deliveries = this.session.database.prepare("SELECT value FROM deliveries WHERE case_ref=? ORDER BY delivery_key,segment").all(caseRef)
       .map((entry) => JSON.parse(String(entry.value)) as DeliveryRecord);
     await this.audit.complete(context, action, "allowed");
-    try { await beforeDisclose?.(() => { if (this.controls.authorization.current && this.controls.authorization.current(action, { ...saved, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...saved, phaseId: (JSON.parse(String(row.view)) as InitialCase["view"]).phaseId })); }
+    try { await beforeDisclose?.(() => { if (this.retention.closed()) throw new Error("denied"); if (this.controls.authorization.current && this.controls.authorization.current(action, { ...saved, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...saved, phaseId: (JSON.parse(String(row.view)) as InitialCase["view"]).phaseId })); }
     catch { await recordDenial(this.audit, context); return null; }
     const currentRole = await recordRole(this.controls.authorization, actor, saved, action);
     if (this.retention.closed()) { this.retention.recordDeniedAccess(actor, action); return null; }

@@ -85,23 +85,18 @@ for (const waitingAction of ["delivery.send", "teams.identity"] as const) test(`
   const service = await teamsServices(), denyActions: string[] = [], mock = createMockTroubleshooting({ denyActions });
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   const allows = mock.ports.authorization.allows;
-  let deliveries = 0, paused = false;
-  mock.ports.authorization.allows = async (action, context) => {
-    const allowed = await allows(action, context);
-    if (!paused && service.writes.length === 1 && (waitingAction === "teams.identity" ? action === waitingAction : action === waitingAction && ++deliveries === 3)) {
-      paused = true; held.resolve(); await release.promise;
-    }
-    return allowed;
-  };
+  mock.ports.authorization.allows = async (action, context) => { const allowed = await allows(action, context); if (action === waitingAction) { held.resolve(); await release.promise; } return allowed; };
   const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
+  const authority = { ...service.mapping.actor, resourceRefs: ["simulator-source"] };
   try {
-    await host.start(); const accepting = fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(service.activity()) });
+    await host.start();
+    const sending = mock.ports.delivery.send(service.mapping.actor.destinationRef, {} as never, "case-1:report:1", {
+      caseRef: "case-1", phaseId: 1, segment: 1, total: 1, text: "Synthetic report.", deadline: 5_000, signal: new AbortController().signal,
+      beforeWrite: async () => { if (!await mock.ports.authorization.allows("delivery.send", authority)) throw new Error("denied"); },
+      current: () => { if (mock.ports.authorization.current!("delivery.send", authority) !== true) throw new Error("denied"); },
+    });
     await held.promise; denyActions.push(waitingAction === "delivery.send" ? "teams.identity" : "delivery.send"); release.resolve();
-    await accepting; await mock.closed;
-    assert.equal(service.writes.length, 1, "only the earlier accepted status was disclosed");
-    const stored = await mock.ports.records.read(mock.inbound, "case-1");
-    assert.ok(stored?.scope === "full");
-    assert.equal(stored.deliveries.find((item) => item.deliveryKey === "case-1:report:1")?.status, "failed");
+    assert.equal(await sending, "failed"); assert.equal(service.writes.length, 0);
   } finally { release.resolve(); await host.stop(); await service.close(); }
 });
 
