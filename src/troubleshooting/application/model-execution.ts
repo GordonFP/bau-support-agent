@@ -94,13 +94,13 @@ export class ModelExecution {
       await ports.audit.complete(context, "model.generate", "ok", details);
       check(); return result;
     };
-    try { return await beforeDeadline(ports.clock, context.deadline, () => phase.track(original()), phase.controller.signal); }
+    try { return await beforeDeadline(ports.clock, context.deadline, () => phase.run(original), phase.controller.signal); }
     catch (error) {
       if (invoked && (phase.controller.signal.aborted || ports.clock.now() >= context.deadline)) {
-        void beforeDeadline(ports.clock, ports.clock.now() + CLEANUP_MS, () => phase.track((async () => {
+        void beforeDeadline(ports.clock, ports.clock.now() + CLEANUP_MS, () => phase.run(async () => {
           await ports.budget.settle(context, null, { execution: "unknown", source: "unknown" });
           await ports.audit.complete(context, "model.generate", "unknown");
-        })())).catch(() => {});
+        })).catch(() => {});
       }
       throw error;
     }

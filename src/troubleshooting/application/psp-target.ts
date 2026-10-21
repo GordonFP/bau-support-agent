@@ -67,6 +67,13 @@ export class PspTarget {
       if (!("kind" in safe.value) || safe.value.kind !== "psp_observation" || !selector.shop || !selector.binding ||
         safe.value.applicationRef !== selector.application?.ref || safe.value.target.shopRef !== selector.shop.ref || safe.value.target.bindingRef !== selector.binding.ref ||
         (selector.customer && safe.value.customerRef !== selector.customer.ref) || (this.state.kind === "fixed" && Date.parse(safe.value.target.boundAt) !== Date.parse(this.state.target.boundAt))) throw new Error("invalid_request");
+      if (!raw.value || !("kind" in raw.value) || raw.value.kind !== "psp_observation") throw new Error("invalid_request");
+      if (this.state.kind !== "fixed") this.state = Object.freeze({ kind: "fixed", target: Object.freeze({
+        application: Object.freeze({ raw: raw.value.applicationRef, ref: safe.value.applicationRef }),
+        customer: Object.freeze({ raw: raw.value.customerRef, ref: safe.value.customerRef }),
+        shop: Object.freeze({ raw: raw.value.target.shopRef, ref: safe.value.target.shopRef }),
+        binding: Object.freeze({ raw: raw.value.target.bindingRef, ref: safe.value.target.bindingRef }), boundAt: safe.value.target.boundAt,
+      }) });
     }
     return { kind: "observation" };
   }

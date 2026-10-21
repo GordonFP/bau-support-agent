@@ -6,7 +6,8 @@ export class PhaseExecution {
   private aborting?: Promise<void>;
   private closing?: Promise<void>;
   private stopping?: Promise<void>;
-  private outcome: "open" | "closed" | "failed" = "open";
+  private outcome: "open" | "closing" | "closed" | "failed" = "open";
+  private activated = false;
 
   constructor(readonly context: CallContext, readonly controller: AbortController, private readonly agent: Ports["agent"],
     private readonly changed: () => void, private readonly settled: (execution: PhaseExecution) => void) {}
@@ -14,7 +15,17 @@ export class PhaseExecution {
   get closed(): boolean { return this.outcome === "closed" && this.work.size === 0; }
   get failed(): boolean { return this.outcome === "failed"; }
 
-  track<T>(task: Promise<T>): Promise<T> {
+  activate(): void { this.activated = true; }
+
+  // A producer may add children while closing. A closed owner is sealed before any factory can start work.
+  produce<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.outcome !== "open") throw new Error("cancelled");
+    return this.run(operation);
+  }
+
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.outcome === "closed" || this.outcome === "failed") throw new Error("cancelled");
+    const task = operation();
     this.work.add(task);
     const ended = () => { this.work.delete(task); this.changed(); };
     void task.then(ended, ended);
@@ -23,19 +34,24 @@ export class PhaseExecution {
 
   abort(): Promise<void> {
     this.controller.abort();
-    return this.aborting ??= this.track(Promise.resolve().then(() => this.agent.abort(this.context.caseRef, this.context.phaseId)));
+    if (this.outcome === "closed" || this.outcome === "failed") return this.closing ?? Promise.resolve();
+    return this.aborting ??= this.run(async () => { if (this.activated) await this.agent.abort(this.context.caseRef, this.context.phaseId); });
   }
 
   stop(wait: () => Promise<void>): Promise<void> { return this.stopping ??= wait(); }
 
   close(): Promise<void> {
-    return this.closing ??= (async () => {
+    if (this.closing) return this.closing;
+    this.outcome = "closing";
+    return this.closing = (async () => {
       const results = await Promise.allSettled([
-        Promise.resolve().then(() => this.agent.close(this.context.caseRef, this.context.phaseId)),
-        this.aborting,
+        Promise.resolve().then(() => this.activated ? this.agent.close(this.context.caseRef, this.context.phaseId) : undefined),
         (async () => { while (this.work.size) await Promise.allSettled([...this.work]); })(),
       ]);
-      this.outcome = results.some((result) => result.status === "rejected") ? "failed" : "closed";
+      // Children (including abort) can be registered by a still-running producer after close began.
+      while (this.work.size) await Promise.allSettled([...this.work]);
+      const abort = await Promise.allSettled([this.aborting]);
+      this.outcome = [...results, ...abort].some((result) => result.status === "rejected") ? "failed" : "closed";
       this.settled(this); this.changed();
       if (this.failed) throw new Error("unavailable");
     })();
