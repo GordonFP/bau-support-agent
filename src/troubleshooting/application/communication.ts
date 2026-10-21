@@ -22,6 +22,12 @@ export interface DeliveryAttempt {
   readonly beforeWrite: (text?: string) => Promise<void>;
 }
 
+// Cached completion receipts must retain only their confirmation bit, never a phase context.
+function deliveryCompletion() {
+  let confirmed = false;
+  return { current: () => confirmed, confirm: () => { confirmed = true; } };
+}
+
 function segments(text: string, cap: number): string[] {
   if (!Number.isSafeInteger(cap) || cap < 128 || cap > MAX_MESSAGE_BYTES || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) throw new Error("invalid_request");
   if (Buffer.byteLength(text) <= cap) return [text];
@@ -54,11 +60,11 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
     await authorized();
     const delivery = { deliveryKey, segment: index + 1, bindingRef: createHash("sha256").update(JSON.stringify([context.destinationRef, context.caseRef, context.phaseId, text])).digest("hex") };
     await ports.audit.intent(current, action, { delivery });
-    let durablyCompleted = false;
+    const completion = deliveryCompletion();
     const attempt: DeliveryAttempt = Object.freeze({
       caseRef: context.caseRef, phaseId: context.phaseId, segment: index + 1, total: parts.length,
       text, deadline: context.deadline, signal: context.signal,
-      durablyCompleted: () => durablyCompleted,
+      durablyCompleted: completion.current,
       current: () => { check(); if (ports.authorization.current?.(action, current) !== true || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
       beforeWrite: async (actual = text) => {
         if (actual !== text || !ports.sanitization.safe(text)) throw new Error("unsafe_content");
@@ -81,11 +87,11 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
     } catch (error) {
       const status = invoked ? "unknown" : "failed";
       await ports.audit.complete(current, action, status, { delivery: { ...delivery, status } });
-      durablyCompleted = true;
+      completion.confirm();
       throw error;
     }
     await ports.audit.complete(current, action, "ok", { delivery: { ...delivery, status, ...(receiptRef ? { receiptRef } : {}) } });
-    durablyCompleted = true;
+    completion.confirm();
     check();
     if (status !== "delivered") return status;
   }

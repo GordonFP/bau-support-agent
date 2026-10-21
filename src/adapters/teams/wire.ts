@@ -12,15 +12,26 @@ import type { Ports } from "../../troubleshooting/application/ports.js";
 import type { TeamsConfiguration, TeamsMapping } from "./host.js";
 import { teamsReceiptRef, userClaims } from "./identity.js";
 
-interface Lease { readonly kind: "proof" | "write"; readonly mapping: TeamsMapping; readonly signal: AbortSignal; readonly deadline: number;
-  readonly attempt?: DeliveryAttempt; wrote: boolean; }
+interface Lease { readonly kind: "proof" | "write"; readonly mapping: TeamsMapping; signal: AbortSignal; readonly deadline: number;
+  attempt?: DeliveryAttempt; wrote: boolean; }
 const receiptSchema = z.strictObject({ id: z.string().min(1).max(256) });
+interface Operation {
+  binding: string; result: Promise<DeliveryResult> | DeliveryResult; settled: boolean;
+  readonly durablyCompleted?: () => boolean; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"];
+}
+function settleOperation(entry: Operation, pending: Promise<DeliveryResult>) {
+  // A settled native Promise retains its AsyncLocalStorage lease. Cache only the result value.
+  void pending.then((value) => { entry.result = value; entry.settled = true; });
+}
 
 export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
   const local = new AsyncLocalStorage<Lease>();
   const stopping = new AbortController();
   const work = new Set<Promise<unknown>>();
-  const operations = new Map<string, { binding: string; result: Promise<DeliveryResult>; settled: boolean; readonly durablyCompleted?: () => boolean; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"] }>();
+  const operations = new Map<string, Operation>();
+  // Audit-storage faults cannot be durably reconciled. Keep their unknown outcomes in an
+  // independent bounded cache, refusing further fault writes when that cache is full.
+  const faultOperations = new Map<string, Operation>();
   let overflowed = false;
   const questions = new Map<string, { caseRef: string; questionId: string; destinationRef: string }>();
   const cap = configuration.maxActivityBytes ?? MAX_MESSAGE_BYTES;
@@ -37,18 +48,21 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
     const controller = new AbortController();
     const lease: Lease = { kind: "proof", mapping, deadline, signal: AbortSignal.any([signal, controller.signal, stopping.signal]), wrote: false };
     const task = track(local.run(lease, async () => {
-      check(lease);
-      let proof: string | undefined;
-      try { proof = lookup ? await lookup() : (await app.api.users.getToken({ userId: mapping.userId, channelId: "msteams", connectionName: configuration.user.connectionName })).token; }
-      catch { throw new Error("denied"); }
-      check(lease);
-      const payload = proof ? await validator.validateAccessToken(proof) : null;
-      check(lease); userClaims(payload, configuration, mapping);
-      if (!await ports.authorization.allows("teams.identity", { ...mapping.actor, resourceRefs: [] })) throw new Error("denied");
-      check(lease);
-      const current = () => { check(lease); userClaims(payload, configuration, mapping);
-        if (ports.authorization.current?.("teams.identity", { ...mapping.actor, resourceRefs: [] }) !== true) throw new Error("denied"); };
-      current(); return current;
+      try {
+        check(lease);
+        let proof: string | undefined;
+        try { proof = lookup ? await lookup() : (await app.api.users.getToken({ userId: mapping.userId, channelId: "msteams", connectionName: configuration.user.connectionName })).token; }
+        catch { throw new Error("denied"); }
+        check(lease);
+        const payload = proof ? await validator.validateAccessToken(proof) : null;
+        check(lease); userClaims(payload, configuration, mapping);
+        if (!await ports.authorization.allows("teams.identity", { ...mapping.actor, resourceRefs: [] })) throw new Error("denied");
+        check(lease);
+        const proofSignal = lease.signal;
+        const current = () => { check({ ...lease, signal: proofSignal }); userClaims(payload, configuration, mapping);
+          if (ports.authorization.current?.("teams.identity", { ...mapping.actor, resourceRefs: [] }) !== true) throw new Error("denied"); };
+        current(); return current;
+      } finally { lease.signal = stopping.signal; }
     }));
     return await beforeDeadline(ports.clock, deadline, () => task, lease.signal, () => controller.abort());
   };
@@ -100,15 +114,17 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       return res;
     },
   };
-  const send = (destinationRef: string, deliveryKey: string, attempt?: DeliveryAttempt, notice?: DeliveryNotice): Promise<DeliveryResult> => {
+  const send = (destinationRef: string, deliveryKey: string, attempt?: DeliveryAttempt, notice?: DeliveryNotice, fault = false): Promise<DeliveryResult> => {
     if (!attempt || stopping.signal.aborted || !deliveryKey.startsWith(`${attempt.caseRef}:`)) return Promise.resolve("failed");
     const mappings = configuration.mappings.filter((mapping) => mapping.actor.destinationRef === destinationRef);
     if (mappings.length !== 1) return Promise.resolve("failed");
     const mapping = mappings[0]!;
     const id = JSON.stringify([deliveryKey, attempt.segment]);
     const binding = JSON.stringify([destinationRef, attempt.caseRef, attempt.phaseId, attempt.text]);
-    const previous = operations.get(id);
-    if (previous) return previous.binding === binding ? previous.result : Promise.resolve("failed");
+    const cache = fault ? faultOperations : operations;
+    const previous = operations.get(id) ?? faultOperations.get(id);
+    if (previous) return previous.binding === binding ? Promise.resolve(previous.result) : Promise.resolve("failed");
+    if (fault && faultOperations.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     if (work.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     const lease: Lease = { kind: "write", mapping, attempt, deadline: attempt.deadline, signal: AbortSignal.any([attempt.signal, stopping.signal]), wrote: false };
     const persisted = async (entry: { actor: TeamsMapping["actor"]; caseRef: string; deliveryKey: string; segment: number; binding: string }): Promise<{ known: boolean; result?: DeliveryResult }> => {
@@ -127,7 +143,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       try {
         // Install the in-flight deduplication entry synchronously before reconciliation awaits.
         await Promise.resolve(); check(lease);
-        if (operations.size > 4_096) {
+        if (!fault && operations.size > 4_096) {
           overflowed = true;
           const candidates = [...operations.entries()].filter(([key, entry]) => key !== id && entry.settled);
           for (const [key, entry] of candidates) {
@@ -138,7 +154,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
           }
           if (operations.size > 4_096) { operations.delete(id); return "failed"; }
         }
-        if (overflowed) {
+        if (!fault && overflowed) {
           const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
           if (!prior.known) return "failed";
           if (prior.result !== undefined) return prior.result;
@@ -150,11 +166,13 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
         if (notice?.kind === "question" && questions.has(receiptRef) && questions.get(receiptRef)!.questionId !== notice.question.questionId) return "unknown";
         if (notice?.kind === "question") questions.set(receiptRef, { caseRef: attempt.caseRef, questionId: notice.question.questionId, destinationRef });
         return { status: "delivered", receiptRef };
-      } catch { if (!lease.wrote && operations.size > 4_096) operations.delete(id); return lease.wrote ? "unknown" : "failed"; }
+      } catch { if (!fault && !lease.wrote && operations.size > 4_096) operations.delete(id); return lease.wrote ? "unknown" : "failed"; }
+      // Pooled HTTP resources may retain the ALS lease after the original send settles.
+      finally { delete lease.attempt; lease.signal = stopping.signal; }
     }));
     const entry = { binding, result, settled: false, ...(attempt.durablyCompleted ? { durablyCompleted: attempt.durablyCompleted } : {}), caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
-    operations.set(id, entry);
-    void result.then(() => { entry.settled = true; }, () => { entry.settled = true; });
+    cache.set(id, entry);
+    settleOperation(entry, result);
     return result;
   };
   const delivery: Ports["delivery"] = {
@@ -163,11 +181,11 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
     send: (destination, _report, key, attempt) => send(destination, key, attempt),
     notice: (destination, notice, key, attempt) => send(destination, key, attempt, notice),
     fault: async (destination, _notice, key, attempt) => {
-      const result = await send(destination, key, attempt); return typeof result === "string" ? result : result.status;
+      const result = await send(destination, key, attempt, undefined, true); return typeof result === "string" ? result : result.status;
     },
   };
   return { middleware, interceptor, prove, delivery, questions,
     bind(nativeApp: App, nativeValidator: JwtValidator) { app = nativeApp; validator = nativeValidator; },
-    async close() { stopping.abort(); while (work.size) await Promise.allSettled([...work]); operations.clear(); questions.clear(); },
+    async close() { stopping.abort(); while (work.size) await Promise.allSettled([...work]); operations.clear(); faultOperations.clear(); questions.clear(); },
   };
 }

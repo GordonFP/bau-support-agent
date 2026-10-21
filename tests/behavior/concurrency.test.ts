@@ -568,6 +568,14 @@ test("completed cases release original execution contexts while durable terminal
   assert.equal(saved.duplicate.status, "duplicate"); assert.equal(saved.investigations, 40);
 });
 
+test("completed cases release original execution contexts while the actual local Teams SDK host and its delivery cache remain open", async () => {
+  const { execFile } = await import("node:child_process"), { promisify } = await import("node:util");
+  const result = await promisify(execFile)(process.execPath, ["--expose-gc", new URL("../fixtures/case-release.js", import.meta.url).pathname, "teams"], { timeout: 10_000 });
+  const saved = JSON.parse(result.stdout) as { retained: number; view: { state: string }; duplicate: { status: string }; investigations: number; physicalMessages: number };
+  assert.equal(saved.retained, 0); assert.equal(saved.view.state, "completed"); assert.equal(saved.duplicate.status, "duplicate");
+  assert.equal(saved.investigations, 40); assert.equal(saved.physicalMessages, 80);
+});
+
 test("released terminal A operations keep owner and action authorization independently of C review access", async () => {
   const technician = { principalRef: "technician", tenantRef: "tenant-1", destinationRef: "technical" }, denyActions: string[] = [];
   const mock = createMockTroubleshooting({ denyActions, recordGrants: [{ actor: technician, role: "technical", caseRefs: ["case-1"], resourceRefs: ["simulator-source"] }] });

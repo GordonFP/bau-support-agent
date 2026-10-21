@@ -57,3 +57,28 @@ test("D can retire durably completed old sends after every old requester loses C
     assert.equal(await wire.delivery.send(oldActor.destinationRef, {} as never, "old-0:report:1", attempt("old-0")), "failed"); assert.equal(writes, 4_097);
   } finally { await wire.close(); await service.close(); }
 });
+
+test("D isolates unaudited fixed fault capacity so historical faults cannot disable ordinary delivery or replay an unknown fault", async () => {
+  const service = await teamsServices(), mock = createMockTroubleshooting(), configuration = service.configuration;
+  const wire = teamsWire(configuration, mock.ports), notice = "Investigation stopped because audit storage is unavailable." as const;
+  let writes = 0;
+  wire.bind({ api: { users: { getToken: async () => ({ token: "synthetic-user-proof" }) } }, send: async (conversationId: string, activity: { text: string }) => {
+    // The external SDK/transport stand-in still passes its final bytes through the real wire interceptor.
+    await wire.interceptor.request!({ config: { data: { type: "message", text: activity.text, textFormat: "plain", from: { id: configuration.clientId, role: "bot" }, conversation: { id: conversationId } }, headers: { set() {} } } } as never);
+    if (++writes === 1) throw new Error("synthetic_ack_lost_after_write");
+    return { id: `receipt-${writes}` };
+  } } as unknown as App, { validateAccessToken: async () => ({ aud: configuration.user.audience, iss: configuration.user.issuer, tid: service.mapping.tenantId,
+    oid: service.mapping.oid, scp: "access_as_user", exp: Date.now() / 1000 + 300 }) } as never);
+  const attempt = (caseRef: string, text: string): DeliveryAttempt => ({ caseRef, phaseId: 1, segment: 1, total: 1, text, deadline: 5_000,
+    signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {} });
+  try {
+    assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown");
+    for (let index = 1; index < 4_096; index++) await wire.delivery.fault(service.mapping.actor.destinationRef, notice, `fault-${index}:audit-fault`, attempt(`fault-${index}`, notice));
+    const before = writes;
+    assert.equal(before, 32, "the bounded unaudited fault cache refuses additional fault writes");
+    const normal = await wire.delivery.send(service.mapping.actor.destinationRef, {} as never, "normal-1:report:1", attempt("normal-1", "Synthetic ordinary report."));
+    assert.equal(typeof normal === "object" ? normal.status : normal, "delivered"); assert.equal(writes, before + 1);
+    assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown"); assert.equal(writes, before + 1);
+    assert.equal(await wire.delivery.send(service.mapping.actor.destinationRef, {} as never, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown"); assert.equal(writes, before + 1);
+  } finally { await wire.close(); await service.close(); }
+});

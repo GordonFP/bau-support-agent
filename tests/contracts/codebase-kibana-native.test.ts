@@ -46,8 +46,9 @@ async function nativeCollection(source?: string, pspSource?: string) {
 function controlledMock() {
   const mock = createMockTroubleshooting({ modelPolicy: responsesModelPolicy, modelProfile: "local_protocol",
     clock: { now: () => performance.now(), utc: () => new Date().toISOString() } });
-  mock.ports.authorization.allows = async (_action, context) => context.principalRef === "principal-1" && context.tenantRef === "tenant-1" &&
+  mock.ports.authorization.current = (_action, context) => context.principalRef === "principal-1" && context.tenantRef === "tenant-1" &&
     context.destinationRef === "private-conversation-1" && context.resourceRefs.every((resource) => approved.includes(resource));
+  mock.ports.authorization.allows = async (action, context) => mock.ports.authorization.current!(action, context);
   return mock;
 }
 
@@ -159,9 +160,10 @@ return 'missing';
   const artifact = await kibanaProfile(backend.url, (value) => { value.index = "synthetic-psp"; }); const teams = await teamsServices(); const model = await responsesServer(simulatorResponse);
   const mock = createMockTroubleshooting({ pspObservation: current, resourceRefs: resources, modelPolicy: responsesModelPolicy, modelProfile: "local_protocol",
     clock: { now: () => performance.now(), utc: () => new Date().toISOString() } });
-  const allows = mock.ports.authorization.allows;
-  mock.ports.authorization.allows = (action, context) => action.startsWith("mcp.code.") && context.resourceRefs.includes("psp-log-source")
-    ? Promise.resolve(false) : allows(action, context);
+  const currentAuthorization = mock.ports.authorization.current!;
+  mock.ports.authorization.current = (action, context) => action.startsWith("mcp.code.") && context.resourceRefs.includes("psp-log-source")
+    ? false : currentAuthorization(action, context);
+  mock.ports.authorization.allows = async (action, context) => mock.ports.authorization.current!(action, context);
   const boundary = new McpBoundary(mock.ports);
   Object.assign(mock.ports, kibanaLogPorts(mock.ports, { profile: await loadKibanaProfile(artifact), sourceRef: "psp-log-source", approvedCaseResourceRefs: resources, resolveIdentifier: (_context, id) => id }, boundary),
     codebaseMemoryPorts(mock.ports, boundary, { approvedCaseResourceRefs: resources, collection: source.collection,
