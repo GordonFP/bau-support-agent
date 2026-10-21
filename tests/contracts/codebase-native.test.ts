@@ -143,7 +143,7 @@ test("lossy native cross-service traces remain unknown and revoked target permis
     assert.equal(read.truncated, true);
     assert.match(read.evidence[0]!.text, /destination.*proven/);
     assert.ok(read.evidence.every((item) => item.code?.repositoryRef === "simulator-source"));
-    assert.ok(read.warnings.some((warning) => warning.includes("omits destination")));
+    assert.ok(read.warnings.some((warning) => warning.includes("omits or does not match the requested destination")));
     const allows = mock.ports.authorization.allows;
     mock.ports.authorization.allows = (action, bound) => bound.resourceRefs.includes("estimate-source") ? Promise.resolve(false) : allows(action, bound);
     await assert.rejects(native.code.trace(context("revoked"), query), /^Error: denied$/);

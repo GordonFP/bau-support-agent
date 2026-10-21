@@ -17,6 +17,11 @@ test("actual log adapter and native artifact use the reviewed Postman local HTTP
     { sourceRef: "simulator-source", applicationId: "SYNTHETIC-SECRET-APPLICATION", from: "2026-10-18T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z", pageSize: 100 });
     assert.equal(result.completeness, "unknown"); assert.equal(result.evidence.length, 1); assert.match(result.warnings.join(" "), /unknown/);
     await simulation.waitForRequests(1); assert.equal(simulation.requests().length, 1);
+    const empty = await adapter.logs.read({ caseRef: "case-1", phaseId: 1, callId: "logs-nonoverlap", principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1",
+      approvalRef: "approved", policyVersion: "poc-1", resourceRefs: ["simulator-source"], snapshotRef: "simulator-snapshot-1", budgetRef: "case-1", deadline: mock.ports.clock.now() + 30_000, signal: new AbortController().signal },
+      { sourceRef: "simulator-source", applicationId: "SYNTHETIC-SECRET-APPLICATION", from: "2026-10-19T00:00:00.000Z", to: "2026-10-20T00:00:00.000Z", pageSize: 100 });
+    assert.equal(empty.value, null); assert.deepEqual(empty.evidence, []); assert.equal(empty.completeness, "unknown");
+    await simulation.waitForRequests(2); assert.equal(simulation.requests().length, 2);
     assert.equal((await fetch(simulation.baseUrl + "/unmodeled")).status, 501);
     assert.equal((await fetch(simulation.baseUrl + "/internal/search/es", { method: "POST", headers: { "content-type": "application/json" }, body: '{"params":{"index":"unapproved","body":{}}}' })).status, 400);
     assert.doesNotMatch(JSON.stringify(result), /SYNTHETIC-SECRET|127\.0\.0\.1/);
