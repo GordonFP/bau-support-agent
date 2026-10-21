@@ -58,9 +58,26 @@ Mock 和 SQLite 以相同显式协议写入交付行与意图／完成审计；S
 
 根代理的 `root-checks-1e03afd.md` 另保留中间源码 macOS／受限 Linux 各 **515/515**、自有完整严格闭包、Pi／Teams 正负 consumer、Teams 本地互操作、原 F01／F02／F03 与迟到关闭失败探针结果。R01 探针明确把最终查权触发从第 3 次适配到第 4 次，因为 C ledger 新增一次查权；拒绝时只有 status，允许时 status+Simulator。这些是中间证据，不作为 `666135b` 的最终源证明，也没有用全套通过覆盖后来发现的 paused-cancel 缺口。
 
-## 待最终核验
+## 最终源码验证
 
-`666135b` 正等待独立 Spec／Standards／结构增量复核；全套 macOS／受限 Linux、完整自有严格闭包、Pi／Teams 正负 consumer、实际本地互操作／协议／joined 合同，以及新固定 Git archive 的真实镜像／OCI／source 合同尚未在此最终检查点执行，不记通过。镜像构建将在源码复核收敛后执行，旧 77b36f7／99f75db／300c163 制品仅作历史证据，未覆盖或冒作本轮镜像。
+`666135b` 的增量 Spec／Standards／结构复核均完成，原 findings 闭合，无新增确认 finding／硬违约／有意义 smell；三份 `review-{spec,standards,depth}-666135b.md` 与原 `1e03afd` 报告累计覆盖基线至最终生产代码。结构轴确认 CQ01–CQ05 均成立。
+
+根代理执行收据 `root-checks-666135b.md` 和本轮最终日志记录如下；没有把先前检查点或仅类型／静态复核替代行为执行。
+
+| 最终检查 | 实际结果与日志 |
+| --- | --- |
+| 项目类型／构建 | exit 0；`root-typecheck-666135b.log`、`root-build-666135b.log`。 |
+| macOS 全行为 | **525/525，0 fail/skip**；`root-macos-666135b.log`。 |
+| 受限 Linux 全行为 | **525/525，0 fail/skip**；`root-linux-666135b.log`；固定缓存 Node、pull=never、无网、root／checkout 只读、512MiB、pids64、64MiB tmpfs、concurrency2。 |
+| 自有完整严格声明闭包 | exit 0；bootstrap／MCP／Kibana／CBM／管理入口的 strict、noUncheckedIndexedAccess、exactOptionalPropertyTypes、skipLibCheck:false；`root-own-strict-666135b.log`。 |
+| Pi／Teams 严格 consumer | 均 exit 0；Pi 正例接受／负例 TS2322（原窄 vendor 例外保留），Teams 完整声明正例接受／负例 TS2769；`root-pi-consumer-666135b.log`、`root-teams-consumer-666135b.log`。 |
+| Teams 本地互操作 | exit 0；实际签名 route、OAuth404、success／429／reset 每次仅一个物理 POST；`root-teams-interop-666135b.log`。 |
+| 局部协议 | **9/9，0 fail/skip**；`final-local-protocols-666135b.log`，实际 `/Users/gordon/.local/bin/postman`、本地 Responses／Kibana／Connector 与独立 HTTP 合同，含 PSP Pi/MCP。 |
+| joined native | **3/3，0 fail/skip**；`final-joined-native-666135b.log`，实际固定 Pi、Kibana、CBM 与签名 Teams，显式 `/tmp/bau-spec14-context/kibana-test-artifact.json`，fixture 只覆写 loopback 和合成 key。 |
+
+根独立公开探针全部 exit 0，逐项观察：构建完成后的 paused cancel 为 stopped/cancelled 且 C 相同（`root-paused-terminal-666135b-after-build.log`）；原 F02/F03 为 `.500Z`、40 迟到受理 GC 前后 retained=0、调查0／close40；迟到 close 失败仍 unknown；F01 为32断开请求／1挂起原读且独立终态 HTTP200／Postman exit0；R01 拒绝仅 status，允许 status+Simulator，两次 Postman exit0。对应 `root-original-f02-f03-666135b.log`、`root-late-close-666135b.log`、`root-terminal-http-666135b.log`、`root-identity-{denied,allowed}-666135b.log`。R01 的第4次查权适配理由与上节一致；较早在构建命令仍运行时启动的同 SHA paused probe 不作为最终证据。
+
+原 native snapshot 14 项、镜像构建交错 1 项的源代码／管理器／构建脚本未变，本轮没有重复执行，不冒称本轮通过。受影响的应用／C／D／模型、PSP、共享 native 组合已按上表实际执行。新固定 archive 的真实镜像构建及容器／OCI／source 合同尚待执行；旧 77b36f7／99f75db／300c163 制品仅作历史证据，未覆盖或冒作本轮镜像。
 
 ## 范围与限制
 
