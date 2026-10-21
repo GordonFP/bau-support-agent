@@ -4,6 +4,7 @@ import type { App } from "@microsoft/teams.apps";
 import type { Interceptor, Middleware } from "@microsoft/teams.common";
 import type { JwtValidator } from "@microsoft/teams.apps/dist/middleware/index.js";
 import type { DeliveryAttempt, DeliveryNotice, DeliveryResult } from "../../troubleshooting/application/communication.js";
+import type { DeliveryReceipt } from "../../troubleshooting/application/delivery-ledger.js";
 import { MAX_MESSAGE_BYTES } from "../../troubleshooting/application/communication.js";
 import { beforeDeadline } from "../../troubleshooting/application/deadline.js";
 import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
@@ -113,15 +114,18 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       return res;
     },
   };
-  const send = (destinationRef: string, deliveryKey: string, attempt?: DeliveryAttempt, notice?: DeliveryNotice, fault = false): Promise<DeliveryResult> => {
+  const send = (destinationRef: string, deliveryKey: string, attempt?: DeliveryAttempt, notice?: DeliveryNotice): Promise<DeliveryResult> => {
     if (!attempt || stopping.signal.aborted || !deliveryKey.startsWith(`${attempt.caseRef}:`)) return Promise.resolve("failed");
+    const state = attempt.state;
+    if (!state || !["new", "existing", "fault"].includes(state.kind) || Object.keys(state).sort().join() !==
+      (state.kind === "new" ? "kind,ticket" : state.kind === "existing" ? "bindingRef,kind,receipt" : "kind")) return Promise.resolve("failed");
+    const fault = state.kind === "fault";
     const mappings = configuration.mappings.filter((mapping) => mapping.actor.destinationRef === destinationRef);
     if (mappings.length !== 1) return Promise.resolve("failed");
     const mapping = mappings[0]!;
     const id = JSON.stringify([deliveryKey, attempt.segment]);
-    const binding = fault || faultOperations.has(id) ? JSON.stringify([destinationRef, attempt.caseRef, attempt.phaseId, attempt.text]) : attempt.bindingRef;
-    if (!binding || !fault && !faultOperations.has(id) && attempt.ticket && (attempt.ticket.caseRef !== attempt.caseRef || attempt.ticket.deliveryKey !== deliveryKey ||
-      attempt.ticket.segment !== attempt.segment || attempt.ticket.bindingRef !== attempt.bindingRef)) return Promise.resolve("failed");
+    const binding = fault || faultOperations.has(id) ? JSON.stringify([destinationRef, attempt.caseRef, attempt.phaseId, attempt.text]) : state.kind === "new" ? state.ticket.bindingRef : state.bindingRef;
+    if (!binding || state.kind === "new" && !faultOperations.has(id) && (state.ticket.caseRef !== attempt.caseRef || state.ticket.deliveryKey !== deliveryKey || state.ticket.segment !== attempt.segment)) return Promise.resolve("failed");
     const cache = fault ? faultOperations : operations;
     const previous = operations.get(id) ?? faultOperations.get(id);
     const recover = (result: DeliveryResult | Promise<DeliveryResult>): Promise<DeliveryResult> => track((async () => {
@@ -134,19 +138,16 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       } catch { return "failed"; }
     })());
     if (previous) return previous.binding === binding && work.size < MAX_ACTIVE_CASES ? recover(previous.result) : Promise.resolve("failed");
-    if (!fault && attempt.receipt && work.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
-    if (!fault && attempt.receipt) return recover(attempt.receipt.state === "complete" ? attempt.receipt.result : attempt.receipt.state === "pending" ? "unknown" : "failed");
+    const restoredResult = (receipt: DeliveryReceipt): DeliveryResult => receipt.state === "complete" ? receipt.result : receipt.state === "pending" ? "unknown" : "failed";
+    if (state.kind === "existing") return work.size >= MAX_ACTIVE_CASES ? Promise.resolve("failed") : recover(restoredResult(state.receipt));
     if (fault && faultOperations.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     if (work.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     const lease: Lease = { kind: "write", mapping, attempt, deadline: attempt.deadline, signal: AbortSignal.any([attempt.signal, stopping.signal]), wrote: false };
-    const persisted = async (entry: { actor: TeamsMapping["actor"]; caseRef: string; deliveryKey: string; segment: number; binding: string }): Promise<{ known: boolean; result?: DeliveryResult }> => {
+    const persisted = async (entry: { actor: TeamsMapping["actor"]; caseRef: string; deliveryKey: string; segment: number; binding: string }): Promise<DeliveryReceipt | null> => {
       const read = track(Promise.resolve().then(() => ports.deliveryLedger.read(entry.actor, { caseRef: entry.caseRef, deliveryKey: entry.deliveryKey, segment: entry.segment, bindingRef: entry.binding })));
       const saved = await beforeDeadline(ports.clock, Math.min(lease.deadline, ports.clock.now() + 5_000), () => read, lease.signal);
       check(lease);
-      if (!saved) return { known: false };
-      if (saved.state === "binding_mismatch") return { known: true, result: "failed" };
-      if (saved.state === "complete") return { known: true, result: saved.result };
-      return saved.state === "pending" ? { known: true, result: "unknown" } : { known: true };
+      return saved;
     };
     const result: Promise<DeliveryResult> = track(local.run(lease, async (): Promise<DeliveryResult> => {
       try {
@@ -159,23 +160,20 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
             if (operations.size <= 4_096) break;
             if (entry.completion?.confirmed === true) { if (operations.get(key) === entry) operations.delete(key); continue; }
             const durable = await persisted(entry);
-            if (durable.known && durable.result !== undefined && operations.get(key) === entry) operations.delete(key);
+            if (durable && durable.state !== "absent" && operations.get(key) === entry) operations.delete(key);
           }
           if (operations.size > 4_096) { operations.delete(id); return "failed"; }
         }
-        if (!fault && overflowed) {
-          const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
-          if (!prior.known) return "failed";
-          if (prior.result !== undefined && !(prior.result === "unknown" && attempt.ticket && !attempt.ticket.completion.confirmed)) return prior.result;
-          if (prior.result === undefined && !attempt.ticket) return "failed";
-        }
-        if (!fault && !attempt.ticket) {
-          const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
-          return prior.known ? prior.result ?? "failed" : "failed";
-        }
-        if (!fault && !attempt.ticket?.dispatch.claim()) {
-          const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
-          return prior.known ? recover(prior.result ?? "unknown") : "failed";
+        if (state.kind === "new") {
+          if (overflowed) {
+            const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
+            if (!prior) return "failed";
+            if (prior.state === "complete" || prior.state === "binding_mismatch" || prior.state === "pending" && state.ticket.completion.confirmed) return recover(restoredResult(prior));
+          }
+          if (!state.ticket.dispatch.claim()) {
+            const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
+            return prior ? recover(restoredResult(prior)) : "failed";
+          }
         }
         check(lease);
         const sent = await app.send(mapping.conversationId, { type: "message", text: attempt.text, textFormat: "plain" });
@@ -188,7 +186,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       // Pooled HTTP resources may retain the ALS lease after the original send settles.
       finally { delete lease.attempt; lease.signal = stopping.signal; }
     }));
-    const entry = { binding, result, settled: false, ...(attempt.ticket ? { completion: attempt.ticket.completion } : {}), caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
+    const entry = { binding, result, settled: false, ...(state.kind === "new" ? { completion: state.ticket.completion } : {}), caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
     cache.set(id, entry);
     settleOperation(entry, result);
     return result;
@@ -196,10 +194,11 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
   const delivery: Ports["delivery"] = {
     // JSON-rendered application content has at most 2x JSON escaping overhead; final native body is checked again.
     maxTextBytes: Math.floor((cap - 1_024) / 2),
-    send: (destination, _report, key, attempt) => send(destination, key, attempt),
-    notice: (destination, notice, key, attempt) => send(destination, key, attempt, notice),
+    send: (destination, _report, key, attempt) => attempt?.state?.kind === "fault" && !faultOperations.has(JSON.stringify([key, attempt.segment])) ? Promise.resolve("failed") : send(destination, key, attempt),
+    notice: (destination, notice, key, attempt) => attempt?.state?.kind === "fault" ? Promise.resolve("failed") : send(destination, key, attempt, notice),
     fault: async (destination, _notice, key, attempt) => {
-      const result = await send(destination, key, attempt, undefined, true); return typeof result === "string" ? result : result.status;
+      if (attempt?.state?.kind !== "fault" || attempt.text !== _notice) return "failed";
+      const result = await send(destination, key, attempt); return typeof result === "string" ? result : result.status;
     },
   };
   return { middleware, interceptor, prove, delivery, questions,

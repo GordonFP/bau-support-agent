@@ -706,3 +706,12 @@ test("shutdown cannot confirm closure when a late pre-investigation admission's 
   const result = await accepting; assert.equal(result.status, "service_unavailable");
   await checked; assert.equal(investigations, 0); assert.equal(closes, 1);
 });
+
+for (const mode of ["paused", "paused-teams"] as const) test(`${mode} cancelled clarification cases release forty original contexts after case controls settle`, async () => {
+  const { execFile } = await import("node:child_process"), { promisify } = await import("node:util");
+  const result = await promisify(execFile)(process.execPath, ["--expose-gc", new URL("../fixtures/case-release.js", import.meta.url).pathname, mode], { timeout: 10_000 });
+  const saved = JSON.parse(result.stdout) as { retained: number; view: { state: string; stopReason: string }; duplicate: { status: string }; closures: number; investigations: number; physicalMessages?: number };
+  assert.equal(saved.retained, 0); assert.equal(saved.view.state, "stopped"); assert.equal(saved.view.stopReason, "cancelled");
+  assert.equal(saved.duplicate.status, "duplicate"); assert.equal(saved.closures, 40); assert.equal(saved.investigations, 0);
+  if (mode === "paused-teams") assert.equal(saved.physicalMessages, 120);
+});

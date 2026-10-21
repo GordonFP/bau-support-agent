@@ -14,7 +14,7 @@ import { resolveDependencies, type OfflineScope, type ReadyScope } from "./depen
 import { sendNotice, sendReport } from "./communication.js";
 import { codeQuery } from "./code-query.js";
 import type { CodeSearchQuery, CodeSnippetQuery, CodeTraceQuery } from "./ports.js";
-import { HostExecutions, type PhaseExecution } from "./phase-execution.js";
+import { CaseControls, HostExecutions, type PhaseExecution } from "./phase-execution.js";
 import { caseRepositories } from "./resource-scope.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
@@ -25,6 +25,7 @@ const safeReason = (error: unknown): SafeReason => error instanceof Error && rea
 interface RunningCase {
   readonly eventKey: string;
   readonly executions: Map<number, PhaseExecution>;
+  readonly controls: CaseControls;
   terminalSaved?: boolean;
   inbound: VerifiedInbound;
   phaseId: number;
@@ -279,7 +280,8 @@ class ReadyTroubleshooting {
       usage: { modelAttempts: 0, logRecords: 0, logCoverageMs: 0 }, elapsedMs: 0,
       phases: [{ phaseId: 1, startedAt: now }], inputWaits: [] };
     const investigation = new TroubleshootingCase(caseRef);
-    const running: RunningCase = { eventKey: key, executions: new Map([[context.phaseId, execution]]), inbound: structuredClone(inbound), phaseId: context.phaseId, view, investigation,
+    const controls = new CaseControls(this.hostExecutions, () => this.releaseCase(running));
+    const running: RunningCase = { controls, eventKey: key, executions: new Map([[context.phaseId, execution]]), inbound: structuredClone(inbound), phaseId: context.phaseId, view, investigation,
       replyTail: Promise.resolve(), replyFlights: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
       target: inbound.input.scenario === "psp" ? new PspTarget(inbound.input, safeInput) : new SimulatorTarget(inbound.input, safeInput),
       recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
@@ -458,10 +460,10 @@ class ReadyTroubleshooting {
     const allowed = async () => {
       if (!await ports.authorization.allows("delivery.fault", current) || this.retentionClosed() || ports.clock.now() >= deadline) throw new Error("denied");
     };
-    const task = this.trackWork(running, current.phaseId, async () => {
+    const task = running.controls.run(async () => {
       await allowed();
       await ports.delivery.fault(current.destinationRef, notice, `${current.caseRef}:audit-fault`, {
-        caseRef: current.caseRef, phaseId: current.phaseId, segment: 1, total: 1, text: notice, deadline,
+        caseRef: current.caseRef, phaseId: current.phaseId, segment: 1, total: 1, text: notice, deadline, state: { kind: "fault" },
         signal: new AbortController().signal, current: () => { if (this.retentionClosed() || ports.clock.now() >= deadline || ports.authorization.current?.("delivery.fault", current) !== true) throw new Error("denied"); }, beforeWrite: async (text = notice) => { if (text !== notice) throw new Error("denied"); await allowed(); },
       });
     });
@@ -480,12 +482,12 @@ class ReadyTroubleshooting {
       try { ports.sanitization.clear(this.execution(running).context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
       delete running.target;
-      void this.trackWork(running, this.execution(running).context.phaseId, () => Promise.resolve().then(() => ports.admission.release(this.execution(running).context.caseRef))).catch(() => {});
+      void running.controls.run(() => Promise.resolve().then(() => ports.admission.release(this.execution(running).context.caseRef))).catch(() => {});
     }
     const context = this.execution(running).context;
     const record: CaseRecord = { recordRef: `${context.caseRef}:view:${++running.recordSequence}`,
       schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) };
-    void this.trackWork(running, context.phaseId, () => Promise.resolve().then(() => ports.records.append(context, record)).then(() => { if (outcome !== "awaiting_input") running.terminalSaved = true; }))
+    void running.controls.run(() => Promise.resolve().then(() => ports.records.append(context, record)).then(() => { if (outcome !== "awaiting_input") running.terminalSaved = true; }))
       .catch(() => this.auditBoundary.fail(context, "records.append", "complete"));
   }
 
@@ -505,25 +507,26 @@ class ReadyTroubleshooting {
 
   private stopPhase(running: RunningCase, context: CallContext, reason: string, ports: Ports): Promise<void> {
     const deadline = running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS;
-    return this.execution(running, context.phaseId).stop(() => beforeDeadline(ports.clock, deadline, async () => {
-      if (this.auditBoundary.hasLost(context.caseRef)) {
-        const abort = this.execution(running, context.phaseId).abort();
-        void this.execution(running, context.phaseId).close().catch(() => {});
-        await abort;
-        return;
-      }
-      const audit = { ...context, callId: `${context.caseRef}:phase-${context.phaseId}:${reason}` };
-      try { await this.trackWork(running, context.phaseId, () => Promise.resolve().then(() => ports.audit.intent(audit, reason))); } catch { /* local stop remains effective */ }
-      if (ports.clock.now() >= deadline) return;
-      const abort = this.execution(running, context.phaseId).abort();
-      const complete = this.trackWork(running, context.phaseId, () => Promise.resolve().then(() => ports.audit.complete(audit, reason, "stopped")));
-      void this.execution(running, context.phaseId).close().catch(() => {});
-      await Promise.allSettled([abort, complete]);
-    }).catch(() => {}));
+    const phase = this.execution(running, context.phaseId);
+    return phase.stop(() => {
+      const original = running.controls.run(async () => {
+        if (this.auditBoundary.hasLost(context.caseRef)) {
+          const abort = phase.abort(); void phase.close().catch(() => {}); await abort; return;
+        }
+        const audit = { ...context, callId: `${context.caseRef}:phase-${context.phaseId}:${reason}` };
+        try { await ports.audit.intent(audit, reason); } catch { /* local stop remains effective */ }
+        if (ports.clock.now() >= deadline) return;
+        const abort = phase.abort();
+        const complete = ports.audit.complete(audit, reason, "stopped");
+        void phase.close().catch(() => {});
+        await Promise.allSettled([abort, complete]);
+      });
+      return beforeDeadline(ports.clock, deadline, () => original).catch(() => {});
+    });
   }
 
   private releaseCase(running: RunningCase): void {
-    if (!["completed", "stopped"].includes(running.view.state) || running.replyFlights.size ||
+    if (!["completed", "stopped"].includes(running.view.state) || !running.controls.settled || running.replyFlights.size ||
       this.pendingAdmissions.has(running.eventKey) || !running.terminalSaved || [...running.executions.values()].some((phase) => !phase.closed)) return;
     running.investigation.forget();
     if (this.cases.get(this.execution(running).context.caseRef) === running) this.cases.delete(this.execution(running).context.caseRef);
@@ -617,7 +620,7 @@ class ReadyTroubleshooting {
       running.view = { ...running.view, state: "stopped", stopReason: "cancelled" };
       this.endPhase(running, "stopped", ports);
       const notification = { ...context, deadline: running.cleanupDeadline!, signal: new AbortController().signal };
-      const status = this.trackWork(running, context.phaseId, () => sendNotice(ports, notification,
+      const status = running.controls.run(() => sendNotice(ports, notification,
         { kind: "status", state: "stopped", caseRef }, () => { if (this.retentionClosed() || this.auditBoundary.hasLost(caseRef) || this.execution(running).context.phaseId !== context.phaseId) throw new Error("cancelled"); }));
       await Promise.allSettled([this.stopPhase(running, context, "cancel", ports), beforeDeadline(ports.clock, notification.deadline, () => status)]);
       return this.viewOf(running, ports);

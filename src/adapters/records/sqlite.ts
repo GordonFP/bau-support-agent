@@ -119,12 +119,13 @@ export class SqliteRecords {
       },
       find: (key) => {
         const row = this.session.database.prepare("SELECT value FROM deliveries WHERE delivery_key=? AND segment=?").get(key.deliveryKey, key.segment);
-        if (!row) return null;
-        const record = JSON.parse(String(row.value)) as StoredDelivery;
-        if (record.stage) return record;
-        // Legacy intent rows and completed-unknown rows are distinguished inside C, without loading case records.
-        const completed = this.session.database.prepare("SELECT action FROM audit WHERE call_id=? AND stage='complete' AND action IN ('delivery.send','delivery.notice') LIMIT 1").get(record.callId);
-        return { ...record, stage: completed ? "complete" : "pending", kind: completed?.action === "delivery.notice" ? "notice" : "report" };
+        return this.decodeDelivery(row);
+      },
+      operation: (callId, kind) => {
+        for (const row of this.session.database.prepare("SELECT value FROM deliveries WHERE call_id=?").all(callId)) {
+          const record = this.decodeDelivery(row); if (record?.kind === kind) return record;
+        }
+        return null;
       },
       put: (record) => { this.session.database.prepare("INSERT INTO deliveries VALUES(?,?,?,?,?) ON CONFLICT(delivery_key,segment) DO UPDATE SET value=excluded.value")
         .run(record.deliveryKey, record.segment, record.caseRef, record.callId, JSON.stringify(record)); },
@@ -137,6 +138,15 @@ export class SqliteRecords {
       try { await this.append(context, record); }
       catch (error) { throw new Error(error instanceof Error && ["denied", "invalid_request", "unsafe_content"].includes(error.message) ? error.message : "unavailable"); }
     }, read: (actor, ref, beforeDisclose) => this.access(actor, ref, "records.read", beforeDisclose), export: (actor, ref) => this.access(actor, ref, "records.export") };
+  }
+
+  private decodeDelivery(row: Readonly<Record<string, unknown>> | undefined): StoredDelivery | null {
+    if (!row) return null;
+    const record = JSON.parse(String(row.value)) as StoredDelivery;
+    if (record.stage) return record;
+    // Legacy stage/kind translation stays within C and never loads a full case disclosure.
+    const audit = this.session.database.prepare("SELECT action,stage FROM audit WHERE call_id=? AND action IN ('delivery.send','delivery.notice') ORDER BY stage='complete' DESC LIMIT 1").get(record.callId);
+    return { ...record, stage: audit?.stage === "complete" ? "complete" : "pending", kind: audit?.action === "delivery.notice" ? "notice" : "report" };
   }
 
   readonly admission = {

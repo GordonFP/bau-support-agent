@@ -442,3 +442,21 @@ test("different bindings for another shop require currency evidence before count
   await mock.receive({ input: { scenario: "psp", applicationId: observation.applicationRef, shopId: observation.target.shopRef, bindingId: observation.target.bindingRef, question: "Which binding is current?" } }); await mock.closed;
   const report = (await mock.delivery.next()).report; assert.ok(report.scene === "psp"); assert.equal(report.psp.prerequisite, "unknown");
 });
+
+test("a paused PSP clarification can be cancelled durably after its original phase closes", async () => {
+  const mock = createMockTroubleshooting({ pspObservation: pspFixture });
+  const read = mock.ports.logs.read;
+  mock.ports.logs.read = async (context, query) => ({ ...await read(context, query), value: { kind: "psp_target_candidates", candidates: [
+    { applicationId: pspFixture.applicationRef, customerId: pspFixture.customerRef, shopId: pspFixture.target.shopRef, bindingId: "older-binding", boundAt: "2026-10-17T10:00:00.000Z" },
+    { applicationId: pspFixture.applicationRef, customerId: pspFixture.customerRef, shopId: pspFixture.target.shopRef, bindingId: pspFixture.target.bindingRef, boundAt: pspFixture.target.boundAt },
+  ] } });
+  try {
+    await mock.receive({ input: { scenario: "psp", applicationId: pspFixture.applicationRef, shopId: pspFixture.target.shopRef, question: "Resolve this binding." } }); await mock.phaseClosed(1);
+    for (let turn = 0; turn < 6; turn++) await new Promise(setImmediate);
+    const cancelled = await mock.application.cancel(mock.inbound, "case-1"); assert.ok("state" in cancelled); assert.equal(cancelled.state, "stopped");
+    for (let turn = 0; turn < 6; turn++) await new Promise(setImmediate);
+    const saved = await mock.ports.records.read(mock.inbound, "case-1"); assert.ok(saved?.scope === "full"); assert.equal(saved.view.state, "stopped"); assert.equal(saved.view.stopReason, "cancelled");
+    const duplicate = await mock.application.cancel(mock.inbound, "case-1"); assert.ok("state" in duplicate); assert.equal(duplicate.state, "stopped");
+    assert.equal(mock.events.filter((event) => event.action === "agent.close").length, 1);
+  } finally { await mock.application.close(); }
+});

@@ -22,6 +22,7 @@ export interface DeliveryStorage {
   atomic<T>(operation: () => T): T;
   owner(caseRef: string): SavedContext | null;
   find(key: Pick<DeliveryKey, "deliveryKey" | "segment">): StoredDelivery | null;
+  operation(callId: string, kind: "report" | "notice"): StoredDelivery | null;
   put(record: StoredDelivery): void;
   audit(context: CallContext, action: string, stage: "intent" | "complete", outcome: string, details: AuditDetails): void;
 }
@@ -70,6 +71,9 @@ export function createDeliveryLedger(storage: DeliveryStorage, controls: Pick<Po
         input.binding.phaseId !== context.phaseId || typeof input.binding.text !== "string" || !controls.sanitization.safe(input.binding.text)) throw new Error("invalid_request");
       const key = { caseRef: context.caseRef, deliveryKey: input.deliveryKey, segment: input.segment, bindingRef: deliveryBinding(input.binding) };
       keyValid(key);
+      const previousOperation = storage.operation(context.callId, input.kind);
+      if (previousOperation && (previousOperation.caseRef !== key.caseRef || previousOperation.deliveryKey !== key.deliveryKey ||
+        previousOperation.segment !== key.segment)) throw new Error("invalid_request");
       const existing = storage.find(key);
       if (existing) return { state: "existing", receipt: receipt(existing, key), bindingRef: key.bindingRef };
       open();

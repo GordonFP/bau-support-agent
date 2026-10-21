@@ -729,3 +729,23 @@ test("C typed delivery intent and completion each roll back their ledger row and
     assert.deepEqual(saved.audits.filter((entry) => entry.callId === operation.callId).map((entry) => entry.stage), ["intent", "complete"]);
   } finally { store.close(); await mock.application.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+for (const adapter of ["mock", "sqlite"] as const) test(`C ${adapter} refuses a delivery operation ID rebound to another key without creating a second intent`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-delivery-operation-")); let store: SqliteRecords | undefined;
+  const mock = createMockTroubleshooting({ ...(adapter === "sqlite" ? { controlPorts: (ports) => {
+    store = new SqliteRecords(directory, ports); return { admission: store.admission, records: store.records, audit: store.audit,
+      deliveryLedger: store.deliveryLedger, budget: store.budget, retention: store.retention };
+  } } : {}) });
+  try {
+    await mock.receive(); await mock.closed;
+    const operation = { ...context, callId: "case-1:stable-delivery-operation" }, input = { kind: "report" as const, deliveryKey: "case-1:report:first", segment: 1,
+      binding: { destinationRef: actor.destinationRef, caseRef: "case-1", phaseId: 1, text: "Different message." } };
+    assert.equal((await mock.ports.deliveryLedger.begin(operation, input)).state, "new");
+    await assert.rejects(mock.ports.deliveryLedger.begin(operation, { ...input, deliveryKey: "case-1:report:second" }), { message: "invalid_request" });
+    assert.deepEqual(await mock.ports.deliveryLedger.read(actor, { caseRef: "case-1", deliveryKey: "case-1:report:second", segment: 1,
+      bindingRef: "1320f282d1c9fc8a1967a4cf39576d843cb9fc2f68452542715c766c5825d289" }), { state: "absent" });
+    const saved = await mock.ports.records.read(actor, "case-1"); assert.ok(saved?.scope === "full");
+    assert.equal(saved.audits.filter((entry) => entry.callId === operation.callId && entry.stage === "intent").length, 1);
+    assert.equal(saved.deliveries.filter((entry) => entry.callId === operation.callId).length, 1);
+  } finally { await mock.application.close(); store?.close(); await rm(directory, { recursive: true, force: true }); }
+});

@@ -145,6 +145,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       },
       owner: (caseRef) => cases.get(caseRef)?.initial.context ?? null,
       find: (key) => { for (const saved of cases.values()) { const value = saved.deliveries.find((item) => item.deliveryKey === key.deliveryKey && item.segment === key.segment); if (value) return value; } return null; },
+      operation: (callId, kind) => { for (const saved of cases.values()) { const value = saved.deliveries.find((item) => item.callId === callId && item.kind === kind); if (value) return value; } return null; },
       put: (record) => {
         const saved = cases.get(record.caseRef); if (!saved) throw new Error("denied");
         saved.deliveries = [...saved.deliveries.filter((item) => item.deliveryKey !== record.deliveryKey || item.segment !== record.segment), structuredClone(record)];
@@ -315,8 +316,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         content: [{ type: "text", text: typeof response.candidate === "string" ? response.candidate : JSON.stringify(response.candidate) }] } };
     } },
     delivery: { async notice(destinationRef, notice, deliveryKey, attempt) {
-      if (attempt?.receipt) return attempt.receipt.state === "complete" ? attempt.receipt.result : "unknown";
       await attempt?.beforeWrite();
+      if (attempt?.state?.kind === "existing") return attempt.state.receipt.state === "complete" ? attempt.state.receipt.result : attempt.state.receipt.state === "pending" ? "unknown" : "failed";
       events.push({ action: "delivery.notice", input: { destinationRef, notice, deliveryKey } });
       return "delivered";
     }, async fault(destinationRef, notice, deliveryKey, attempt) {
@@ -324,8 +325,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       events.push({ action: "delivery.fault", input: { destinationRef, notice, deliveryKey } });
       return "delivered";
     }, async send(destinationRef, report, deliveryKey, attempt) {
-      if (attempt?.receipt) return attempt.receipt.state === "complete" ? attempt.receipt.result : "unknown";
       await attempt?.beforeWrite();
+      if (attempt?.state?.kind === "existing") return attempt.state.receipt.state === "complete" ? attempt.state.receipt.result : attempt.state.receipt.state === "pending" ? "unknown" : "failed";
       events.push({ action: "delivery.send", input: { destinationRef, report, deliveryKey } });
       sent.resolve({ destinationRef, report, deliveryKey });
       return "delivered";

@@ -12,7 +12,7 @@ import type { DeliveryRecord } from "../../src/troubleshooting/application/recor
 function ticket(caseRef: string, destinationRef: string, text: string, confirmed: () => boolean = () => false) {
   let claimed = false;
   const bindingRef = createHash("sha256").update(JSON.stringify([destinationRef, caseRef, 1, text])).digest("hex");
-  return { bindingRef, ticket: { caseRef, deliveryKey: `${caseRef}:report:1`, segment: 1, bindingRef, callId: `${caseRef}:send`, kind: "report" as const, dispatch: { claim: () => { if (claimed) return false; claimed = true; return true; } }, completion: { get confirmed() { return confirmed(); } } } };
+  return { state: { kind: "new" as const, ticket: { caseRef, deliveryKey: `${caseRef}:report:1`, segment: 1, bindingRef, callId: `${caseRef}:send`, kind: "report" as const, dispatch: { claim: () => { if (claimed) return false; claimed = true; return true; } }, completion: { get confirmed() { return confirmed(); } } } } };
 }
 
 test("D bounded delivery cache reconciles completed entries with C without exhausting lifetime sends or replaying old keys", async () => {
@@ -82,13 +82,33 @@ test("D isolates unaudited fixed fault capacity so historical faults cannot disa
   const attempt = (caseRef: string, text: string): DeliveryAttempt => ({ caseRef, phaseId: 1, segment: 1, total: 1, text, ...ticket(caseRef, service.mapping.actor.destinationRef, text), deadline: 5_000,
     signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {} });
   try {
-    assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown");
-    for (let index = 1; index < 4_096; index++) await wire.delivery.fault(service.mapping.actor.destinationRef, notice, `fault-${index}:audit-fault`, attempt(`fault-${index}`, notice));
+    assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", { ...attempt("fault-0", notice), state: { kind: "fault" } }), "unknown");
+    for (let index = 1; index < 4_096; index++) await wire.delivery.fault(service.mapping.actor.destinationRef, notice, `fault-${index}:audit-fault`, { ...attempt(`fault-${index}`, notice), state: { kind: "fault" } });
     const before = writes;
     assert.equal(before, 32, "the bounded unaudited fault cache refuses additional fault writes");
     const normal = await wire.delivery.send(service.mapping.actor.destinationRef, {} as never, "normal-1:report:1", attempt("normal-1", "Synthetic ordinary report."));
     assert.equal(typeof normal === "object" ? normal.status : normal, "delivered"); assert.equal(writes, before + 1);
-    assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown"); assert.equal(writes, before + 1);
-    assert.equal(await wire.delivery.send(service.mapping.actor.destinationRef, {} as never, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown"); assert.equal(writes, before + 1);
+    assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", { ...attempt("fault-0", notice), state: { kind: "fault" } }), "unknown"); assert.equal(writes, before + 1);
+    assert.equal(await wire.delivery.send(service.mapping.actor.destinationRef, {} as never, "fault-0:audit-fault", { ...attempt("fault-0", notice), state: { kind: "fault" } }), "unknown"); assert.equal(writes, before + 1);
   } finally { await wire.close(); await service.close(); }
+});
+
+for (const revoked of ["identity", "resource"] as const) test(`D persisted result recovery rechecks ${revoked} after an awaited receipt read`, async () => {
+  const service = await teamsServices(), mock = createMockTroubleshooting(), completed = new Set<string>();
+  let withdrawn = false, writes = 0;
+  const current = mock.ports.authorization.current!;
+  mock.ports.authorization.current = (action, authority) => !(withdrawn && revoked === "identity" && action === "teams.identity") && current(action, authority);
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  mock.ports.deliveryLedger.read = async () => { entered.resolve(); await release.promise; return { state: "complete", result: { status: "delivered", receiptRef: "a".repeat(64) } }; };
+  const wire = teamsWire(service.configuration, mock.ports);
+  wire.bind({ send: async () => { writes++; return { id: `receipt-${writes}` }; } } as unknown as App, {} as never);
+  const attempt = (caseRef: string): DeliveryAttempt => ({ caseRef, phaseId: 1, segment: 1, total: 1, text: "safe status", deadline: 5_000,
+    signal: new AbortController().signal, ...ticket(caseRef, service.mapping.actor.destinationRef, "safe status", () => completed.has(caseRef)),
+    beforeWrite: async () => { if (withdrawn && revoked === "resource") throw new Error("denied"); }, current: () => { if (withdrawn && revoked === "resource") throw new Error("denied"); } });
+  try {
+    for (let index = 0; index < 4_096; index++) { const caseRef = `prior-${index}`; await wire.delivery.send(service.mapping.actor.destinationRef, {} as never, `${caseRef}:report:1`, attempt(caseRef)); completed.add(caseRef); }
+    const restoring = wire.delivery.send(service.mapping.actor.destinationRef, {} as never, "restoring:report:1", attempt("restoring"));
+    await entered.promise; withdrawn = true; release.resolve();
+    assert.equal(await restoring, "failed"); assert.equal(writes, 4_096);
+  } finally { release.resolve(); await wire.close(); await service.close(); }
 });

@@ -90,7 +90,7 @@ test("D exposes durable completion only after C has confirmed the segment result
       await ledger.complete(context, ticket, result);
     } } };
   } });
-  mock.ports.delivery.send = async (_destination, _report, _key, attempt) => { await attempt!.beforeWrite(); completed = attempt!.ticket?.completion; return "delivered"; };
+  mock.ports.delivery.send = async (_destination, _report, _key, attempt) => { await attempt!.beforeWrite(); completed = attempt!.state.kind === "new" ? attempt!.state.ticket.completion : undefined; return "delivered"; };
   try { await mock.receive(); await held.promise; assert.equal(completed?.confirmed, false); release.resolve(); await mock.closed; assert.equal(completed?.confirmed, true); }
   finally { release.resolve(); }
 });

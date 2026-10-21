@@ -8,6 +8,8 @@ export type DeliveryStatus = "delivered" | "unknown" | "failed";
 export type DeliveryResult = DeliveryStatus | { readonly status: DeliveryStatus; readonly receiptRef?: string };
 export type DeliveryNotice = { readonly kind: "status"; readonly state: "accepted" | "investigating" | "stopped"; readonly caseRef: string } |
   { readonly kind: "question"; readonly caseRef: string; readonly question: InformationQuestion };
+export type HostDeliveryState = { readonly kind: "new"; readonly ticket: DeliveryTicket } |
+  { readonly kind: "existing"; readonly bindingRef: string; readonly receipt: DeliveryReceipt } | { readonly kind: "fault" };
 export interface DeliveryAttempt {
   readonly caseRef: string;
   readonly phaseId: number;
@@ -17,9 +19,7 @@ export interface DeliveryAttempt {
   readonly deadline: number;
   readonly signal: AbortSignal;
   readonly current?: () => void;
-  readonly bindingRef?: string;
-  readonly ticket?: DeliveryTicket;
-  readonly receipt?: DeliveryReceipt;
+  readonly state: HostDeliveryState;
   readonly beforeWrite: (text?: string) => Promise<void>;
 }
 
@@ -59,8 +59,7 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
     const attempt: DeliveryAttempt = Object.freeze({
       caseRef: context.caseRef, phaseId: context.phaseId, segment: index + 1, total: parts.length,
       text, deadline: context.deadline, signal: context.signal,
-      bindingRef: begun.state === "new" ? begun.ticket.bindingRef : begun.bindingRef,
-      ...(begun.state === "new" ? { ticket: begun.ticket } : { receipt: begun.receipt }),
+      state: begun.state === "new" ? { kind: "new", ticket: begun.ticket } : { kind: "existing", bindingRef: begun.bindingRef, receipt: begun.receipt },
       current: () => { check(); if (ports.authorization.current?.(action, current) !== true || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
       beforeWrite: async (actual = text) => {
         if (actual !== text || !ports.sanitization.safe(text)) throw new Error("unsafe_content");

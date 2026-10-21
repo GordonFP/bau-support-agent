@@ -63,6 +63,20 @@ export class PhaseExecution {
   }
 }
 
+/** Owns case controls that remain legal after an investigation phase has irreversibly closed. */
+export class CaseControls {
+  private readonly work = new Set<Promise<unknown>>();
+  constructor(private readonly host: HostExecutions, private readonly changed: () => void) {}
+  get settled(): boolean { return this.work.size === 0; }
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    const task = this.host.track(Promise.resolve().then(operation));
+    this.work.add(task);
+    const ended = () => { this.work.delete(task); this.changed(); };
+    void task.then(ended, ended);
+    return task;
+  }
+}
+
 /** Keeps ownership before admission creates a case and after a local wait has expired. */
 export class HostExecutions {
   private readonly work = new Set<Promise<unknown>>();

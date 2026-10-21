@@ -563,3 +563,44 @@ test("a transient budget read failure does not consume a valid target selection 
     await mock.phaseClosed(2);
   } finally { await mock.application.close(); }
 });
+
+for (const ending of ["cancel", "budget"] as const) test(`a clarification case can ${ending} after its original execution has fully closed`, async () => {
+  const mock = createMockTroubleshooting({ customerCandidates: candidates });
+  try {
+    await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } }); await mock.phaseClosed(1);
+    for (let turn = 0; turn < 6; turn++) await new Promise(setImmediate);
+    if (ending === "budget") {
+      const status = mock.ports.budget.status;
+      mock.ports.budget.status = async (caseRef) => ({ ...await status(caseRef), reservedMicrousd: 2_000_000 });
+      const reply = await mock.application.provideInformation(trustedReply({ submittedAt: candidates[0]!.submittedAt }));
+      assert.equal(reply.status, "terminal");
+    } else assert.equal("state" in await mock.application.cancel(mock.inbound, "case-1"), true);
+    for (let turn = 0; turn < 6; turn++) await new Promise(setImmediate);
+    const saved = await mock.ports.records.read(mock.inbound, "case-1"); assert.ok(saved?.scope === "full");
+    assert.equal(saved.view.state, "stopped"); assert.equal(saved.view.stopReason, ending === "cancel" ? "cancelled" : "budget_exhausted");
+    assert.equal(mock.events.filter((event) => event.action === "agent.close").length, 1);
+  } finally { await mock.application.close(); }
+});
+
+test("paused-case terminal persistence remains host-owned after cancel's local control wait finishes", async () => {
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const mock = createMockTroubleshooting({ customerCandidates: candidates, controlPorts: (ports) => {
+    const records = ports.records;
+    return { records: { ...records, append: async (context, record) => {
+      if (record.kind === "view" && typeof record.payload === "object" && record.payload && "state" in record.payload && record.payload.state === "stopped") { entered.resolve(); await release.promise; }
+      await records.append(context, record);
+    } } };
+  } });
+  let closed = false;
+  try {
+    await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } }); await mock.phaseClosed(1);
+    for (let turn = 0; turn < 6; turn++) await new Promise(setImmediate);
+    const cancelled = await mock.application.cancel(mock.inbound, "case-1"); assert.ok("state" in cancelled); await entered.promise;
+    const closing = mock.application.close().then(() => { closed = true; });
+    for (let turn = 0; turn < 6; turn++) await new Promise(setImmediate);
+    assert.equal(closed, false);
+    release.resolve(); await closing; assert.equal(closed, true);
+    const saved = await mock.ports.records.read(mock.inbound, "case-1"); assert.ok(saved?.scope === "full"); assert.equal(saved.view.state, "stopped");
+    assert.equal(mock.events.filter((event) => event.action === "agent.close").length, 1);
+  } finally { release.resolve(); await mock.application.close(); }
+});

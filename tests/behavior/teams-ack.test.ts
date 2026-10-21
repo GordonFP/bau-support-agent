@@ -92,7 +92,7 @@ for (const waitingAction of ["delivery.send", "teams.identity"] as const) test(`
     await host.start();
     const sending = mock.ports.delivery.send(service.mapping.actor.destinationRef, {} as never, "case-1:report:1", {
       caseRef: "case-1", phaseId: 1, segment: 1, total: 1, text: "Synthetic report.", deadline: 5_000, signal: new AbortController().signal,
-      bindingRef: "a".repeat(64), ticket: { caseRef: "case-1", deliveryKey: "case-1:report:1", segment: 1, bindingRef: "a".repeat(64), callId: "case-1:send", kind: "report", dispatch: { claim: () => true }, completion: { confirmed: false } },
+      state: { kind: "new", ticket: { caseRef: "case-1", deliveryKey: "case-1:report:1", segment: 1, bindingRef: "a".repeat(64), callId: "case-1:send", kind: "report", dispatch: { claim: () => true }, completion: { confirmed: false } } },
       beforeWrite: async () => { if (!await mock.ports.authorization.allows("delivery.send", authority)) throw new Error("denied"); },
       current: () => { if (mock.ports.authorization.current!("delivery.send", authority) !== true) throw new Error("denied"); },
     });
