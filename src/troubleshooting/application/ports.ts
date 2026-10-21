@@ -157,7 +157,10 @@ export interface Ports {
     release(caseRef: string): Promise<void>;
   };
   readonly clock: { now(): number; utc(): string; schedule?(deadline: number, callback: () => void): () => void };
-  readonly authorization: { recordGrant?(actor: TrustedActor, owner: SavedContext): Promise<RecordGrant | null>; allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
+  readonly authorization: {
+    /** Synchronous current policy judgment from the same authority as allows; required by the local Teams disclosure host. */
+    current?(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): boolean;
+    recordGrant?(actor: TrustedActor, owner: SavedContext): Promise<RecordGrant | null>; allows(action: string, context: Pick<CallContext, "principalRef" | "tenantRef" | "destinationRef" | "resourceRefs">): Promise<boolean> };
   readonly sanitization: { sanitize<T>(value: T, caseRef: string): T; safe(value: unknown): boolean; clear(caseRef: string): void };
   readonly audit: { intent(context: CallContext, action: string, details?: AuditDetails): Promise<string>;
     complete(context: CallContext, action: string, outcome: string, details?: AuditDetails): Promise<void> };

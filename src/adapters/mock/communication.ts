@@ -16,7 +16,7 @@ export class MockPrivateConversation {
     try {
       const input: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
       if (!input || typeof input !== "object" || Array.isArray(input) ||
-        Object.keys(input).some((key) => !["applicationId", "customerId", "question"].includes(key))) {
+        Object.keys(input).some((key) => !["scenario", "applicationId", "customerId", "shopId", "bindingId", "question"].includes(key))) {
         return { status: "denied", reason: "invalid_request" };
       }
       return this.application.accept({ ...this.host, input: input as VerifiedInbound["input"] });

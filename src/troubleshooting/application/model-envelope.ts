@@ -80,5 +80,6 @@ export function validateModelResponse(response: ModelResponse): void {
     (response.usageSource !== undefined && !["mock_usage", "upstream_usage", "estimated", "unknown"].includes(response.usageSource))) throw new Error("schema_mismatch");
   if (!z.strictObject({ content: z.array(content).max(16), stopReason: z.enum(["stop", "toolUse"]) }).safeParse(response.message).success) throw new Error("schema_mismatch");
   const generated = JSON.stringify({ candidate: response.candidate, reasoning: response.reasoning ?? "" });
-  if (Math.ceil(Buffer.byteLength(generated) / 2) > MODEL_OUTPUT_TOKENS) throw new Error("budget_exhausted");
+  const assistant = JSON.stringify({ content: response.message!.content, reasoning: response.reasoning ?? "" });
+  if (Math.ceil(Math.max(Buffer.byteLength(generated), Buffer.byteLength(assistant)) / 2) > MODEL_OUTPUT_TOKENS) throw new Error("budget_exhausted");
 }

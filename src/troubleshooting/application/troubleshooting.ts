@@ -450,7 +450,7 @@ export class Troubleshooting {
       await allowed();
       await ports.delivery.fault(current.destinationRef, notice, `${current.caseRef}:audit-fault`, {
         caseRef: current.caseRef, phaseId: current.phaseId, segment: 1, total: 1, text: notice, deadline,
-        signal: new AbortController().signal, beforeWrite: async (text = notice) => { if (text !== notice) throw new Error("denied"); await allowed(); },
+        signal: new AbortController().signal, current: () => { if (this.retentionClosed() || ports.clock.now() >= deadline || !ports.authorization.current?.("delivery.fault", current)) throw new Error("denied"); }, beforeWrite: async (text = notice) => { if (text !== notice) throw new Error("denied"); await allowed(); },
       });
     })());
     void beforeDeadline(ports.clock, deadline, () => task).catch(() => {});
@@ -564,7 +564,7 @@ export class Troubleshooting {
     } catch { return { status: "denied" }; }
   }
 
-  async get(actor: TrustedActor, caseRef: string, beforeDisclose?: () => Promise<void>): Promise<CaseView | { readonly status: "denied" }> {
+  async get(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void) => Promise<void>): Promise<CaseView | { readonly status: "denied" }> {
     if (this.retentionClosed()) return { status: "denied" };
     const running = this.cases.get(caseRef);
     const ports = this.configured as Ports;
@@ -581,7 +581,7 @@ export class Troubleshooting {
       const context = { ...running.context, callId: `${caseRef}:get:${randomUUID()}` };
       await ports.audit.intent(context, "get");
       await ports.audit.complete(context, "get", "allowed");
-      try { await beforeDisclose?.(); }
+      try { await beforeDisclose?.(() => { if (ports.authorization.current && !ports.authorization.current("get", running.context)) throw new Error("denied"); }); }
       catch { await recordDenial(ports.audit, context); return { status: "denied" }; }
       if (!await ports.authorization.allows("get", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
       return this.viewOf(running, ports);

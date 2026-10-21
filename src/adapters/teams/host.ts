@@ -28,7 +28,7 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
   const { token, ...data } = configuration;
   configuration = { ...structuredClone(data), token };
   isolatedTelemetry();
-  if (configuration.profile !== "local_protocol") throw new Error("contract_unverified");
+  if (configuration.profile !== "local_protocol" || typeof services.ports.authorization.current !== "function") throw new Error("contract_unverified");
   for (const value of [configuration.serviceUrl, configuration.tokenUrl, configuration.serviceMetadataUrl, configuration.user.jwksUrl]) {
     const url = new URL(value); if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.username || url.password || url.hash) throw new Error("contract_unverified");
   }
@@ -44,8 +44,9 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
       try {
         if (!lease.responseGate) {
           if (typeof lease.response.caseRef !== "string") throw new Error("denied");
-          const view = await services.application.get(lease.mapping.actor, lease.response.caseRef, async () => {
-            lease.responseGate = await wire.prove(lease.mapping!, services.ports.clock.now() + 5_000, lease.signal);
+          const view = await services.application.get(lease.mapping.actor, lease.response.caseRef, async (resourceCurrent) => {
+            const identityCurrent = await wire.prove(lease.mapping!, services.ports.clock.now() + 5_000, lease.signal);
+            lease.responseGate = () => { identityCurrent(); resourceCurrent(); };
           });
           if (!("state" in view) || !lease.responseGate) throw new Error("denied");
         }
@@ -93,7 +94,7 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
       }
       const query = getCommand.safeParse(raw);
       if (query.success) {
-        const view = await services.application.get(mapping.actor, query.data.caseRef, async () => { lease.responseGate = await wire.prove(mapping, services.ports.clock.now() + 5_000, lease.signal); });
+        const view = await services.application.get(mapping.actor, query.data.caseRef, async (resourceCurrent) => { const identityCurrent = await wire.prove(mapping, services.ports.clock.now() + 5_000, lease.signal); lease.responseGate = () => { identityCurrent(); resourceCurrent(); }; });
         lease.response = "state" in view ? { status: "case", caseRef: view.caseRef, phaseId: view.phaseId, state: view.state, deliveryStatus: view.deliveryStatus } : { status: "denied" };
         return;
       }

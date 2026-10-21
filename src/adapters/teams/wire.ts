@@ -44,7 +44,8 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       check(lease); userClaims(payload, configuration, mapping);
       if (!await ports.authorization.allows("teams.identity", { ...mapping.actor, resourceRefs: [] })) throw new Error("denied");
       check(lease);
-      const current = () => { check(lease); userClaims(payload, configuration, mapping); };
+      const current = () => { check(lease); userClaims(payload, configuration, mapping);
+        if (!ports.authorization.current?.("teams.identity", { ...mapping.actor, resourceRefs: [] })) throw new Error("denied"); };
       current(); return current;
     }));
     return await beforeDeadline(ports.clock, deadline, () => task, lease.signal, () => controller.abort());
@@ -78,7 +79,9 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
         if (serialized !== JSON.stringify(expected) || Buffer.byteLength(serialized) > cap || Buffer.byteLength(lease.attempt.text) > MAX_MESSAGE_BYTES) throw new Error("unsafe_content");
         const currentProof = await prove(lease.mapping, Math.min(lease.deadline, ports.clock.now() + 5_000), lease.signal);
         await lease.attempt.beforeWrite(lease.attempt.text);
-        currentProof(); check(lease); lease.wrote = true;
+        currentProof();
+        if (!lease.attempt.current) throw new Error("contract_unverified");
+        lease.attempt.current(); check(lease); lease.wrote = true;
         config.data = serialized;
         config.headers.set("Content-Type", "application/json");
         config.headers.set("Content-Length", String(Buffer.byteLength(serialized)));

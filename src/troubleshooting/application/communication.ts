@@ -15,6 +15,7 @@ export interface DeliveryAttempt {
   readonly text: string;
   readonly deadline: number;
   readonly signal: AbortSignal;
+  readonly current?: () => void;
   readonly beforeWrite: (text?: string) => Promise<void>;
 }
 
@@ -50,22 +51,32 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
     await authorized();
     const delivery = { deliveryKey, segment: index + 1 };
     await ports.audit.intent(current, action, { delivery });
-    await authorized();
     const attempt: DeliveryAttempt = Object.freeze({
       caseRef: context.caseRef, phaseId: context.phaseId, segment: index + 1, total: parts.length,
       text, deadline: context.deadline, signal: context.signal,
+      current: () => { check(); if (!ports.authorization.current?.(action, current) || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
       beforeWrite: async (actual = text) => {
         if (actual !== text || !ports.sanitization.safe(text)) throw new Error("unsafe_content");
         await authorized();
       },
     });
-    let result: DeliveryResult;
-    try { result = kind === "report" ? await ports.delivery.send(context.destinationRef, safe as DiagnosticReport, deliveryKey, attempt)
-      : await ports.delivery.notice!(context.destinationRef, safe as DeliveryNotice, deliveryKey, attempt); }
-    catch (error) { await ports.audit.complete(current, action, "unknown", { delivery: { ...delivery, status: "unknown" } }); throw error; }
-    const status = typeof result === "string" ? result : result.status;
-    const receiptRef = typeof result === "object" ? result.receiptRef : undefined;
-    if (!["delivered", "unknown", "failed"].includes(status) || receiptRef !== undefined && !/^[a-f0-9]{64}$/.test(receiptRef)) throw new Error("schema_mismatch");
+    let status: DeliveryStatus;
+    let receiptRef: string | undefined;
+    let invoked = false;
+    try {
+      await authorized();
+      invoked = true;
+      const result = kind === "report" ? await ports.delivery.send(context.destinationRef, safe as DiagnosticReport, deliveryKey, attempt)
+        : await ports.delivery.notice!(context.destinationRef, safe as DeliveryNotice, deliveryKey, attempt);
+      if (result === null || result === undefined) throw new Error("schema_mismatch");
+      status = typeof result === "string" ? result : result.status;
+      receiptRef = typeof result === "object" ? result.receiptRef : undefined;
+      if (!["delivered", "unknown", "failed"].includes(status) || receiptRef !== undefined && !/^[a-f0-9]{64}$/.test(receiptRef)) throw new Error("schema_mismatch");
+    } catch (error) {
+      const status = invoked ? "unknown" : "failed";
+      await ports.audit.complete(current, action, status, { delivery: { ...delivery, status } });
+      throw error;
+    }
     await ports.audit.complete(current, action, "ok", { delivery: { ...delivery, status, ...(receiptRef ? { receiptRef } : {}) } });
     check();
     if (status !== "delivered") return status;

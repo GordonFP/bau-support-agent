@@ -8,7 +8,8 @@ test("a committed acceptance keeps its idempotency but discloses no ACK metadata
   const service = await teamsServices(), mock = createMockTroubleshooting();
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   let revoked = false, proofs = 0;
-  const allows = mock.ports.authorization.allows;
+  const allows = mock.ports.authorization.allows, current = mock.ports.authorization.current!;
+  mock.ports.authorization.current = (action, context) => (action === "teams.identity" || !revoked) && current(action, context);
   mock.ports.authorization.allows = (action, context) => action === "teams.identity" || !revoked ? allows(action, context) : Promise.resolve(false);
   service.beforeToken(async () => { if (++proofs >= 2) { held.resolve(); await release.promise; } });
   const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
@@ -31,7 +32,8 @@ test("idempotent cancel of a completed case repeats case disclosure authorizatio
   const service = await teamsServices(), mock = createMockTroubleshooting();
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   let revoked = false, proofs = 0;
-  const allows = mock.ports.authorization.allows;
+  const allows = mock.ports.authorization.allows, current = mock.ports.authorization.current!;
+  mock.ports.authorization.current = (action, context) => (action === "teams.identity" || !revoked) && current(action, context);
   mock.ports.authorization.allows = (action, context) => action === "teams.identity" || !revoked ? allows(action, context) : Promise.resolve(false);
   const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
   const post = (body: unknown) => fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
@@ -54,7 +56,8 @@ test("a trusted reply remains committed and idempotent while its ACK is denied a
   const mock = createMockTroubleshooting({ customerCandidates: candidates });
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   let revoked = false, proofs = 0;
-  const allows = mock.ports.authorization.allows;
+  const allows = mock.ports.authorization.allows, current = mock.ports.authorization.current!;
+  mock.ports.authorization.current = (action, context) => (action === "teams.identity" || !revoked) && current(action, context);
   mock.ports.authorization.allows = (action, context) => action === "teams.identity" || !revoked ? allows(action, context) : Promise.resolve(false);
   const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
   const post = (body: unknown) => fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
@@ -76,4 +79,74 @@ test("a trusted reply remains committed and idempotent while its ACK is denied a
     assert.equal(mock.events.filter((event) => event.action === "audit:provideInformation:complete").length, 1);
     assert.equal(service.writes.length, 2);
   } finally { release.resolve(); await host.stop(); await service.close(); }
+});
+
+for (const waitingAction of ["delivery.send", "teams.identity"] as const) test(`final Teams write checks both grants after awaiting ${waitingAction}`, async () => {
+  const service = await teamsServices(), denyActions: string[] = [], mock = createMockTroubleshooting({ denyActions });
+  const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const allows = mock.ports.authorization.allows;
+  let deliveries = 0, paused = false;
+  mock.ports.authorization.allows = async (action, context) => {
+    const allowed = await allows(action, context);
+    if (!paused && service.writes.length === 1 && (waitingAction === "teams.identity" ? action === waitingAction : action === waitingAction && ++deliveries === 3)) {
+      paused = true; held.resolve(); await release.promise;
+    }
+    return allowed;
+  };
+  const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
+  try {
+    await host.start(); const accepting = fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(service.activity()) });
+    await held.promise; denyActions.push(waitingAction === "delivery.send" ? "teams.identity" : "delivery.send"); release.resolve();
+    await accepting; await mock.closed;
+    assert.equal(service.writes.length, 1, "only the earlier accepted status was disclosed");
+    const stored = await mock.ports.records.read(mock.inbound, "case-1");
+    assert.ok(stored?.scope === "full");
+    assert.equal(stored.deliveries.find((item) => item.deliveryKey === "case-1:report:1")?.status, "failed");
+  } finally { release.resolve(); await host.stop(); await service.close(); }
+});
+
+test("final Teams query denies metadata when identity is revoked during resource authorization", async () => {
+  const service = await teamsServices(), denyActions: string[] = [], mock = createMockTroubleshooting({ denyActions });
+  const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
+  const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const post = (body: unknown) => fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
+  try {
+    await host.start(); await post(service.activity()); await mock.closed;
+    let reads = 0;
+    const allows = mock.ports.authorization.allows;
+    mock.ports.authorization.allows = async (action, context) => { const allowed = await allows(action, context); if (action === "get" && ++reads === 2) { held.resolve(); await release.promise; } return allowed; };
+    const querying = post({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-1" })), id: "held-get" });
+    await held.promise; denyActions.push("teams.identity"); release.resolve();
+    assert.deepEqual(await (await querying).json(), { status: "denied" });
+  } finally { release.resolve(); await host.stop(); await service.close(); }
+});
+
+test("local Teams refuses an authority without a synchronous current policy fence", async () => {
+  const service = await teamsServices(), mock = createMockTroubleshooting();
+  delete mock.ports.authorization.current;
+  try { await assert.rejects(createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports }), /contract_unverified/); }
+  finally { await service.close(); }
+});
+
+test("restored Teams query keeps the identity fence current during final SQLite authorization", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises"), { tmpdir } = await import("node:os"), { join } = await import("node:path");
+  const { SqliteRecords } = await import("../../src/adapters/records/sqlite.js");
+  const directory = await mkdtemp(join(tmpdir(), "bau-teams-current-"));
+  const service = await teamsServices(), denyActions: string[] = [];
+  let store: InstanceType<typeof SqliteRecords> | undefined, host: Awaited<ReturnType<typeof createLocalTeamsHost>> | undefined;
+  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, audit: store.audit, admission: store.admission, budget: store.budget }; };
+  const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const post = (body: unknown) => fetch(host!.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
+  try {
+    const first = createMockTroubleshooting({ denyActions, controlPorts: controls });
+    host = await createLocalTeamsHost(service.configuration, { application: first.application, ports: first.ports });
+    await host.start(); await post(service.activity()); await first.closed; await host.stop(); store!.close();
+    const restored = createMockTroubleshooting({ denyActions, controlPorts: controls });
+    host = await createLocalTeamsHost(service.configuration, { application: restored.application, ports: restored.ports }); await host.start();
+    let reads = 0; const allows = restored.ports.authorization.allows;
+    restored.ports.authorization.allows = async (action, context) => { const allowed = await allows(action, context); if (action === "records.read" && ++reads === 2) { held.resolve(); await release.promise; } return allowed; };
+    const querying = post({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-1" })), id: "restored-current-get" });
+    await held.promise; denyActions.push("teams.identity"); release.resolve();
+    assert.deepEqual(await (await querying).json(), { status: "denied" });
+  } finally { release.resolve(); await host?.stop(); store?.close(); await service.close(); await rm(directory, { recursive: true, force: true }); }
 });

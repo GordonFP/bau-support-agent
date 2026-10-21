@@ -56,3 +56,26 @@ test("an unknown accepted-status write stops before investigation instead of dis
   const view = await mock.application.get(mock.inbound, "case-1");
   assert.ok("state" in view); assert.equal(view.state, "stopped");
 });
+
+for (const failure of ["revoked", "null", "status", "receipt"] as const) test(`D completes persisted send intent after ${failure}`, async () => {
+  const denyActions: string[] = [];
+  const mock = createMockTroubleshooting({ denyActions, controlPorts: (ports) => {
+    const audit = ports.audit;
+    return { audit: { ...audit, intent: async (context, action, details) => {
+      const result = await audit.intent(context, action, details);
+      if (action === "delivery.send" && failure === "revoked") denyActions.push(action);
+      return result;
+    } } };
+  } });
+  let writes = 0;
+  mock.ports.delivery.send = async () => { writes++; return (failure === "null" ? null : failure === "status" ? { status: "invalid" } : { status: "delivered", receiptRef: "invalid" }) as never; };
+  await mock.receive(); await mock.closed;
+  const stored = await mock.ports.records.read(mock.inbound, "case-1");
+  assert.ok(stored?.scope === "full");
+  const completions = stored.audits.filter((entry) => entry.action === "delivery.send" && entry.stage === "complete");
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0]!.outcome, failure === "revoked" ? "failed" : "unknown");
+  assert.equal(stored.deliveries.find((item) => item.deliveryKey === "case-1:report:1")?.status, failure === "revoked" ? "failed" : "unknown");
+  assert.equal(writes, failure === "revoked" ? 0 : 1);
+  await mock.receive(); assert.equal(writes, failure === "revoked" ? 0 : 1);
+});

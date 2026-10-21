@@ -546,3 +546,14 @@ test("missing or malformed trusted actors are denied without disclosing case exi
   await mock.application.cancel(actor, "case-1");
   held.resolve({});
 });
+
+test("Mock private ingress accepts the supported PSP business fields while rejecting authority fields", async () => {
+  const { pspFixture } = await import("../fixtures/psp.js");
+  const mock = createMockTroubleshooting({ pspObservation: pspFixture });
+  const intake = new MockPrivateConversation(mock.application, mock.inbound);
+  const request = { scenario: "psp", applicationId: "SYNTHETIC-SECRET-APPLICATION", shopId: "SYNTHETIC-SECRET-SHOP", bindingId: "SYNTHETIC-SECRET-BINDING", question: "Why?" };
+  assert.equal((await intake.receive(Buffer.from(JSON.stringify(request)))).status, "accepted");
+  await mock.closed;
+  assert.equal((await mock.delivery.next()).report.scene, "psp");
+  assert.deepEqual(await intake.receive(Buffer.from(JSON.stringify({ ...request, resourceRefs: ["psp-code"] }))), { status: "denied", reason: "invalid_request" });
+});

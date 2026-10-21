@@ -41,7 +41,7 @@ export interface DeliveryRecord {
 }
 export interface CaseRecords {
   append(context: CallContext, record: CaseRecord): Promise<void>;
-  read(actor: TrustedActor, caseRef: string, beforeDisclose?: () => Promise<void>): Promise<RecordDisclosure | null>;
+  read(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void) => Promise<void>): Promise<RecordDisclosure | null>;
   export(actor: TrustedActor, caseRef: string): Promise<RecordDisclosure | null>;
 }
 

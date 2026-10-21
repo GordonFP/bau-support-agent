@@ -127,6 +127,7 @@ export class RetentionLifecycle implements Retention {
   private async status(actor: TrustedActor): Promise<RetentionStatus> {
     actor = structuredClone(actor);
     await this.authorize(actor, "deletionStatus");
+    this.closed();
     this.event(actor, "deletionStatus", "allowed");
     return this.publicStatus();
   }

@@ -96,7 +96,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   const codeFor = (repositoryRef: string): SourceEvidence => repositoryRef === "simulator-source" ? structuredClone(code)
     : { ...structuredClone(code), sourceRef: repositoryRef, locator: "psp.ts:10",
       text: "Synthetic PSP code alone does not prove this shop's executed verification path.", code: { ...code.code!, repositoryRef } };
-  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>) => {
+  const authorizedRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void) => Promise<void>) => {
     actor = recordActor(actor);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
     const saved = cases.get(caseRef);
@@ -111,7 +111,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     const result = structuredClone({ scope: "full" as const, view: saved.initial.view, records: saved.records,
       audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
     await ports.audit.complete(context, action, "allowed");
-    try { await beforeDisclose?.(); }
+    try { await beforeDisclose?.(() => { if (ports.authorization.current && !ports.authorization.current(action, { ...owner, ...actor })) throw new Error("denied"); }); }
     catch { await recordDenial(ports.audit, context); return null; }
     const currentRole = await recordRole(ports.authorization, actor, owner, action);
     if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(actor, action); return null; }
@@ -121,7 +121,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     }
     return recordDisclosure(result, role);
   };
-  const readRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: () => Promise<void>) => {
+  const readRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void) => Promise<void>) => {
     try { return await authorizedRecord(actor, caseRef, action, beforeDisclose); } catch { throw new Error("unavailable"); }
   };
   const ports: Ports = {
@@ -170,7 +170,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         if (grant) return { role: grant.role, caseRef: owner.caseRef, resourceRefs: [...grant.resourceRefs] };
         return { role: "requester", caseRef: owner.caseRef, resourceRefs: owner.resourceRefs };
       },
-      async allows(action, context) {
+      async allows(action, context) { return ports.authorization.current!(action, context); },
+      current(action, context) {
         if (action.startsWith("retention.")) return options.lifecycleActors?.some((actor) => actor.principalRef === context.principalRef &&
           actor.tenantRef === context.tenantRef && actor.destinationRef === context.destinationRef) === true && !options.denyActions?.includes(action);
         const trusted = authorizedActors.some((actor) => actor.tenantRef === context.tenantRef && actor.principalRef === context.principalRef && actor.destinationRef === context.destinationRef);
@@ -207,7 +208,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         if (options.auditFails === `${action}:complete`) throw new Error("synthetic-audit-failure");
         events.push({ action: `audit:${action}:complete`, input: { callId: context.callId, outcome, details } });
         audits.push(structuredClone(auditRecord(context, action, "complete", outcome, ports.clock.utc(), details, costFor(context.callId))));
-        if (["delivery.send", "delivery.notice"].includes(action) && outcome === "ok" && details?.delivery?.status) {
+        if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery?.status) {
           const saved = cases.get(context.caseRef);
           if (saved) saved.deliveries = saved.deliveries.map((item) => item.callId === context.callId ? { ...item, status: details.delivery!.status!, ...(details.delivery!.receiptRef ? { receiptRef: details.delivery!.receiptRef } : {}) } : item);
         }

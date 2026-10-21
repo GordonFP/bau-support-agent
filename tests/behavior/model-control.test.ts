@@ -154,7 +154,7 @@ test("the complete Mock input accepts exactly 24k byte-pair tokens and rejects o
 test("exactly 4k generated Mock tokens including reasoning are accepted and the next byte is refused", async () => {
   for (const excess of [0, 1]) {
     const mock = createMockTroubleshooting({ model: async (_context, draft) => {
-      const framing = Buffer.byteLength(JSON.stringify({ candidate: draft, reasoning: "" }));
+      const framing = Buffer.byteLength(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(draft) }], reasoning: "" }));
       return { candidate: draft, actualMicrousd: null, reasoning: "x".repeat(8_000 - framing + excess) };
     } });
     await mock.receive();
@@ -249,4 +249,16 @@ test("authorization revoked during model-input persistence is checked before the
     assert.equal((await mock.ports.budget.status("case-1")).attempts, 0);
     assert.ok((await mock.ports.records.read(mock.inbound, "case-1"))?.audits.some((event) => event.action === "authorization.denied"));
   } finally { finishSaving.resolve(); }
+});
+
+for (const part of ["text", "toolCall"] as const) test(`B rejects oversized actual assistant ${part} before storing or sending`, async () => {
+  const mock = createMockTroubleshooting({ model: async () => ({ candidate: "ok", actualMicrousd: 1_000, reasoning: part === "toolCall" ? "r".repeat(4_000) : "",
+    message: { stopReason: part === "text" ? "stop" : "toolUse", content: part === "text" ? [{ type: "text", text: "x".repeat(100_000) }]
+      : Array.from({ length: 16 }, (_, index) => ({ type: "toolCall" as const, id: `${index}-${"x".repeat(250)}`, name: "logs_read" as const, arguments: {} })) } }) });
+  await mock.receive(); await mock.closed;
+  const stored = await mock.ports.records.read(mock.inbound, "case-1");
+  assert.ok(stored?.scope === "full");
+  assert.equal(stored.view.stopReason, "budget_exhausted");
+  assert.equal(stored.records.some((record) => record.kind === "model_output"), false);
+  assert.equal(mock.events.some((event) => event.action === "delivery.send"), false);
 });

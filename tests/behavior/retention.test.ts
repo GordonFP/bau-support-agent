@@ -500,3 +500,27 @@ test("the Agent cannot invoke record export or retention deletion even by naming
     assert.ok("state" in result && result.stopReason === "denied");
   }
 });
+
+for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} status polling latches observed expiry across UTC rollback`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-status-expiry-"));
+  const clock = new ManualClock();
+  let utc = "2026-10-19T09:00:00.000Z";
+  clock.utc = () => utc;
+  let store: SqliteRecords | undefined;
+  const mock = createMockTroubleshooting({ clock, lifecycleActors: [lifecycleActor], controlPorts: (ports) => {
+    if (!durable) return {};
+    store = new SqliteRecords(directory, ports);
+    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+  } });
+  try {
+    await mock.receive(); await mock.closed;
+    const retention = mock.ports.retention!;
+    await retention.recordTrigger(lifecycleActor, { triggerRef: "expiry", kind: "terminated", decidedAt: utc, scope: "poc" });
+    utc = "2026-11-18T09:00:00.000Z";
+    assert.equal((await retention.deletionStatus(lifecycleActor)).closedAt, utc);
+    utc = "2026-10-19T09:00:00.000Z";
+    assert.equal(retention.closed(), true);
+    assert.equal(await mock.ports.records.read(mock.inbound, "case-1"), null);
+    assert.equal((await mock.receive({ eventRef: "after-expiry" })).status, "service_unavailable");
+  } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
+});

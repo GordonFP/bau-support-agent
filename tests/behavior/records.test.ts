@@ -619,3 +619,23 @@ test("A queries before and after clarification use distinct durable read operati
     assert.notEqual(reads[0]!.operationId, reads[1]!.operationId);
   } finally { store?.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("C reads and exports multiple accepted records exceeding the individual write limit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-record-aggregate-"));
+  const reviewer = { principalRef: "reviewer", tenantRef: "tenant-1", destinationRef: "review" };
+  const mock = createMockTroubleshooting({ recordGrants: [{ actor: reviewer, role: "business_reviewer", caseRefs: ["case-1"], resourceRefs: ["simulator-source"] }] });
+  const store = new SqliteRecords(directory, mock.ports);
+  try {
+    await store.admission.confirm({ key: "a".repeat(64), caseRef: "case-1", principalRef: actor.principalRef, initial: { context, view, input: { question: "Why?" } } });
+    for (const index of [1, 2]) await store.records.append(context, { schemaVersion: 1, recordRef: `case-1:tool-${index}`, kind: "tool_result", payload: "x".repeat(600_000) });
+    for (const operation of [store.records.read, store.records.export]) {
+      const saved = await operation(actor, "case-1");
+      assert.ok(saved?.scope === "full");
+      assert.equal(saved.records.filter((item) => item.kind === "tool_result").length, 2);
+      const restricted = await operation(reviewer, "case-1");
+      assert.ok(restricted?.scope === "report_evidence");
+      assert.deepEqual(restricted.records, []);
+    }
+    await assert.rejects(store.records.append(context, { schemaVersion: 1, recordRef: "case-1:oversized", kind: "tool_result", payload: "x".repeat(1_048_576) }), { message: "unsafe_content" });
+  } finally { store.close(); await rm(directory, { recursive: true, force: true }); }
+});
