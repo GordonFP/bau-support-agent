@@ -9,7 +9,7 @@ import type { AuditDetails, CaseRecord, SavedContext, StoredCase } from "./recor
 import { AuditBoundary } from "./audit-boundary.js";
 import { deniedContext, recordDenial } from "./authorization-audit.js";
 import { validateModelEnvelope, validateModelResponse, validateModelTurn } from "./model-envelope.js";
-import type { ModelPolicy } from "./model-contract.js";
+import { resolveDependencies, type OfflineScope, type ReadyScope } from "./dependencies.js";
 import { ModelFailure } from "./model-failure.js";
 import { sendNotice, sendReport } from "./communication.js";
 import { retryModel } from "./model-retry.js";
@@ -19,7 +19,6 @@ import { caseRepositories, caseResources } from "./resource-scope.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
   "timeout", "cancelled", "rate_limited", "budget_exhausted", "version_unknown", "version_mismatch", "unsafe_content", "audit_unavailable"]);
-const requiredPorts = ["admission", "records", "clock", "authorization", "sanitization", "audit", "budget", "logs", "code", "agent", "model", "delivery"] as const;
 const safeReason = (error: unknown): SafeReason => error instanceof Error && reasons.has(error.message as SafeReason)
   ? error.message as SafeReason : "unavailable";
 
@@ -52,17 +51,32 @@ interface RunningCase {
   view: CaseView;
 }
 
-export interface OfflineScope {
-  readonly mode: "mock";
-  readonly snapshotRef: string;
-  readonly resourceRefs?: readonly string[];
-  readonly psp?: { readonly sourceRef: "psp-log-source"; readonly repositoryRef: string };
-  readonly queryWindow: { readonly from: string; readonly to: string };
-  readonly modelPolicy?: ModelPolicy;
-  readonly modelProfile?: "memory_mock" | "local_protocol";
-}
+export { type OfflineScope } from "./dependencies.js";
 
 export class Troubleshooting {
+  private readonly ready: ReadyTroubleshooting | undefined;
+  private readonly unavailable: SafeReason;
+  constructor(configured: Partial<Ports>, scope?: OfflineScope) {
+    const dependencies = resolveDependencies(configured, scope);
+    this.unavailable = dependencies.status === "unavailable" ? dependencies.reason : "unavailable";
+    if (dependencies.status === "ready") this.ready = new ReadyTroubleshooting(dependencies.ports, dependencies.scope);
+  }
+  accept(inbound: VerifiedInbound): Promise<Acceptance> {
+    return this.ready?.accept(inbound) ?? Promise.resolve({ status: "service_unavailable", reason: this.unavailable });
+  }
+  provideInformation(reply: InformationReply, signal?: AbortSignal): Promise<InformationResult> {
+    return this.ready?.provideInformation(reply, signal) ?? Promise.resolve({ status: "denied", reason: "denied" });
+  }
+  cancel(actor: TrustedActor, caseRef: string, signal?: AbortSignal): Promise<CaseView | { readonly status: "denied" }> {
+    return this.ready?.cancel(actor, caseRef, signal) ?? Promise.resolve({ status: "denied" });
+  }
+  get(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>, signal?: AbortSignal): Promise<CaseView | { readonly status: "denied" }> {
+    return this.ready?.get(actor, caseRef, beforeDisclose, signal) ?? Promise.resolve({ status: "denied" });
+  }
+  close(): Promise<void> { return this.ready?.close() ?? Promise.resolve(); }
+}
+
+class ReadyTroubleshooting {
   private readonly cases = new Map<string, RunningCase>();
   private readonly acceptances = new Map<string, Promise<Acceptance>>();
   private readonly pendingAdmissions = new Set<string>();
@@ -75,18 +89,9 @@ export class Troubleshooting {
   private hostClosed = false;
   private closing?: Promise<void>;
   private readonly auditBoundary?: AuditBoundary;
-  private readonly approvedResources: readonly string[] | null;
-  private readonly pspResources: OfflineScope["psp"];
-
-  constructor(private readonly configured: Partial<Ports>, private readonly scope?: OfflineScope) {
-    try { this.approvedResources = caseResources(scope?.resourceRefs ?? ["simulator-source"]); }
-    catch { this.approvedResources = null; }
-    this.pspResources = scope?.psp?.sourceRef === "psp-log-source" && this.approvedResources?.includes(scope.psp.sourceRef) && caseRepositories(this.approvedResources).includes(scope.psp.repositoryRef)
-      ? Object.freeze(structuredClone(scope.psp)) : undefined;
-    if (configured.audit) {
-      this.auditBoundary = new AuditBoundary(configured.audit, (context, action, stage) => this.auditFailure(context, action, stage));
-      this.configured = { ...configured, audit: this.auditBoundary.port };
-    }
+  constructor(private configured: Ports, private readonly scope: ReadyScope) {
+    this.auditBoundary = new AuditBoundary(configured.audit, (context, action, stage) => this.auditFailure(context, action, stage));
+    this.configured = { ...configured, audit: this.auditBoundary.port };
     this.configured.retention?.onClose(() => this.close());
   }
 
@@ -94,7 +99,7 @@ export class Troubleshooting {
   close(): Promise<void> {
     this.hostClosed = true;
     return this.closing ??= (async () => {
-      const ports = this.configured as Ports;
+      const ports = this.configured;
       const active = [...this.cases.values()];
       let cleanupFailed = false;
       for (const running of active) {
@@ -143,11 +148,11 @@ export class Troubleshooting {
         return { status: "denied", reason: "denied" };
       }
       try {
-        if (!await this.configured.authorization!.allows("accept", running.context)) {
-          await recordDenial(this.configured.audit!, running.context);
+        if (!await this.configured.authorization.allows("accept", running.context)) {
+          await recordDenial(this.configured.audit, running.context);
           return { status: "denied", reason: "denied" };
         }
-        return { status: "duplicate", view: this.viewOf(running, this.configured as Ports) };
+        return { status: "duplicate", view: this.viewOf(running, this.configured) };
       } catch { return { status: "service_unavailable", reason: "unavailable" }; }
     }
     let admissionPhase: ReturnType<typeof phaseWindow> | undefined;
@@ -179,7 +184,7 @@ export class Troubleshooting {
     const flightKey = JSON.stringify([key, inbound.principalRef]);
     const previous = this.persistedLookups.get(flightKey);
     if (previous) return previous;
-    const ports = this.configured as Ports;
+    const ports = this.configured;
     if (!ports.clock || !ports.records || this.persistedLookups.size + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) {
       return { status: "service_unavailable", reason: "unavailable" };
     }
@@ -205,13 +210,8 @@ export class Troubleshooting {
   }
 
   private async acceptVerified(inbound: VerifiedInbound, key: string, admissionPhase?: ReturnType<typeof phaseWindow>): Promise<Acceptance> {
-    if (inbound.input?.scenario === "psp" && !this.pspResources) return { status: "service_unavailable", reason: "contract_unverified" };
-    if (requiredPorts.some((key) => !this.configured[key]) || this.scope?.mode !== "mock") return { status: "service_unavailable", reason: "unavailable" };
-    const windowSize = Date.parse(this.scope.queryWindow.to) - Date.parse(this.scope.queryWindow.from);
-    if (!this.scope.snapshotRef || !this.approvedResources || !Number.isFinite(windowSize) || windowSize <= 0 || windowSize > 86_400_000) {
-      return { status: "service_unavailable", reason: "invalid_request" };
-    }
-    const ports = this.configured as Ports;
+    if (inbound.input?.scenario === "psp" && !this.scope.psp) return { status: "service_unavailable", reason: "contract_unverified" };
+    const ports = this.configured;
     if (!inbound || inbound.conversationKind !== "private" || !inbound.eventRef || !inbound.tenantRef ||
         !inbound.principalRef || !inbound.destinationRef ||
         ![inbound.input?.applicationId, inbound.input?.customerId].some((id) => typeof id === "string" && id.length > 0) ||
@@ -222,14 +222,14 @@ export class Troubleshooting {
         typeof inbound.input.question !== "string" || !Number.isFinite(Date.parse(inbound.receivedAt))) {
       return { status: "denied", reason: "invalid_request" };
     }
-    if (inbound.input.scenario !== "psp" && !this.approvedResources.includes("simulator-source")) return { status: "service_unavailable", reason: "contract_unverified" };
+    if (inbound.input.scenario !== "psp" && !this.scope.resourceRefs.includes("simulator-source")) return { status: "service_unavailable", reason: "contract_unverified" };
     const caseRef = ports.admission.allocateCaseRef?.() ?? `case-${++this.sequence}`;
     const controller = new AbortController();
     const phase = admissionPhase ?? phaseWindow(ports.clock);
     const now = phase.startedAt;
     const context: CallContext = Object.freeze({ caseRef, phaseId: 1, callId: `${caseRef}:accept`, principalRef: inbound.principalRef,
       tenantRef: inbound.tenantRef, destinationRef: inbound.destinationRef, policyVersion: "mock-policy-1", approvalRef: "mock-approval-1",
-      resourceRefs: this.approvedResources, snapshotRef: this.scope.snapshotRef, budgetRef: caseRef,
+      resourceRefs: this.scope.resourceRefs, snapshotRef: this.scope.snapshotRef, budgetRef: caseRef,
       deadline: phase.deadline, signal: controller.signal });
     const work = this.trackControl(this.confirmAcceptance(inbound, key, ports, context, controller, phase));
     void work.finally(() => { this.pendingAdmissions.delete(key); const running = [...this.cases.values()].find((item) => item.eventKey === key); if (running) this.releaseCase(running); }).catch(() => {});
@@ -356,12 +356,12 @@ export class Troubleshooting {
     if (previous) {
       await previous;
       try {
-        if (!await this.configured.authorization!.allows("provideInformation", running.context)) return { status: "denied", reason: "denied" };
-        return { status: "duplicate", view: this.viewOf(running, this.configured as Ports) };
+        if (!await this.configured.authorization.allows("provideInformation", running.context)) return { status: "denied", reason: "denied" };
+        return { status: "duplicate", view: this.viewOf(running, this.configured) };
       } catch { return { status: "denied", reason: "unavailable" }; }
     }
     if (running.replyFlights.size >= MAX_ACTIVE_CASES) return { status: "denied", reason: "rate_limited" };
-    const operation = running.replyTail.then(() => this.resumeFromInformation(running, reply, this.configured as Ports));
+    const operation = running.replyTail.then(() => this.resumeFromInformation(running, reply, this.configured));
     running.replyFlights.set(reply.eventRef, operation);
     running.replyTail = operation.then(() => {}, () => {});
     try { return await operation; } finally { running.replyFlights.delete(reply.eventRef); this.releaseCase(running); }
@@ -455,7 +455,7 @@ export class Troubleshooting {
   private auditFailure(context: CallContext, action: string, stage: "intent" | "complete"): void {
     const running = this.cases.get(context.caseRef);
     if (!running || this.retentionClosed()) return;
-    const ports = this.configured as Ports;
+    const ports = this.configured;
     if (running.view.state === "investigating" || running.view.state === "awaiting_input") {
       running.view = { ...running.view, state: "stopped", stopReason: "audit_unavailable" };
       this.endPhase(running, "stopped", ports);
@@ -572,7 +572,7 @@ export class Troubleshooting {
   // Host cancellation ends only this caller's wait; the shared record operation retains its bounded slot until it settles.
   private async restoredView(actor: TrustedActor, caseRef: string, action: "cancel" | "provideInformation" | "get",
     signal?: AbortSignal, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>): Promise<StoredCase | null> {
-    const ports = this.configured as Ports;
+    const ports = this.configured;
     if (this.retentionClosed() || signal?.aborted || !actor || typeof caseRef !== "string" || !caseRef) return null;
     const key = JSON.stringify([actor.principalRef, actor.tenantRef, actor.destinationRef, caseRef, action]);
     let flight = this.terminalReads.get(key);
@@ -638,14 +638,14 @@ export class Troubleshooting {
   }
 
   private async denied(actor: TrustedActor, caseRef: string): Promise<void> {
-    const ports = this.configured as Ports;
+    const ports = this.configured;
     try { await recordDenial(ports.audit, deniedContext(actor, caseRef, ports)); } catch { /* no disclosure follows denial */ }
   }
 
   async cancel(actor: TrustedActor, caseRef: string, signal?: AbortSignal): Promise<CaseView | { readonly status: "denied" }> {
     if (this.retentionClosed()) return { status: "denied" };
     const running = this.cases.get(caseRef);
-    const ports = this.configured as Ports;
+    const ports = this.configured;
     if (!running) { const view = await this.terminalView(actor, caseRef, "cancel", undefined, signal); return view?.view ?? { status: "denied" }; }
     if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {
@@ -665,7 +665,7 @@ export class Troubleshooting {
   async get(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>, signal?: AbortSignal): Promise<CaseView | { readonly status: "denied" }> {
     if (this.retentionClosed()) return { status: "denied" };
     const running = this.cases.get(caseRef);
-    const ports = this.configured as Ports;
+    const ports = this.configured;
     if (!running) {
       const saved = await this.restoredView(actor, caseRef, "get", signal, beforeDisclose);
       return saved?.view ?? { status: "denied" };
@@ -690,8 +690,8 @@ export class Troubleshooting {
     const phasePspCustomerId = running.pspCustomerId;
     const phasePspBoundAt = running.pspBoundAt;
     const psp = phaseInbound.input.scenario === "psp";
-    const sourceRef = psp ? this.pspResources!.sourceRef : "simulator-source";
-    const repositoryRef = psp ? this.pspResources!.repositoryRef : "simulator-source";
+    const sourceRef = psp && this.scope.psp ? this.scope.psp.sourceRef : "simulator-source";
+    const repositoryRef = psp && this.scope.psp ? this.scope.psp.repositoryRef : "simulator-source";
     const repositoryRefs = caseRepositories(phaseContext.resourceRefs);
     const investigation = running.investigation;
     let observation: SimulatorObservation | null = null;
@@ -723,9 +723,9 @@ export class Troubleshooting {
       const cap = action === "model.generate" ? MODEL_CALL_MS : ["logs.read", "code.search", "code.snippet", "code.trace"].includes(action) ? TOOL_CALL_MS : CASE_EXECUTION_MS;
       const context = Object.freeze({ ...(attempt ? { ...phaseContext, callId: attempt.callId, operationRef: attempt.operationRef } : contextFor(action)),
         deadline: Math.min(phaseContext.deadline, attempt?.deadline ?? ports.clock.now() + cap) });
-      const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef, ...this.scope!.queryWindow, pageSize: 100 } }
+      const details: AuditDetails = action === "logs.read" ? { scope: { sourceRef, ...this.scope.queryWindow, pageSize: 100 } }
         : codeScope ? { scope: codeScope }
-        : action === "model.generate" ? { model: this.scope!.modelProfile === "local_protocol"
+        : action === "model.generate" ? { model: this.scope.modelProfile === "local_protocol"
           ? { profile: "local_protocol", protocol: "synthetic-responses-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
           : { profile: "memory_mock", protocol: "mock-json-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "offline-model-1" } }
         : {};
@@ -855,14 +855,14 @@ export class Troubleshooting {
             sourceRef, ...(psp && selectedShopId ? { shopId: selectedShopId } : {}),
             ...(psp && selectedBindingId ? { bindingId: selectedBindingId } : {}), ...(selectedApplicationId !== undefined
               ? { applicationId: selectedApplicationId } : { customerId: phaseInbound.input.customerId! }),
-            from: this.scope!.queryWindow.from, to: this.scope!.queryWindow.to, pageSize: 100,
+            from: this.scope.queryWindow.from, to: this.scope.queryWindow.to, pageSize: 100,
           });
           assertCurrent();
           if (ports.clock.now() >= context.deadline) throw new Error("timeout");
           if (!Array.isArray(result.evidence)) throw new Error("schema_mismatch");
-          const windowKey = `${this.scope!.queryWindow.from}/${this.scope!.queryWindow.to}`;
+          const windowKey = `${this.scope.queryWindow.from}/${this.scope.queryWindow.to}`;
           const newCoverage = running.coverageWindows.has(windowKey) ? 0
-            : Date.parse(this.scope!.queryWindow.to) - Date.parse(this.scope!.queryWindow.from);
+            : Date.parse(this.scope.queryWindow.to) - Date.parse(this.scope.queryWindow.from);
           running.coverageWindows.add(windowKey);
           running.view = { ...running.view, usage: { ...running.view.usage,
             logRecords: running.view.usage.logRecords + result.evidence.length,
@@ -988,8 +988,8 @@ export class Troubleshooting {
                 if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
                 if (prepared) throw new Error("contract_unverified");
                 prepared = true;
-                validateModelEnvelope(turn, request, this.scope!.modelPolicy);
-                if (request.profile !== (this.scope!.modelProfile ?? "memory_mock")) throw new Error("contract_unverified");
+                validateModelEnvelope(turn, request, this.scope.modelPolicy);
+                if (request.profile !== (this.scope.modelProfile ?? "memory_mock")) throw new Error("contract_unverified");
                 if (!ports.sanitization.safe(request)) throw new Error("unsafe_content");
                 envelope = structuredClone(request);
                 if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS) throw new Error("budget_exhausted");
