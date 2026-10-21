@@ -107,3 +107,5 @@ BAU_IMAGE_INVENTORY=/tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7e
 Pi 上游 42 项声明 TS1543 与已批准的窄 `skipLibCheck:true` 限制继续保留；项目与自有完整声明闭包、正负 consumer 分别验证，不冒称 Pi 全部声明已通过。许可证原文 CRLF/末尾空行的整段原始 `git diff --check` 退出 2 也保留历史事实，不规范化原文或散列来伪造通过。本轮自身 diff 检查单独执行。原 Teams deadline 测试的历史间歇首败和根因未证实记录保持原样。
 
 不添加/升级依赖，继续固定 Pi1.3.0、Teams2.1.1、MCP1.32.1、CBM0.12.1、Node24.22.0。Docker `--iidfile` 的语义核对官方 [build 参考](https://docs.docker.com/reference/cli/docker/image/build/)；CBM 的完整性解释仍以固定实际制品和本地协议结果为准，[官方仓库](https://github.com/DeusData/codebase-memory-mcp) 的 best-effort 描述不证明历史业务执行。既有第三方许可证适用性、发布来源关联及实际部署的安全/版本重核条件仍见历史交付，不由本轮 synthetic 检查解除。
+
+后继复审 F01–F03 的修复与新制品证据见 [71050d2 复审修复](rereview-71050d2.md)；本文件的检查点和收据保留为历史记录。
