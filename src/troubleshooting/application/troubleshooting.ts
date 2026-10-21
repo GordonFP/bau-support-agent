@@ -71,6 +71,7 @@ export class Troubleshooting {
   private readonly controlWork = new Set<Promise<unknown>>();
   private readonly terminalReads = new Map<string, { deadline: number; work: Promise<{ saved: StoredCase; owner: SavedContext; current: () => void } | null> }>();
   private readonly disclosureWork = new Set<Promise<void>>();
+  private admissionCloseFailed = false;
   private hostClosed = false;
   private closing?: Promise<void>;
   private readonly auditBoundary?: AuditBoundary;
@@ -110,7 +111,7 @@ export class Troubleshooting {
       while (this.controlWork.size) await Promise.allSettled([...this.controlWork]);
       const closed = await Promise.allSettled(active.flatMap((running) => [Promise.resolve().then(() => ports.agent.abort(running.context.caseRef, running.context.phaseId)),
         this.closePhase(running, running.context, ports), ...running.closures.values(), ...running.replyFlights.values()]));
-      if (cleanupFailed || closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
+      if (cleanupFailed || this.admissionCloseFailed || closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
     })();
   }
 
@@ -330,7 +331,10 @@ export class Troubleshooting {
       void this.investigate(running, ports);
       return { status: "accepted", view: structuredClone(view) };
     } finally {
-      if (running.view.state === "completed" || running.view.state === "stopped") void this.trackControl(this.closePhase(running, context, ports)).catch(() => {});
+      if (running.view.state === "completed" || running.view.state === "stopped") {
+        const closing = this.closePhase(running, context, ports).catch((error) => { this.admissionCloseFailed = true; throw error; });
+        void this.trackControl(closing).catch(() => {});
+      }
     }
   }
 

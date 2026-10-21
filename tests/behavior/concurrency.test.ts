@@ -691,3 +691,18 @@ test("callers sharing a restored terminal query receive independent view snapsho
     const saved = await mock.ports.records.read(mock.inbound, "case-1"); assert.ok(saved?.scope === "full"); assert.equal(saved.view.phaseId, 1);
   } finally { release.resolve(); await mock.application.close(); }
 });
+
+test("shutdown cannot confirm closure when a late pre-investigation admission's original Agent close fails", async () => {
+  const mock = createMockTroubleshooting(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const confirm = mock.ports.admission.confirm;
+  mock.ports.admission.confirm = async (record) => { entered.resolve(); await release.promise; return confirm(record); };
+  let investigations = 0, closes = 0;
+  mock.ports.agent.run = async () => { investigations++; return {}; };
+  mock.ports.agent.close = async () => { closes++; throw new Error("synthetic-unconfirmed-close"); };
+  const accepting = mock.receive(); await entered.promise;
+  const closing = mock.application.close();
+  const checked = assert.rejects(closing, /unavailable/);
+  release.resolve();
+  const result = await accepting; assert.equal(result.status, "service_unavailable");
+  await checked; assert.equal(investigations, 0); assert.equal(closes, 1);
+});
