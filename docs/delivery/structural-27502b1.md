@@ -77,7 +77,34 @@ Mock 和 SQLite 以相同显式协议写入交付行与意图／完成审计；S
 
 根独立公开探针全部 exit 0，逐项观察：构建完成后的 paused cancel 为 stopped/cancelled 且 C 相同（`root-paused-terminal-666135b-after-build.log`）；原 F02/F03 为 `.500Z`、40 迟到受理 GC 前后 retained=0、调查0／close40；迟到 close 失败仍 unknown；F01 为32断开请求／1挂起原读且独立终态 HTTP200／Postman exit0；R01 拒绝仅 status，允许 status+Simulator，两次 Postman exit0。对应 `root-original-f02-f03-666135b.log`、`root-late-close-666135b.log`、`root-terminal-http-666135b.log`、`root-identity-{denied,allowed}-666135b.log`。R01 的第4次查权适配理由与上节一致；较早在构建命令仍运行时启动的同 SHA paused probe 不作为最终证据。
 
-原 native snapshot 14 项、镜像构建交错 1 项的源代码／管理器／构建脚本未变，本轮没有重复执行，不冒称本轮通过。受影响的应用／C／D／模型、PSP、共享 native 组合已按上表实际执行。新固定 archive 的真实镜像构建及容器／OCI／source 合同尚待执行；旧 77b36f7／99f75db／300c163 制品仅作历史证据，未覆盖或冒作本轮镜像。
+原 native snapshot 14 项、镜像构建交错 1 项的源代码／管理器／构建脚本未变，本轮没有重复执行，不冒称本轮通过。受影响的应用／C／D／模型、PSP、共享 native 组合已按上表实际执行。新固定 archive 的真实镜像及合同见下节；旧 77b36f7／99f75db／300c163 制品仅作历史证据，未覆盖或冒作本轮镜像。
+
+## 最终实际镜像
+
+使用默认真实 `/usr/local/bin/docker`，显式取消 BAU_IMAGE_DOCKER override，从 clean Git archive 实际重建；fresh 目录 `/tmp/bau-image-structural-275-69ff778dc9bc09fcaf6c4370f488ac6f5740cbab/` 保存 source archive／编译清单、Docker build log／iidfile／inspect／save archive、inventory、OCI layout 与 receipt。此来源相对生产检查点 `666135b` 只增加交付文档；src、management、runtime Skill、Postman、构建脚本和运行配置字节不变。
+
+| 身份 | 实际值 |
+| --- | --- |
+| Source commit / inspect revision | `69ff778dc9bc09fcaf6c4370f488ac6f5740cbab` |
+| Source archive SHA256 | `f5edb573fc2102d237ac25e5e71d07f5509ec9cc24835523e065383df6b544dd` |
+| Docker config / iidfile | `sha256:2107c36209de3b0cfd4ed5cf1bde61661798a3afb0a91ca01492263f3185bb0f` |
+| OCI manifest | `sha256:e2f439afcddca00e3e700e68fbb7f5994b40f966a3054c55f6bf620f73865faf` |
+| OCI index | `sha256:f7638e0444495a9efea9c6d96447baa7c5fb79bbcbd11767bc99f21be634ffae` |
+| Docker save archive | `sha256:da441c05d0d3e06e7861f4bac5b99cbeb20cff6e287d51006131ee4f5e8281cd` |
+| Inventory SHA256 | `228a255577c0df5d0ed9397d2e2e1533f42a9746a1bea2c63febe554eea146b0` |
+| Lock SHA256 | `e77e5783fa35a84b5d110111d337e13198bdde93b3db67453ec2ecf32db42ecc` |
+| Runtime Skill SHA256 | `e204643dabd38e47d884b5aee74846b060e18fee46a50b3a6ddfd336f3d16a69` |
+| 平台／工具链／应用清单 | `linux/arm64`、Node24.22.0、TypeScript7.0.2，71 个实际 JS 的路径／字节数／SHA256 与固定来源逐项一致。 |
+
+`final-image-build-69ff778.log` 构建 exit0；`final-image-contracts-69ff778.log` 原容器／OCI合同 **6/6，0 fail/skip**；`final-image-source-69ff778.log` source canary **1/1**。保留原非 root、无网、只读、权限／资源／存储拒绝、两场景、重复键／费用、取消／超时／未知关闭、审计故障、OCI 内容链／篡改拒绝及忽略额外 TS／陈旧 JS 的全部断言。没有使用可变 tag 作为验证身份。
+
+`final-image-verification-69ff778.json` 另记录实际 source.tar 与 Docker-save 文件流式散列复核、iidfile／inspect／receipt 同 ID、revision、source 清单／inventory 逐项相等。`final-owned-containers-69ff778.log` 与 `final-owned-volumes-69ff778.log` 均为空；仅清理合同自有资源，既有其他数据库容器／卷未动，canary 文件也已删除。没有 registry 上传、远程 pull 验证或部署。镜像来源 pin 之后只有文档收据提交，未更改生产字节。
+
+```sh
+env -u BAU_IMAGE_DOCKER node scripts/build-image.mjs /tmp/bau-image-structural-275-69ff778dc9bc09fcaf6c4370f488ac6f5740cbab
+BAU_CONTAINER_IMAGE=sha256:2107c36209de3b0cfd4ed5cf1bde61661798a3afb0a91ca01492263f3185bb0f BAU_OCI_LAYOUT=/tmp/bau-image-structural-275-69ff778dc9bc09fcaf6c4370f488ac6f5740cbab/oci node --test --test-concurrency=1 dist/tests/contracts/container-runtime.test.js dist/tests/contracts/image-oci.test.js
+BAU_IMAGE_INVENTORY=/tmp/bau-image-structural-275-69ff778dc9bc09fcaf6c4370f488ac6f5740cbab/inventory.json node --test dist/tests/contracts/image-source.test.js
+```
 
 ## 范围与限制
 
