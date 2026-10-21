@@ -301,3 +301,24 @@ for (const mixed of [false, true]) test(`future Simulator observations cannot es
   assert.equal(report.simulator.dataReadiness.satisfied, 0); assert.equal(report.simulator.calculation.succeeded, null);
   assert.match(report.limitations.join(" "), /observation time|temporal/i);
 });
+
+test("mixed UTC timestamp precision preserves the latest observation and its actual evidence references", async () => {
+  const mock = createMockTroubleshooting();
+  const read = mock.ports.logs.read;
+  mock.ports.logs.read = async (context, query) => {
+    const page = await read(context, query);
+    return { ...page, evidence: [...page.evidence.map((item) => ({ ...item, locator: "earlier", observedAt: "2026-10-18T23:00:00Z" })),
+      ...page.evidence.map((item) => ({ ...item, locator: "later", observedAt: "2026-10-18T23:00:00.500Z" }))] };
+  };
+  try {
+    await mock.receive();
+    const { report } = await mock.delivery.next();
+    assert.ok(report.facts.length > 0);
+    for (const fact of report.facts) {
+      assert.equal(fact.observedAt, "2026-10-18T23:00:00.500Z");
+      const support = report.evidence.filter((item) => fact.evidenceRefs.includes(item.evidenceRef));
+      assert.ok(support.some((item) => item.kind === "log" && item.observedAt === "2026-10-18T23:00:00.500Z"));
+      assert.equal(support.length, fact.evidenceRefs.length);
+    }
+  } finally { await mock.application.close(); }
+});

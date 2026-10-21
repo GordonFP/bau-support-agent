@@ -5,7 +5,7 @@ import { beforeDeadline, schedule } from "./deadline.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
 import type { PspObservation } from "../domain/psp.js";
 import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationQuestion, InformationReply, InformationResult, Ports, PspTargetCandidates, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
-import type { AuditDetails, CaseRecord, SavedContext } from "./records.js";
+import type { AuditDetails, CaseRecord, SavedContext, StoredCase } from "./records.js";
 import { AuditBoundary } from "./audit-boundary.js";
 import { deniedContext, recordDenial } from "./authorization-audit.js";
 import { validateModelEnvelope, validateModelResponse, validateModelTurn } from "./model-envelope.js";
@@ -69,6 +69,8 @@ export class Troubleshooting {
   private readonly persistedLookups = new Map<string, Promise<Acceptance | null>>();
   private sequence = 0;
   private readonly controlWork = new Set<Promise<unknown>>();
+  private readonly terminalReads = new Map<string, { deadline: number; work: Promise<{ saved: StoredCase; owner: SavedContext; current: () => void } | null> }>();
+  private readonly disclosureWork = new Set<Promise<void>>();
   private hostClosed = false;
   private closing?: Promise<void>;
   private readonly auditBoundary?: AuditBoundary;
@@ -294,47 +296,51 @@ export class Troubleshooting {
       admitted = true;
     } catch { return { status: "service_unavailable", reason: "unavailable" }; }
     finally { if (!admitted) { try { ports.sanitization.clear(caseRef); } catch { /* candidate was not accepted */ } } }
-    if (this.retentionClosed()) {
-      controller.abort(); investigation.stop(); investigation.forget();
-      running.view = { ...running.view, state: "stopped", stopReason: "cancelled", phases: running.view.phases.map((value) => ({ ...value, endedAt: ports.clock.utc(), outcome: "stopped" })) };
-      try { ports.sanitization.clear(caseRef); } catch { /* the closed candidate remains inaccessible */ }
-      try { await ports.records.append(context, { recordRef: `${caseRef}:view:closed-admission`, schemaVersion: 1, kind: "view", payload: running.view }); } catch { /* expired storage may already be closed; restart still cannot restore work */ }
-      await ports.admission.release(caseRef);
-      return { status: "service_unavailable", reason: "cancelled" };
-    }
-    this.cases.set(caseRef, running);
-    if (controller.signal.aborted || ports.clock.now() >= context.deadline) {
-      running.view = { ...running.view, state: "stopped", stopReason: "timeout" };
-      this.endPhase(running, "stopped", ports);
-      this.acceptances.set(key, Promise.resolve({ status: "duplicate", view: this.viewOf(running, ports) }));
-      return { status: "service_unavailable", reason: "timeout" };
-    }
-    try { await ports.audit.complete(context, "accept", "accepted"); }
-    catch {
+    try {
+      if (this.retentionClosed()) {
+        controller.abort(); investigation.stop(); investigation.forget();
+        running.view = { ...running.view, state: "stopped", stopReason: "cancelled", phases: running.view.phases.map((value) => ({ ...value, endedAt: ports.clock.utc(), outcome: "stopped" })) };
+        try { ports.sanitization.clear(caseRef); } catch { /* the closed candidate remains inaccessible */ }
+        try { await ports.records.append(context, { recordRef: `${caseRef}:view:closed-admission`, schemaVersion: 1, kind: "view", payload: running.view }); } catch { /* expired storage may already be closed; restart still cannot restore work */ }
+        await ports.admission.release(caseRef);
+        return { status: "service_unavailable", reason: "cancelled" };
+      }
+      this.cases.set(caseRef, running);
+      if (controller.signal.aborted || ports.clock.now() >= context.deadline) {
+        running.view = { ...running.view, state: "stopped", stopReason: "timeout" };
+        this.endPhase(running, "stopped", ports);
+        this.acceptances.set(key, Promise.resolve({ status: "duplicate", view: this.viewOf(running, ports) }));
+        return { status: "service_unavailable", reason: "timeout" };
+      }
+      try { await ports.audit.complete(context, "accept", "accepted"); }
+      catch {
+        if (running.view.state === "stopped") return { status: "service_unavailable", reason: running.view.stopReason ?? "unavailable" };
+        running.view = { ...running.view, state: "stopped", stopReason: "audit_unavailable" };
+        this.endPhase(running, "stopped", ports);
+        return { status: "service_unavailable", reason: "audit_unavailable" };
+      }
       if (running.view.state === "stopped") return { status: "service_unavailable", reason: running.view.stopReason ?? "unavailable" };
-      running.view = { ...running.view, state: "stopped", stopReason: "audit_unavailable" };
-      this.endPhase(running, "stopped", ports);
-      return { status: "service_unavailable", reason: "audit_unavailable" };
+      if (controller.signal.aborted || ports.clock.now() >= context.deadline) {
+        running.view = { ...running.view, state: "stopped", stopReason: "timeout" };
+        this.endPhase(running, "stopped", ports);
+        return { status: "service_unavailable", reason: "timeout" };
+      }
+      this.armDeadline(running, ports);
+      // The inbound caller receives acceptance independently of investigation completion.
+      void this.investigate(running, ports);
+      return { status: "accepted", view: structuredClone(view) };
+    } finally {
+      if (running.view.state === "completed" || running.view.state === "stopped") void this.trackControl(this.closePhase(running, context, ports)).catch(() => {});
     }
-    if (running.view.state === "stopped") return { status: "service_unavailable", reason: running.view.stopReason ?? "unavailable" };
-    if (controller.signal.aborted || ports.clock.now() >= context.deadline) {
-      running.view = { ...running.view, state: "stopped", stopReason: "timeout" };
-      this.endPhase(running, "stopped", ports);
-      return { status: "service_unavailable", reason: "timeout" };
-    }
-    this.armDeadline(running, ports);
-    // The inbound caller receives acceptance independently of investigation completion.
-    void this.investigate(running, ports);
-    return { status: "accepted", view: structuredClone(view) };
   }
 
-  async provideInformation(reply: InformationReply): Promise<InformationResult> {
+  async provideInformation(reply: InformationReply, signal?: AbortSignal): Promise<InformationResult> {
     if (this.retentionClosed()) return { status: "denied", reason: "denied" };
     if (!boundedBody({ reply: reply?.reply, content: reply?.content })) return { status: "denied", reason: "invalid_request" };
     try { reply = structuredClone(reply); } catch { return { status: "denied", reason: "invalid_request" }; }
     const running = this.cases.get(reply?.reply?.caseRef);
     if (!running) {
-      const saved = await this.terminalView(reply, reply?.reply?.caseRef, "provideInformation", reply?.eventRef);
+      const saved = await this.terminalView(reply, reply?.reply?.caseRef, "provideInformation", reply?.eventRef, signal);
       return saved ? saved.duplicate ? { status: "duplicate", view: saved.view } : { status: "terminal", view: saved.view, newCaseRequired: true } : { status: "denied", reason: "denied" };
     }
     if (!running || reply.principalRef !== running.context.principalRef || reply.tenantRef !== running.context.tenantRef ||
@@ -480,7 +486,7 @@ export class Troubleshooting {
       try { ports.sanitization.clear(running.context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
       delete running.candidates; delete running.pspCandidates; delete running.pspCustomerId; delete running.pspBoundAt;
-      void ports.admission.release(running.context.caseRef).catch(() => {});
+      void this.trackWork(running, running.context.phaseId, Promise.resolve().then(() => ports.admission.release(running.context.caseRef))).catch(() => {});
     }
     const context = running.context;
     const record: CaseRecord = { recordRef: `${context.caseRef}:view:${++running.recordSequence}`,
@@ -559,18 +565,68 @@ export class Troubleshooting {
     running.replyEvents.clear(); running.coverageWindows.clear(); running.closures.clear(); running.aborts.clear(); running.stopping.clear();
   }
 
-  private async terminalView(actor: TrustedActor, caseRef: string, action: "cancel" | "provideInformation", eventRef?: string): Promise<{ view: CaseView; duplicate: boolean } | null> {
+  // Host cancellation ends only this caller's wait; the shared record operation retains its bounded slot until it settles.
+  private async restoredView(actor: TrustedActor, caseRef: string, action: "cancel" | "provideInformation" | "get",
+    signal?: AbortSignal, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>): Promise<StoredCase | null> {
     const ports = this.configured as Ports;
-    let authority: SavedContext | undefined;
+    if (this.retentionClosed() || signal?.aborted || !actor || typeof caseRef !== "string" || !caseRef) return null;
+    const key = JSON.stringify([actor.principalRef, actor.tenantRef, actor.destinationRef, caseRef, action]);
+    let flight = this.terminalReads.get(key);
+    if (!flight) {
+      if (this.terminalReads.size >= MAX_ACTIVE_CASES) return null;
+      const deadline = ports.clock.now() + CLEANUP_MS;
+      const check = () => { if (this.retentionClosed() || ports.clock.now() >= deadline) throw new Error("denied"); };
+      const work = this.trackControl((async () => {
+        let owner: SavedContext | undefined;
+        let resourceCurrent: (() => void) | undefined;
+        const saved = await ports.records.read(actor, caseRef, async (current, authority) => {
+          check(); owner = authority; resourceCurrent = current;
+          if (actor.principalRef !== owner.principalRef || actor.tenantRef !== owner.tenantRef || actor.destinationRef !== owner.destinationRef ||
+            !await ports.authorization.allows(action, owner)) throw new Error("denied");
+          check();
+          if (action === "get") {
+            const context = { ...owner, callId: `${caseRef}:get:${randomUUID()}`, deadline, signal: new AbortController().signal };
+            await ports.audit.intent(context, "get"); check(); await ports.audit.complete(context, "get", "allowed"); check();
+          }
+        });
+        check();
+        if (!owner || !resourceCurrent || saved?.scope !== "full") return null;
+        const authority = owner, resource = resourceCurrent;
+        const current = () => { check(); resource(); if (ports.authorization.current && ports.authorization.current(action, authority) !== true) throw new Error("denied"); };
+        current();
+        return { saved, owner: authority, current };
+      })().catch(() => null));
+      flight = { deadline, work };
+      this.terminalReads.set(key, flight);
+      void work.finally(() => { if (this.terminalReads.get(key)?.work === work) this.terminalReads.delete(key); }).catch(() => {});
+    }
     try {
-      const saved = await ports.records.read(actor, caseRef, async (_current, owner) => {
-        authority = owner;
-        if (!actor || actor.principalRef !== owner.principalRef || actor.tenantRef !== owner.tenantRef || actor.destinationRef !== owner.destinationRef ||
-          !await ports.authorization.allows(action, owner)) throw new Error("denied");
-      });
-      if (this.retentionClosed() || !authority || ports.authorization.current && ports.authorization.current(action, authority) !== true || saved?.scope !== "full" || !["completed", "stopped"].includes(saved.view.state)) return null;
-      return { view: saved.view, duplicate: !!eventRef && saved.audits.some((item) => item.action === "provideInformation" && item.stage === "complete" && item.outcome === "resumed" && item.callId === `${caseRef}:reply:${eventRef}`) };
+      return await beforeDeadline(ports.clock, flight.deadline, async () => {
+        const result = await flight.work;
+        if (!result) return null;
+        const current = () => { if (signal?.aborted) throw new Error("denied"); result.current(); };
+        current();
+        if (beforeDisclose) {
+          if (this.disclosureWork.size >= MAX_ACTIVE_CASES) return null;
+          const disclosure = this.trackControl(Promise.resolve().then(async () => {
+            try { current(); await beforeDisclose(current, result.owner); current(); }
+            catch { await recordDenial(ports.audit, deniedContext(actor, caseRef, ports)); throw new Error("denied"); }
+          }));
+          this.disclosureWork.add(disclosure);
+          const ended = () => { this.disclosureWork.delete(disclosure); };
+          void disclosure.then(ended, ended);
+          await disclosure;
+        }
+        current();
+        return result.saved;
+      }, signal);
     } catch { return null; }
+  }
+
+  private async terminalView(actor: TrustedActor, caseRef: string, action: "cancel" | "provideInformation", eventRef?: string, signal?: AbortSignal): Promise<{ view: CaseView; duplicate: boolean } | null> {
+    const saved = await this.restoredView(actor, caseRef, action, signal);
+    if (!saved || !["completed", "stopped"].includes(saved.view.state)) return null;
+    return { view: saved.view, duplicate: !!eventRef && saved.audits.some((item) => item.action === "provideInformation" && item.stage === "complete" && item.outcome === "resumed" && item.callId === `${caseRef}:reply:${eventRef}`) };
   }
 
   private owns(actor: TrustedActor, running: RunningCase): boolean {
@@ -582,11 +638,11 @@ export class Troubleshooting {
     try { await recordDenial(ports.audit, deniedContext(actor, caseRef, ports)); } catch { /* no disclosure follows denial */ }
   }
 
-  async cancel(actor: TrustedActor, caseRef: string): Promise<CaseView | { readonly status: "denied" }> {
+  async cancel(actor: TrustedActor, caseRef: string, signal?: AbortSignal): Promise<CaseView | { readonly status: "denied" }> {
     if (this.retentionClosed()) return { status: "denied" };
     const running = this.cases.get(caseRef);
     const ports = this.configured as Ports;
-    if (!running) { const view = await this.terminalView(actor, caseRef, "cancel"); return view?.view ?? { status: "denied" }; }
+    if (!running) { const view = await this.terminalView(actor, caseRef, "cancel", undefined, signal); return view?.view ?? { status: "denied" }; }
     if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {
       if (!await ports.authorization.allows("cancel", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
@@ -602,24 +658,13 @@ export class Troubleshooting {
     } catch { return { status: "denied" }; }
   }
 
-  async get(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>): Promise<CaseView | { readonly status: "denied" }> {
+  async get(actor: TrustedActor, caseRef: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>, signal?: AbortSignal): Promise<CaseView | { readonly status: "denied" }> {
     if (this.retentionClosed()) return { status: "denied" };
     const running = this.cases.get(caseRef);
     const ports = this.configured as Ports;
     if (!running) {
-      try {
-        let authority: SavedContext | undefined;
-        const saved = await ports.records.read(actor, caseRef, async (resourceCurrent, owner) => {
-          authority = owner;
-          if (!actor || actor.principalRef !== owner.principalRef || actor.tenantRef !== owner.tenantRef || actor.destinationRef !== owner.destinationRef ||
-            !await ports.authorization.allows("get", owner)) throw new Error("denied");
-          const context = { ...owner, callId: `${caseRef}:get:${randomUUID()}`, deadline: ports.clock.now() + CLEANUP_MS, signal: new AbortController().signal };
-          await ports.audit.intent(context, "get"); await ports.audit.complete(context, "get", "allowed");
-          await beforeDisclose?.(() => { if (this.retentionClosed()) throw new Error("denied"); resourceCurrent(); if (ports.authorization.current && ports.authorization.current("get", owner) !== true) throw new Error("denied"); }, owner);
-        });
-        return !this.retentionClosed() && authority && (!ports.authorization.current || ports.authorization.current("get", authority) === true) && saved?.view ? saved.view : { status: "denied" };
-      }
-      catch { return { status: "denied" }; }
+      const saved = await this.restoredView(actor, caseRef, "get", signal, beforeDisclose);
+      return saved?.view ?? { status: "denied" };
     }
     if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {

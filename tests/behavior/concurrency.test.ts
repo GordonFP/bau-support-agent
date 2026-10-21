@@ -591,3 +591,88 @@ test("released terminal A operations keep owner and action authorization indepen
   assert.equal((await mock.application.provideInformation({ ...mock.inbound, reply: { caseRef: "case-1", questionId: "old" }, content: {} })).status, "denied");
   assert.equal((await mock.receive()).status, "denied");
 });
+
+for (const control of ["confirmation", "accepted-audit"] as const) test(`late admission ${control} releases forty pre-investigation terminal contexts after its original work settles`, async () => {
+  const { execFile } = await import("node:child_process"), { promisify } = await import("node:util");
+  const result = await promisify(execFile)(process.execPath, ["--expose-gc", new URL("../fixtures/late-admission-release.js", import.meta.url).pathname, control], { timeout: 10_000 });
+  const saved = JSON.parse(result.stdout) as { retained: number; view: { state: string; stopReason: string }; duplicate: { status: string }; investigations: number; closes: number };
+  assert.equal(saved.retained, 0);
+  assert.equal(saved.view.state, "stopped"); assert.equal(saved.view.stopReason, "timeout"); assert.equal(saved.duplicate.status, "duplicate");
+  assert.equal(saved.investigations, 0); assert.equal(saved.closes, 40);
+});
+
+for (const action of ["cancel", "provideInformation", "get"] as const) test(`released terminal ${action} shares its original read and ends local waiting at five seconds`, async () => {
+  const clock = new ManualClock(), mock = createMockTroubleshooting({ clock });
+  await mock.receive(); await mock.closed; await new Promise(setImmediate);
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const allows = mock.ports.authorization.allows;
+  let reads = 0, answered = 0;
+  mock.ports.authorization.allows = async (operation, context) => {
+    if (operation === "records.read") { reads++; entered.resolve(); await release.promise; }
+    return allows(operation, context);
+  };
+  const invoke = () => action === "provideInformation"
+    ? mock.application.provideInformation({ ...mock.inbound, eventRef: `terminal-${answered}`, reply: { caseRef: "case-1", questionId: "old" }, content: {} })
+    : mock.application[action](mock.inbound, "case-1");
+  const pending = Array.from({ length: 32 }, () => invoke().then((result) => { answered++; return result; }));
+  try {
+    await entered.promise; await new Promise(setImmediate); clock.advance(5_000); await new Promise(setImmediate);
+    assert.equal(answered, 32, "callers must stop waiting while their original read remains unresolved");
+    assert.equal(reads, 1, "same actor, case and action share one unresolved record read");
+    assert.ok((await Promise.all(pending)).every((result) => "status" in result && result.status === "denied"));
+    release.resolve(); for (let turn = 0; turn < 4; turn++) await new Promise(setImmediate);
+    const fresh = await invoke();
+    assert.ok("state" in fresh || "status" in fresh && fresh.status === "terminal", "after the original read settles, a fresh authorization can disclose the saved terminal view");
+  } finally { release.resolve(); await Promise.all(pending); await mock.application.close(); }
+});
+
+test("cancelling one restored caller leaves the shared original read and another authorized caller intact", async () => {
+  const mock = createMockTroubleshooting();
+  await mock.receive(); await mock.closed; await new Promise(setImmediate);
+  const release = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>(), controller = new AbortController();
+  const read = mock.ports.records.read;
+  let reads = 0, secondAnswered = false;
+  mock.ports.records.read = async (...args) => { reads++; entered.resolve(); await release.promise; return read(...args); };
+  const first = mock.application.cancel(mock.inbound, "case-1", controller.signal);
+  const second = mock.application.cancel(mock.inbound, "case-1").then((result) => { secondAnswered = true; return result; });
+  try {
+    await entered.promise; controller.abort();
+    assert.deepEqual(await first, { status: "denied" }); assert.equal(secondAnswered, false); assert.equal(reads, 1);
+    release.resolve();
+    const saved = await second; assert.ok("state" in saved); assert.equal(saved.state, "completed");
+    assert.equal(reads, 1);
+  } finally { release.resolve(); await Promise.all([first, second]); await mock.application.close(); }
+});
+
+test("expired distinct restored reads retain a finite capacity and shutdown ownership until their original operations settle", async () => {
+  const clock = new ManualClock(), mock = createMockTroubleshooting({ clock });
+  const release = Promise.withResolvers<void>(), read = mock.ports.records.read;
+  let reads = 0, closed = false;
+  mock.ports.records.read = async (...args) => { reads++; await release.promise; return read(...args); };
+  const pending = Array.from({ length: 32 }, (_, index) => mock.application.get(mock.inbound, `missing-${index}`));
+  await new Promise(setImmediate); clock.advance(5_000);
+  try {
+    assert.ok((await Promise.all(pending)).every((result) => "status" in result && result.status === "denied"));
+    assert.deepEqual(await mock.application.get(mock.inbound, "one-more"), { status: "denied" }); assert.equal(reads, 32);
+    const closing = mock.application.close().then(() => { closed = true; });
+    await new Promise(setImmediate); clock.advance(5_000); await new Promise(setImmediate); assert.equal(closed, false);
+    release.resolve(); await closing; assert.equal(closed, true);
+  } finally { release.resolve(); await mock.application.close(); }
+});
+
+test("timed out restored disclosure callbacks remain bounded and owned until their original host work settles", async () => {
+  const clock = new ManualClock(), mock = createMockTroubleshooting({ clock });
+  await mock.receive(); await mock.closed; await new Promise(setImmediate);
+  const release = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+  let disclosures = 0, closed = false;
+  const beforeDisclose = async () => { if (++disclosures === 32) entered.resolve(); await release.promise; };
+  const pending = Array.from({ length: 32 }, () => mock.application.get(mock.inbound, "case-1", beforeDisclose));
+  try {
+    await entered.promise; clock.advance(5_000);
+    assert.ok((await Promise.all(pending)).every((result) => "status" in result && result.status === "denied"));
+    assert.deepEqual(await mock.application.get(mock.inbound, "case-1", beforeDisclose), { status: "denied" }); assert.equal(disclosures, 32);
+    const closing = mock.application.close().then(() => { closed = true; });
+    await new Promise(setImmediate); assert.equal(closed, false);
+    release.resolve(); await closing; assert.equal(closed, true);
+  } finally { release.resolve(); await mock.application.close(); }
+});

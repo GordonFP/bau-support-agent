@@ -179,7 +179,7 @@ export class TroubleshootingCase {
     const temporalConflict = logEvidence.length !== supporting.length;
     if (!logEvidence.length || temporalConflict) observation = null;
     const logRefs = temporalConflict ? [] : logEvidence.map((item) => item.evidenceRef);
-    const observedAt = logEvidence.reduce<string | null>((latest, item) => item.observedAt && (!latest || item.observedAt > latest) ? item.observedAt : latest, null);
+    const observedAt = logEvidence.reduce<string | null>((latest, item) => item.observedAt && (!latest || Date.parse(item.observedAt) > Date.parse(latest)) ? item.observedAt : latest, null);
     const limitations = ["Synthetic Mock evidence; actual source fields, SDKs and diagnostic quality are unverified.",
       "A fixed code snapshot does not prove the historical production deployment version."];
     if (temporalConflict) limitations.push("Observation time is unknown or after report formation; this temporal conflict cannot support structured results.");

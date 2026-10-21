@@ -47,7 +47,7 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
           const view = await services.application.get(lease.mapping.actor, lease.response.caseRef, async (resourceCurrent) => {
             const identityCurrent = await wire.prove(lease.mapping!, services.ports.clock.now() + 5_000, lease.signal);
             lease.responseGate = () => { identityCurrent(); resourceCurrent(); };
-          });
+          }, lease.signal);
           if (!("state" in view) || !lease.responseGate) throw new Error("denied");
         }
         lease.responseGate();
@@ -82,19 +82,19 @@ export async function createLocalTeamsHost(configuration: TeamsConfiguration, se
         const question = wire.questions.get(receiptRef);
         if (!question || question.destinationRef !== mapping.actor.destinationRef || question.caseRef !== information.data.caseRef || question.questionId !== information.data.questionId) throw new Error("denied");
         const result = await services.application.provideInformation({ ...mapping.actor, eventRef: createHash("sha256").update(lease.activity.id).digest("hex"),
-          receivedAt: lease.receivedAt, reply: { caseRef: question.caseRef, questionId: question.questionId }, content: information.data.content });
+          receivedAt: lease.receivedAt, reply: { caseRef: question.caseRef, questionId: question.questionId }, content: information.data.content }, lease.signal);
         lease.response = "view" in result ? { status: result.status, caseRef: result.view.caseRef, phaseId: result.view.phaseId } : { status: "denied" };
         return;
       }
       const cancel = cancelCommand.safeParse(raw);
       if (cancel.success) {
-        const view = await services.application.cancel(mapping.actor, cancel.data.caseRef);
+        const view = await services.application.cancel(mapping.actor, cancel.data.caseRef, lease.signal);
         lease.response = "state" in view ? { status: "case", caseRef: view.caseRef, phaseId: view.phaseId, state: view.state, deliveryStatus: view.deliveryStatus } : { status: "denied" };
         return;
       }
       const query = getCommand.safeParse(raw);
       if (query.success) {
-        const view = await services.application.get(mapping.actor, query.data.caseRef, async (resourceCurrent) => { const identityCurrent = await wire.prove(mapping, services.ports.clock.now() + 5_000, lease.signal); lease.responseGate = () => { identityCurrent(); resourceCurrent(); }; });
+        const view = await services.application.get(mapping.actor, query.data.caseRef, async (resourceCurrent) => { const identityCurrent = await wire.prove(mapping, services.ports.clock.now() + 5_000, lease.signal); lease.responseGate = () => { identityCurrent(); resourceCurrent(); }; }, lease.signal);
         lease.response = "state" in view ? { status: "case", caseRef: view.caseRef, phaseId: view.phaseId, state: view.state, deliveryStatus: view.deliveryStatus } : { status: "denied" };
         return;
       }

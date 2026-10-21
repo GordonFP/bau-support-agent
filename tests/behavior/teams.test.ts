@@ -471,10 +471,50 @@ test("a restored SQLite query cannot disclose case metadata after application cl
     const allows = restored.ports.authorization.allows; let reads = 0;
     restored.ports.authorization.allows = async (action, context) => { if (action === "records.read" && ++reads === 2) { held.resolve(); await release.promise; } return allows(action, context); };
     const querying = post({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-1" })), id: "restored-query-close" });
-    await held.promise; await restored.application.close(); release.resolve();
+    await held.promise; let closed = false; const closing = restored.application.close().then(() => { closed = true; });
+    await new Promise(setImmediate); assert.equal(closed, false, "shutdown retains the original final authorization read"); release.resolve(); await closing;
     assert.deepEqual(await (await querying).json(), { status: "denied" });
     assert.deepEqual(await restored.application.get(service.mapping.actor, "case-1"), { status: "denied" });
     assert.equal(service.writes.length, 2, "closing and restored queries never send another status or report");
     assert.equal(await host.stop(), "closed");
   } finally { release.resolve(); await host?.stop(); store?.close(); await service.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("thirty-two disconnected terminal cancels share one original read and leave HTTP slots available while shutdown stays unknown", { timeout: 10_000 }, async () => {
+  const { ManualClock } = await import("../fixtures/clock.js");
+  const clock = new ManualClock(), mock = createMockTroubleshooting({ clock }), service = await teamsServices();
+  for (let index = 0; index < 2; index++) {
+    const accepted = await mock.receive({ eventRef: `terminal-prepared-${index}` }); assert.ok("view" in accepted);
+    await mock.phaseClosed(1, accepted.view.caseRef); for (let turn = 0; turn < 4; turn++) await new Promise(setImmediate);
+  }
+  const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
+  const release = Promise.withResolvers<void>(), authenticated = Promise.withResolvers<void>(), firstRead = Promise.withResolvers<void>();
+  const allows = mock.ports.authorization.allows;
+  let identities = 0, reads = 0;
+  mock.ports.authorization.allows = async (action, context) => {
+    if (action === "teams.identity" && ++identities === 32) authenticated.resolve();
+    if (action === "records.read" && "caseRef" in context && context.caseRef === "case-1") { reads++; firstRead.resolve(); await release.promise; }
+    return allows(action, context);
+  };
+  const controllers: AbortController[] = [], requests: Promise<unknown>[] = [];
+  let barrierTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await host.start();
+    for (let index = 0; index < 32; index++) {
+      const controller = new AbortController(); controllers.push(controller);
+      requests.push(fetch(host.url, { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` },
+        body: JSON.stringify({ ...service.activity(JSON.stringify({ action: "cancel", caseRef: "case-1" })), id: `terminal-disconnect-${index}` }) }).catch(() => null));
+    }
+    await Promise.race([Promise.all([authenticated.promise, firstRead.promise]), new Promise<never>((_resolve, reject) => { barrierTimer = setTimeout(() => reject(new Error("synthetic_ingress_barrier")), 5_000); })]);
+    clearTimeout(barrierTimer);
+    for (let turn = 0; turn < 4; turn++) await new Promise(setImmediate);
+    for (const controller of controllers) controller.abort(); await Promise.allSettled(requests);
+    for (let turn = 0; turn < 8; turn++) await new Promise(setImmediate);
+    const response = await fetch(host.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` },
+      body: JSON.stringify({ ...service.activity(JSON.stringify({ action: "get", caseRef: "case-2" })), id: "unaffected-terminal-query" }) });
+    assert.equal(response.status, 200); assert.deepEqual(await response.json(), { status: "case", caseRef: "case-2", phaseId: 1, state: "completed", deliveryStatus: "delivered" });
+    assert.equal(reads, 1);
+    const stopping = host.stop(); await new Promise(setImmediate); clock.advance(5_000); assert.equal(await stopping, "unknown");
+    release.resolve(); for (let turn = 0; turn < 8; turn++) await new Promise(setImmediate); assert.equal(await host.stop(), "closed");
+  } finally { clearTimeout(barrierTimer); release.resolve(); for (const controller of controllers) controller.abort(); await Promise.allSettled(requests); await host.stop(); await service.close(); }
 });
