@@ -355,14 +355,17 @@ test("D caps sockets before headers instead of retaining an unlimited pre-parse 
 
 test("incoming byte progress cannot extend the absolute pre-parse read deadline", async () => {
   const { createConnection } = await import("node:net"); const { ManualClock } = await import("../fixtures/clock.js");
-  const clock = new ManualClock(); const service = await teamsServices(); const mock = createMockTroubleshooting({ clock });
+  const clock = new ManualClock(), timerRegistered = Promise.withResolvers<void>();
+  const schedule = clock.schedule;
+  clock.schedule = (deadline, callback) => { const cancel = schedule(deadline, callback); if (deadline === 5_000) timerRegistered.resolve(); return cancel; };
+  const service = await teamsServices(); const mock = createMockTroubleshooting({ clock });
   const host = await createLocalTeamsHost(service.configuration, { application: mock.application, ports: mock.ports });
   let socket: import("node:net").Socket | undefined;
   try {
     await host.start(); socket = createConnection({ host: "127.0.0.1", port: Number(new URL(host.url).port) }); socket.on("error", () => {}); await once(socket, "connect"); socket.resume();
     const closed = new Promise<void>((resolve) => socket!.once("close", () => resolve()));
     socket.write("POST /api/messages HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{");
-    await new Promise(setImmediate); clock.advance(4_999); socket.write(" "); await new Promise(setImmediate); clock.advance(1);
+    await timerRegistered.promise; clock.advance(4_999); socket.write(" "); await new Promise(setImmediate); clock.advance(1);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try { await Promise.race([closed, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("raw_read_deadline_reset")), 100); })]); }
     finally { clearTimeout(timer); }

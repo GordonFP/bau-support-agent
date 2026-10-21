@@ -8,6 +8,10 @@ const clock = { now: () => elapsed, utc: () => new Date(Date.parse("2026-10-19T0
 const tick = () => new Promise(setImmediate);
 const signals: WeakRef<AbortSignal>[] = [];
 const mock = createMockTroubleshooting({ clock });
+const run = mock.ports.agent.run, close = mock.ports.agent.close;
+let investigations = 0, closes = 0;
+mock.ports.agent.run = async (...args) => { investigations++; return run(...args); };
+mock.ports.agent.close = async (...args) => { await close(...args); closes++; };
 const confirm = mock.ports.admission.confirm;
 const complete = mock.ports.audit.complete;
 const allows = mock.ports.authorization.allows;
@@ -36,6 +40,5 @@ await tick();
 const retained = signals.filter((signal) => signal.deref()).length;
 const view = await mock.application.get(mock.inbound, "case-40");
 const duplicate = await mock.receive({ eventRef: "late-confirm-39" });
-process.stdout.write(JSON.stringify({ retained, view, duplicate, investigations: mock.events.filter((event) => event.action === "logs.read").length,
-  closes: mock.events.filter((event) => event.action === "agent.close").length }));
+process.stdout.write(JSON.stringify({ retained, view, duplicate, investigations, closes }));
 await mock.application.close();
