@@ -7,16 +7,18 @@
 | 项目 | 原结构 | 当前所有者与不变量 |
 | --- | --- | --- |
 | CQ05 就绪依赖 | 主类长期持有 Partial Ports、可选 scope，多处断言重建依赖完整性。 | 构造入口一次返回完整依赖与验证 scope，或不可用原因；不可用 A façade 保留 service_unavailable／denied 及超限输入优先级。业务实现只持有完整 Ports，queryWindow／资源／模型能力归自身所有。模型能力 enabled／disabled 单独表达，缺模型政策仍只在模型发送准备时拒绝，不提前拒绝可检索案件。 |
-| CQ01 轮次资源 | work、aborts、closures、closedPhases、stopping 五组集合对账，并另存 admissionCloseFailed。 | PhaseExecution 独占 immutable context／controller、原始 producer／children、一次 abort、唯一 close promise 与关闭结果；RunningCase 只按 phaseId 索引 owner。HostExecutions 持有受理前原操作、恢复读取／披露原操作以及关闭失败的 owner。工厂在开工前检查 sealed 状态；close 动态等待所有原工作与最终 abort 后封口。调查 raw producer 与关闭 finalizer 分开，避免自等；业务终态、本地等候结束和真正 settled 保持独立。 |
+| CQ01 轮次资源 | work、aborts、closures、closedPhases、stopping 五组集合对账，并另存 admissionCloseFailed。 | PhaseExecution 独占 immutable context／controller、原始 producer／children、一次 abort、唯一 close promise 与关闭结果；RunningCase 只按 phaseId 索引 owner。HostExecutions 持有受理前原操作、恢复读取／披露原操作以及关闭失败的 owner；CaseControls 持有轮次封口后仍合法的案件终止写入、释放、审计及安全通知。工厂在开工前检查 sealed 状态；close 动态等待所有原工作与最终 abort 后封口。调查 raw producer 与关闭 finalizer 分开，避免自等；业务终态、本地等候结束和真正 settled 保持独立。 |
 | CQ03 模型执行 | 通用 guarded 用 action 字符串解释模型元数据、记录、费用；重试依赖异常对象身份。 | ModelExecution.generate 独占准备、准入、输入记录、预留、实际发送、最终／未知结算与一次网络重试，复用 PhaseExecution 原工作跟踪。每次尝试独立计数及 callId，共用原 60 秒期限和案件／POC 账本。guarded 无模型分支、费用结算或 networkFailure 身份协议。 |
 | CQ02 场景目标 | 两组候选、PSP customer／boundAt／日期及多组 selected raw/ref 平行字段。 | SimulatorTarget、PspTarget 各持 locating／choosing／fixed 判别状态；候选和固定目标将 raw 标识与同案安全引用配对保存。自动唯一选择和补问提交共用 selectCandidate。补问先取得纯选择值，预算与审计成功后才 commit，暂时失败不会消耗选择。直接 PSP observation 也固定完整客户／申请／店铺／绑定／boundAt。领域仍维护 Simulator 完整提交店铺／业务日期及 PSP 绑定不漂移。 |
 | CQ04 交付账本 | D 读取完整案件并扫描 audits；通用 auditInsert 根据 action/details 隐式写 deliveries；通信自建完成回调。 | C deliveryLedger 显式 begin／complete／read，统一 legacy binding 编码、票据、pending／complete 判定与原子审计。D 只消费类型化收据、opaque binding 和 C 确认位，不读完整记录或扫描审计。单次 dispatch claim 与完成确认都只持独立布尔位，不持案件、context 或 ALS Promise。固定审计故障提示仍独立限容 32，不伪造 durable completion。 |
 
-本轮生产源码检查点为 `1e03afd183939939e3a4c2d978825f668cd477b8`。此时主编排文件由 1051 行降至 907 行；新增 dependencies 44、PhaseExecution／HostExecutions 91、ModelExecution 105、SimulatorTarget 67、PspTarget 87、交付账本 122 行。行数是定位材料，结构验收依据是上表被删除的并行状态和隐含协议，不以搬文件或行数评分替代。
+首个复审生产检查点为 `1e03afd183939939e3a4c2d978825f668cd477b8`；独立复审后的最新代码为 `666135b5700b78379954f28d5d6a1ae7462c6e5a`。最新主编排文件由 1051 行降至 910 行；dependencies 44、PhaseExecution／HostExecutions／CaseControls 105、ModelExecution 105、SimulatorTarget 67、PspTarget 87、交付账本 126 行。行数是定位材料，结构验收依据是上表被删除的并行状态和隐含协议，不以搬文件或行数评分替代。
 
 ## C／D 契约
 
-`deliveryLedger.begin(context, {kind, deliveryKey, segment, binding})` 产生 new ticket，或 existing receipt；同 key 不同绑定为 binding_mismatch，不发新票据。每个新票据的 dispatch.claim 仅一次成功；完成 bit 只在 C 完成事务提交后为 true。complete 只接受 status／receiptRef，拒绝额外字段、非字符串或非 64 位十六进制收据；相同完成幂等，矛盾完成拒绝。
+`deliveryLedger.begin(context, {kind, deliveryKey, segment, binding})` 产生 new ticket，或 existing receipt；同 key 不同绑定为 binding_mismatch，不发新票据。每个新票据的 dispatch.claim 仅一次成功；完成 bit 只在 C 完成事务提交后为 true。complete 只接受 status／receiptRef，拒绝额外字段、非字符串或非 64 位十六进制收据；相同完成幂等，矛盾完成拒绝；同 kind 的 callId 不得绑定另一个 deliveryKey／segment，该不变量由共用 C 实现检查，两 adapter 拒绝语义一致。
+
+D 尝试通过 state 判别 new(ticket)／existing(bindingRef, receipt)／fault，删除三个平行可选字段及 ticketless 恢复分支；所有支持的历史结果均走同一个最终资源／身份 fence，固定故障提示另限容。
 
 read 按 actor、caseRef、deliveryKey、segment、bindingRef 返回 absent／pending／complete／binding_mismatch 或拒绝的 null。查询先快照，沿用 records.read 的 requester／technical 完整读取授权，业务复核角色无此权限；保留资源、当前授权与 retention 披露检查。拒绝／故障不当作 absent。C 只读取案件 authority 和对应交付行；历史 stage 只在 C 内用对应 callId 的审计元数据判定，D 不承担格式兼容。begin 也独立校验当前动作授权，不能靠调用顺序获得结果恢复权限。
 
@@ -45,9 +47,20 @@ Mock 和 SQLite 以相同显式协议写入交付行与意图／完成审计；S
 
 中间失败未记通过：50k 输入小于原 65536 字节上限，首个新增 fixture 的 invalid_request 期望错误，改为 70k；首次 C/D fixture 沿用通用 audit hook／缺新 ticket，两个 final-write gate 等不到并触发 20 秒测试宿主 timeout，该次自有测试进程被停止，随后等价迁移到确认的 C/D 接口。另一次 SQLite 矛盾完成校验在通用事务安全错误转换后成为 audit_unavailable，现将同步检查与写入事务保持相邻且不跨 await，保留 invalid_request；原子审计失败仍为 audit_unavailable。首次单次 claim 检查错误用于独立 fault 路径，原固定提示回归拒绝该变化，已限定为常规交付票据后复验 88/88。未降低业务 deadline、容量、费用、权限、GC 或未知结果断言。
 
+## 独立复审与增量修正
+
+三份固定 `1e03afd` 报告分别为 `review-spec-1e03afd.md`、`review-standards-1e03afd.md`、`review-depth-1e03afd.md`。结构轴认可 CQ02–CQ05 的职责转移，但确认 CQ01 的封口轮次仍被用于后续案件终结；Spec 另指出 D 两条持久恢复返回缺最终 fence，以及两 C adapter 同 callId 换 key 的失败语义不一致；Standards 建议把新的平行可选 D 字段收为判别状态。上述四项均在 `666135b` 修正，没有重开已 closed phase。
+
+- `paused-terminal-red.log`：原 phase 真正关闭后，cancel 返回 denied，补问预算耗尽也返回 denied。CaseControls 改为宿主跟踪的案件控制 owner 后两条 GREEN；`case-controls-expanded-green.log` **146/146**，包括 PSP 同路径、持有终态 append 时 host.close 仍 pending／释放后 closed、Agent.close 不增加，以及 Mock／实际 Teams 各 40 个等待补问后取消案件 GC retained=0、close=40，实际 Teams 仅 120 条预期通知。
+- `delivery-operation-red.log`：同 callId 改 deliveryKey，Mock 错误发第二张新票，SQLite 返回 audit_unavailable；统一 C 操作绑定检查后 `delivery-operation-green.log` 两 adapter 均为 invalid_request，第二交付行／意图不存在。既有“同 key 改绑定”仍返回显式 binding_mismatch；最初过宽的校验使原两项收据合同失败（`delivery-state-green.log`，90/92），已收窄并重验。
+- `delivery-recovery-red.log`：4096 项缓存后挂起 C 收据读取，撤回 identity／resource，再返回 delivered 收据，两条原分支仍披露 delivered。统一 recover 后两条均 failed，额外物理 POST 为 0；new／existing／fault 判别状态同时删除了无票据的模糊恢复路径，缺 state 的 JS 输入在共同入口安全拒绝。
+- `review-fixes-final-green.log`：最新源码的相关 A／C／D、场景、phase、retention／bootstrap **238/238，0 fail/skip**；`review-fixes-typecheck.log`／`review-fixes-build.log` 通过，repair `git diff --check` 通过。
+
+根代理的 `root-checks-1e03afd.md` 另保留中间源码 macOS／受限 Linux 各 **515/515**、自有完整严格闭包、Pi／Teams 正负 consumer、Teams 本地互操作、原 F01／F02／F03 与迟到关闭失败探针结果。R01 探针明确把最终查权触发从第 3 次适配到第 4 次，因为 C ledger 新增一次查权；拒绝时只有 status，允许时 status+Simulator。这些是中间证据，不作为 `666135b` 的最终源证明，也没有用全套通过覆盖后来发现的 paused-cancel 缺口。
+
 ## 待最终核验
 
-当前检查点正等待独立 Spec／Standards／结构复核；全套 macOS／受限 Linux、完整自有严格闭包、Pi／Teams 正负 consumer、实际本地互操作／协议／joined 合同，以及新固定 Git archive 的真实镜像／OCI／source 合同尚未在此最终检查点执行，不记通过。镜像构建将在源码复核收敛后执行，旧 77b36f7／99f75db／300c163 制品仅作历史证据，未覆盖或冒作本轮镜像。
+`666135b` 正等待独立 Spec／Standards／结构增量复核；全套 macOS／受限 Linux、完整自有严格闭包、Pi／Teams 正负 consumer、实际本地互操作／协议／joined 合同，以及新固定 Git archive 的真实镜像／OCI／source 合同尚未在此最终检查点执行，不记通过。镜像构建将在源码复核收敛后执行，旧 77b36f7／99f75db／300c163 制品仅作历史证据，未覆盖或冒作本轮镜像。
 
 ## 范围与限制
 
