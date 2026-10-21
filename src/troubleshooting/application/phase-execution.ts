@@ -15,7 +15,7 @@ export class PhaseExecution {
   get closed(): boolean { return this.outcome === "closed" && this.work.size === 0; }
   get failed(): boolean { return this.outcome === "failed"; }
 
-  activate(): void { this.activated = true; }
+  activate(): void { if (this.outcome !== "open") throw new Error("cancelled"); this.activated = true; }
 
   // A producer may add children while closing. A closed owner is sealed before any factory can start work.
   produce<T>(operation: () => Promise<T>): Promise<T> {
@@ -49,8 +49,13 @@ export class PhaseExecution {
         (async () => { while (this.work.size) await Promise.allSettled([...this.work]); })(),
       ]);
       // Children (including abort) can be registered by a still-running producer after close began.
-      while (this.work.size) await Promise.allSettled([...this.work]);
-      const abort = await Promise.allSettled([this.aborting]);
+      let abort: PromiseSettledResult<void | undefined>[];
+      for (;;) {
+        while (this.work.size) await Promise.allSettled([...this.work]);
+        const originalAbort = this.aborting;
+        abort = await Promise.allSettled([originalAbort]);
+        if (!this.work.size && originalAbort === this.aborting) break;
+      }
       this.outcome = [...results, ...abort].some((result) => result.status === "rejected") ? "failed" : "closed";
       this.settled(this); this.changed();
       if (this.failed) throw new Error("unavailable");

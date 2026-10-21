@@ -72,7 +72,7 @@ async function postcall(profileName: Profile, persistence: "mock" | "sqlite", mo
   const mock = createMockTroubleshooting({ controlPorts: (ports) => {
     if (persistence === "mock") return {};
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
   } });
   const server = await kibanaServer((_body, response) => {
     const row = logRow(); if (mode !== "revoked") row._source.application_id = "foreign-application";

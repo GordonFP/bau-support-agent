@@ -5,7 +5,7 @@ import { beforeDeadline, schedule } from "./deadline.js";
 import type { DiagnosticReport, SimulatorObservation } from "../domain/simulator.js";
 import { SimulatorTarget, type LogRead } from "./simulator-target.js";
 import { PspTarget } from "./psp-target.js";
-import type { Acceptance, ApplicationCandidates, CallContext, CaseView, InformationQuestion, InformationReply, InformationResult, Ports, PspTargetCandidates, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
+import type { Acceptance, CallContext, CaseView, InformationQuestion, InformationReply, InformationResult, Ports, ReadResult, SafeReason, TrustedActor, VerifiedInbound } from "./ports.js";
 import type { AuditDetails, CaseRecord, SavedContext, StoredCase } from "./records.js";
 import { AuditBoundary } from "./audit-boundary.js";
 import { deniedContext, recordDenial } from "./authorization-audit.js";
@@ -86,10 +86,10 @@ class ReadyTroubleshooting {
   private readonly disclosureWork = new Set<Promise<void>>();
   private hostClosed = false;
   private closing?: Promise<void>;
-  private readonly auditBoundary?: AuditBoundary;
+  private readonly auditBoundary: AuditBoundary;
   constructor(private configured: Ports, private readonly scope: ReadyScope) {
     this.auditBoundary = new AuditBoundary(configured.audit, (context, action, stage) => this.auditFailure(context, action, stage));
-    this.configured = { ...configured, audit: this.auditBoundary.port };
+    this.configured = { ...configured, audit: this.auditBoundary.port, deliveryLedger: this.auditBoundary.deliveryLedger(configured.deliveryLedger) };
     this.configured.retention?.onClose(() => this.close());
   }
 
@@ -152,8 +152,8 @@ class ReadyTroubleshooting {
       } catch { return { status: "service_unavailable", reason: "unavailable" }; }
     }
     let admissionPhase: ReturnType<typeof phaseWindow> | undefined;
-    if (this.configured.admission?.lookup) {
-      try { if (this.configured.clock) admissionPhase = phaseWindow(this.configured.clock); }
+    if (this.configured.admission.lookup) {
+      try { admissionPhase = phaseWindow(this.configured.clock); }
       catch { return { status: "service_unavailable", reason: "unavailable" }; }
       const duplicate = await this.persistedDuplicate(inbound, key, undefined, admissionPhase?.deadline);
       if (duplicate) return duplicate;
@@ -181,7 +181,7 @@ class ReadyTroubleshooting {
     const previous = this.persistedLookups.get(flightKey);
     if (previous) return previous;
     const ports = this.configured;
-    if (!ports.clock || !ports.records || this.persistedLookups.size + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) {
+    if (this.persistedLookups.size + this.pendingAdmissions.size >= MAX_ACTIVE_CASES) {
       return { status: "service_unavailable", reason: "unavailable" };
     }
     const deadline = originalDeadline ?? ports.clock.now() + CASE_EXECUTION_MS;
@@ -377,8 +377,8 @@ class ReadyTroubleshooting {
       }
       if (running.view.state !== "awaiting_input" || running.view.question?.questionId !== reply.reply.questionId ||
         !reply.eventRef || !Number.isFinite(Date.parse(reply.receivedAt))) return { status: "denied", reason: "invalid_request" };
-      const target = running.target;
-      if (!target || !target.select(reply.content)) {
+      const selection = running.target?.select(reply.content);
+      if (!selection) {
         running.replyEvents.add(reply.eventRef);
         return { status: "needs_information", view: this.viewOf(running, ports) };
       }
@@ -395,7 +395,8 @@ class ReadyTroubleshooting {
       await ports.audit.intent(context, "provideInformation");
       await ports.audit.complete(context, "provideInformation", "resumed");
       if (running.view.state !== "awaiting_input") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
-      if (target.applicationRef) running.investigation.selectTarget(target.applicationRef);
+      selection.commit();
+      running.investigation.selectTarget(selection.applicationRef);
       const phaseId = running.investigation.resume();
       const controller = new AbortController();
       const phase = phaseWindow(ports.clock);
@@ -429,7 +430,7 @@ class ReadyTroubleshooting {
 
   private async saveRecord(running: RunningCase, context: CallContext, ports: Ports, record: CaseRecord): Promise<void> {
     try { await ports.records.append(context, record); }
-    catch { this.auditBoundary?.fail(context, "records.append", "complete"); throw new Error("audit_unavailable"); }
+    catch { this.auditBoundary.fail(context, "records.append", "complete"); throw new Error("audit_unavailable"); }
   }
 
   private trackWork<T>(running: RunningCase, phaseId: number, task: () => Promise<T>): Promise<T> {
@@ -485,7 +486,7 @@ class ReadyTroubleshooting {
     const record: CaseRecord = { recordRef: `${context.caseRef}:view:${++running.recordSequence}`,
       schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) };
     void this.trackWork(running, context.phaseId, () => Promise.resolve().then(() => ports.records.append(context, record)).then(() => { if (outcome !== "awaiting_input") running.terminalSaved = true; }))
-      .catch(() => this.auditBoundary?.fail(context, "records.append", "complete"));
+      .catch(() => this.auditBoundary.fail(context, "records.append", "complete"));
   }
 
   private armDeadline(running: RunningCase, ports: Ports): void {
@@ -505,7 +506,7 @@ class ReadyTroubleshooting {
   private stopPhase(running: RunningCase, context: CallContext, reason: string, ports: Ports): Promise<void> {
     const deadline = running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS;
     return this.execution(running, context.phaseId).stop(() => beforeDeadline(ports.clock, deadline, async () => {
-      if (this.auditBoundary?.hasLost(context.caseRef)) {
+      if (this.auditBoundary.hasLost(context.caseRef)) {
         const abort = this.execution(running, context.phaseId).abort();
         void this.execution(running, context.phaseId).close().catch(() => {});
         await abort;
@@ -617,7 +618,7 @@ class ReadyTroubleshooting {
       this.endPhase(running, "stopped", ports);
       const notification = { ...context, deadline: running.cleanupDeadline!, signal: new AbortController().signal };
       const status = this.trackWork(running, context.phaseId, () => sendNotice(ports, notification,
-        { kind: "status", state: "stopped", caseRef }, () => { if (this.retentionClosed() || this.auditBoundary?.hasLost(caseRef) || this.execution(running).context.phaseId !== context.phaseId) throw new Error("cancelled"); }));
+        { kind: "status", state: "stopped", caseRef }, () => { if (this.retentionClosed() || this.auditBoundary.hasLost(caseRef) || this.execution(running).context.phaseId !== context.phaseId) throw new Error("cancelled"); }));
       await Promise.allSettled([this.stopPhase(running, context, "cancel", ports), beforeDeadline(ports.clock, notification.deadline, () => status)]);
       return this.viewOf(running, ports);
     } catch { return { status: "denied" }; }
@@ -668,7 +669,7 @@ class ReadyTroubleshooting {
     let safeInput: VerifiedInbound["input"];
     const assertCurrent = (allowEnded = false) => {
       if (this.retentionClosed()) throw new Error("cancelled");
-      if (this.auditBoundary?.hasLost(phaseContext.caseRef)) throw new Error("audit_unavailable");
+      if (this.auditBoundary.hasLost(phaseContext.caseRef)) throw new Error("audit_unavailable");
       if ((!allowEnded && !investigation.isCurrentPhase(phaseContext.phaseId)) || phaseController.signal.aborted || this.execution(running).context.phaseId !== phaseContext.phaseId) throw new Error("cancelled");
     };
     const contextFor = (action: string): CallContext => Object.freeze({ ...phaseContext, callId: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${action}:${++callSequence}` });
@@ -696,7 +697,7 @@ class ReadyTroubleshooting {
         try { output = await operation(context); }
         catch (error) {
           if (error instanceof Error && error.message === "audit_unavailable") {
-            this.auditBoundary?.fail(context, action, "complete");
+            this.auditBoundary.fail(context, action, "complete");
             throw new Error("audit_unavailable");
           }
           try { await ports.audit.complete(context, action, discarded() ? "discarded" : "failed"); } catch { throw new Error("audit_unavailable"); }

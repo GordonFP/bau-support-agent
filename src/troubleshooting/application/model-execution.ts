@@ -50,12 +50,12 @@ export class ModelExecution {
       try {
         if (!ports.sanitization.safe(turn)) throw new Error("unsafe_content");
         validateModelTurn(turn);
-        response = await ports.model.generate(context, turn, async (request) => {
+        try { response = await ports.model.generate(context, turn, async (request) => {
           check();
           if (lifecycle.state !== "preparing") throw new Error("contract_unverified");
           if (this.scope.model.state !== "enabled") throw new Error("contract_unverified");
           validateModelEnvelope(turn, request, this.scope.model.policy);
-          if (request.profile !== (this.scope.model.profile ?? "memory_mock")) throw new Error("contract_unverified");
+          if (request.profile !== this.scope.model.profile) throw new Error("contract_unverified");
           if (!ports.sanitization.safe(request)) throw new Error("unsafe_content");
           const envelope = structuredClone(request);
           lifecycle = { state: "prepared", envelope };
@@ -66,24 +66,21 @@ export class ModelExecution {
           })) throw new Error("budget_exhausted");
           lifecycle = { state: "reserved", envelope };
           check();
-        });
-      } catch (error) {
-        if (lifecycle.state === "reserved") await ports.budget.settle(context,
-          error instanceof ModelFailure ? error.charge?.actualMicrousd ?? null : null,
-          { execution: error instanceof ModelFailure ? error.execution : "unknown", source: error instanceof ModelFailure ? error.charge?.source ?? "unknown" : "unknown" });
-        if (error instanceof Error && error.message === "audit_unavailable") throw error;
-        await ports.audit.complete(context, "model.generate", discarded() ? "discarded" : "failed");
-        throw error;
-      }
-      if (lifecycle.state !== "reserved") throw new Error("contract_unverified");
-      const envelope = lifecycle.envelope;
-      const usageSource = response.usageSource ?? (response.actualMicrousd !== null && response.actualMicrousd > 0 ? "mock_usage" : "unknown");
-      await ports.budget.settle(context, response.actualMicrousd, { execution: "ended", source: usageSource });
-      try {
+        }); } catch (error) {
+          if (lifecycle.state === "reserved") await ports.budget.settle(context,
+            error instanceof ModelFailure ? error.charge?.actualMicrousd ?? null : null,
+            { execution: error instanceof ModelFailure ? error.execution : "unknown", source: error instanceof ModelFailure ? error.charge?.source ?? "unknown" : "unknown" });
+          throw error;
+        }
+        if (lifecycle.state !== "reserved") throw new Error("contract_unverified");
+        const envelope = lifecycle.envelope;
+        const usageSource = response.usageSource ?? (response.actualMicrousd !== null && response.actualMicrousd > 0 ? "mock_usage" : "unknown");
+        await ports.budget.settle(context, response.actualMicrousd, { execution: "ended", source: usageSource });
         if (["mock_usage", "upstream_usage"].includes(usageSource) && response.actualMicrousd !== null && response.actualMicrousd > envelope.planning.reservationMicrousd) throw new Error("contract_unverified");
         validateModelResponse(response);
         if (!ports.sanitization.safe(response)) throw new Error("unsafe_content");
       } catch (error) {
+        if (error instanceof Error && error.message === "audit_unavailable") throw error;
         await ports.audit.complete(context, "model.generate", discarded() ? "discarded" : "failed");
         throw error;
       }

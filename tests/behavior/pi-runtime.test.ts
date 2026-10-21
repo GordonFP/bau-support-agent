@@ -335,7 +335,7 @@ test("settled native SDK cleanup permits deletion while two externally unknown a
   let store: SqliteRecords | undefined;
   const { mock, pi } = await nativeTroubleshooting(server.baseUrl, { clock, lifecycleActors: [actor], controlPorts: (ports) => {
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
   } });
   const calls: CallContext[] = [];
   const generate = mock.ports.model.generate;

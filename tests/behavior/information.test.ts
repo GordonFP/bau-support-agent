@@ -551,3 +551,15 @@ for (const count of [1, 2]) test(`customer selection with ${count} candidates us
   const view = await mock.application.get(mock.inbound, "case-1"); assert.ok("state" in view); assert.equal(view.state, "completed");
   const report = (await mock.delivery.next()).report; assert.ok(report.scene === "simulator"); assert.equal(report.simulator.submittedOn, "2026-10-19");
 });
+
+test("a transient budget read failure does not consume a valid target selection before clarification commits", async () => {
+  const mock = createMockTroubleshooting({ customerCandidates: candidates });
+  try {
+    await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why?" } }); await mock.phaseClosed(1);
+    const status = mock.ports.budget.status; let fail = true;
+    mock.ports.budget.status = async (caseRef) => { if (fail) { fail = false; throw new Error("unavailable"); } return status(caseRef); };
+    assert.deepEqual(await mock.application.provideInformation(trustedReply({ submittedAt: candidates[0]!.submittedAt })), { status: "denied", reason: "unavailable" });
+    assert.equal((await mock.application.provideInformation(trustedReply({ submittedAt: candidates[0]!.submittedAt }, "reply-retry"))).status, "resumed");
+    await mock.phaseClosed(2);
+  } finally { await mock.application.close(); }
+});

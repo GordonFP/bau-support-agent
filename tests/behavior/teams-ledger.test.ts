@@ -9,11 +9,18 @@ import { createMockTroubleshooting } from "../../src/adapters/mock/troubleshooti
 import type { DeliveryAttempt, DeliveryResult } from "../../src/troubleshooting/application/communication.js";
 import type { DeliveryRecord } from "../../src/troubleshooting/application/records.js";
 
+function ticket(caseRef: string, destinationRef: string, text: string, confirmed: () => boolean = () => false) {
+  let claimed = false;
+  const bindingRef = createHash("sha256").update(JSON.stringify([destinationRef, caseRef, 1, text])).digest("hex");
+  return { bindingRef, ticket: { caseRef, deliveryKey: `${caseRef}:report:1`, segment: 1, bindingRef, callId: `${caseRef}:send`, kind: "report" as const, dispatch: { claim: () => { if (claimed) return false; claimed = true; return true; } }, completion: { get confirmed() { return confirmed(); } } } };
+}
+
 test("D bounded delivery cache reconciles completed entries with C without exhausting lifetime sends or replaying old keys", async () => {
   const services = await teamsServices(), mock = createMockTroubleshooting();
-  const ledger = new Map<string, DeliveryRecord>(); let writes = 0, current = 0;
-  const attempt = (index: number): DeliveryAttempt => ({ caseRef: `case-${index}`, phaseId: 1, segment: 1, total: 1, text: "safe status", deadline: 5_000, signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {} });
-  mock.ports.records.read = async (_actor, caseRef) => { const entry = ledger.get(caseRef); return { scope: "full", view: {} as never, records: [], deliveries: entry ? [entry] : [], audits: entry ? [{ stage: "complete", action: "delivery.send", delivery: { deliveryKey: entry.deliveryKey, segment: 1 }, callId: entry.callId }] : [] }; };
+  const ledger = new Map<string, DeliveryRecord>(), pendingKeys = new Set<string>(), attempts = new Map<number, DeliveryAttempt>(); let writes = 0, current = 0;
+  const attempt = (index: number): DeliveryAttempt => { const previous = attempts.get(index); if (previous) return previous; const created = { caseRef: `case-${index}`, phaseId: 1, segment: 1, total: 1, text: "safe status", ...ticket(`case-${index}`, services.mapping.actor.destinationRef, "safe status"), deadline: 5_000, signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {} }; attempts.set(index, created); return created; };
+  mock.ports.deliveryLedger.read = async (_actor, query) => { if (pendingKeys.has(query.caseRef)) return { state: "pending" }; const entry = ledger.get(query.caseRef); return entry ? entry.bindingRef === query.bindingRef
+    ? { state: "complete", result: { status: entry.status, ...(entry.receiptRef ? { receiptRef: entry.receiptRef } : {}) } } : { state: "binding_mismatch" } : { state: "absent" }; };
   const wire = teamsWire(services.configuration, mock.ports);
   // The SDK send is the external transport stand-in; C is an independent persisted-result stand-in.
   wire.bind({ send: async () => {
@@ -26,13 +33,16 @@ test("D bounded delivery cache reconciles completed entries with C without exhau
   try {
     for (let index = 0; index < 4_100; index++) { current = index; const result = await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, `case-${index}:report:1`, attempt(index)); assert.equal(typeof result === "object" ? result.status : result, "delivered"); if (index === 0) { first = result; ledger.delete("case-0"); } }
     assert.equal(writes, 4_100);
+    pendingKeys.add("case-1");
+    assert.equal(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-1:report:1", attempt(1)), "unknown");
+    assert.equal(writes, 4_100, "an evicted original pending ticket never gains another physical dispatch");
     ledger.set("case-unknown", { schemaVersion: 1, caseRef: "case-unknown", deliveryKey: "case-unknown:report:1", segment: 1, callId: "prior-unknown", status: "unknown",
       bindingRef: createHash("sha256").update(JSON.stringify([services.mapping.actor.destinationRef, "case-unknown", 1, "safe status"])).digest("hex") });
-    for (const repeat of [1, 2]) { void repeat; assert.deepEqual(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-unknown:report:1", { ...attempt(0), caseRef: "case-unknown" }), { status: "unknown" }); }
+    for (const repeat of [1, 2]) { void repeat; assert.deepEqual(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-unknown:report:1", { ...attempt(0), caseRef: "case-unknown", ...ticket("case-unknown", services.mapping.actor.destinationRef, "safe status") }), { status: "unknown" }); }
     assert.equal(writes, 4_100);
     assert.deepEqual(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-0:report:1", attempt(0)), first);
     assert.equal(writes, 4_100);
-    assert.equal(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-0:report:1", { ...attempt(0), text: "changed" }), "failed"); assert.equal(writes, 4_100);
+    assert.equal(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-0:report:1", { ...attempt(0), text: "changed", ...ticket("case-0", services.mapping.actor.destinationRef, "changed") }), "failed"); assert.equal(writes, 4_100);
   } finally { await wire.close(); await services.close(); }
 });
 
@@ -41,14 +51,14 @@ test("D can retire durably completed old sends after every old requester loses C
   const mock = createMockTroubleshooting({ authorizedActors: [oldActor, newActor] }), committed = new Set<string>();
   const configuration = { ...service.configuration, mappings: [service.mapping, { ...service.mapping, userId: "synthetic-user-2", oid: "synthetic-oid-2", conversationId: "synthetic-conversation-2", actor: newActor }] };
   let writes = 0, oldReads = 0;
-  mock.ports.records.read = async (actor, caseRef) => {
+  mock.ports.deliveryLedger.read = async (actor, _query) => {
     if (actor.principalRef === oldActor.principalRef) { oldReads++; return null; }
-    return { scope: "full", view: {} as never, records: [], audits: [], deliveries: [] };
+    return { state: "absent" };
   };
   const wire = teamsWire(configuration, mock.ports);
   wire.bind({ send: async () => { writes++; return { id: `receipt-${writes}` }; } } as unknown as App, {} as never);
   const attempt = (caseRef: string) => ({ caseRef, phaseId: 1, segment: 1, total: 1, text: "safe status", deadline: 5_000,
-    signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {}, durablyCompleted: () => committed.has(caseRef) });
+    signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {}, ...ticket(caseRef, caseRef.startsWith("old-") ? oldActor.destinationRef : newActor.destinationRef, "safe status", () => committed.has(caseRef)) });
   try {
     for (let index = 0; index < 4_096; index++) { const ref = `old-${index}`; await wire.delivery.send(oldActor.destinationRef, {} as never, `${ref}:report:1`, attempt(ref)); committed.add(ref); }
     const next = await wire.delivery.send(newActor.destinationRef, {} as never, "new-1:report:1", attempt("new-1"));
@@ -69,7 +79,7 @@ test("D isolates unaudited fixed fault capacity so historical faults cannot disa
     return { id: `receipt-${writes}` };
   } } as unknown as App, { validateAccessToken: async () => ({ aud: configuration.user.audience, iss: configuration.user.issuer, tid: service.mapping.tenantId,
     oid: service.mapping.oid, scp: "access_as_user", exp: Date.now() / 1000 + 300 }) } as never);
-  const attempt = (caseRef: string, text: string): DeliveryAttempt => ({ caseRef, phaseId: 1, segment: 1, total: 1, text, deadline: 5_000,
+  const attempt = (caseRef: string, text: string): DeliveryAttempt => ({ caseRef, phaseId: 1, segment: 1, total: 1, text, ...ticket(caseRef, service.mapping.actor.destinationRef, text), deadline: 5_000,
     signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {} });
   try {
     assert.equal(await wire.delivery.fault(service.mapping.actor.destinationRef, notice, "fault-0:audit-fault", attempt("fault-0", notice)), "unknown");

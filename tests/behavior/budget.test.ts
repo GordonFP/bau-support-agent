@@ -322,7 +322,7 @@ test("a reported actual charge above the proven reservation is retained truthful
   const boot = () => createMockTroubleshooting({ model: async (_context, draft) => { providerCalls++; return { candidate: draft, actualMicrousd: 250_000 }; },
     controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, records: store.records, budget: store.budget, audit: store.audit };
+      return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, budget: store.budget, audit: store.audit };
     } });
   try {
     const first = boot();

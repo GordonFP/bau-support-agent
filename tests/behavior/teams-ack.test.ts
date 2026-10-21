@@ -92,6 +92,7 @@ for (const waitingAction of ["delivery.send", "teams.identity"] as const) test(`
     await host.start();
     const sending = mock.ports.delivery.send(service.mapping.actor.destinationRef, {} as never, "case-1:report:1", {
       caseRef: "case-1", phaseId: 1, segment: 1, total: 1, text: "Synthetic report.", deadline: 5_000, signal: new AbortController().signal,
+      bindingRef: "a".repeat(64), ticket: { caseRef: "case-1", deliveryKey: "case-1:report:1", segment: 1, bindingRef: "a".repeat(64), callId: "case-1:send", kind: "report", dispatch: { claim: () => true }, completion: { confirmed: false } },
       beforeWrite: async () => { if (!await mock.ports.authorization.allows("delivery.send", authority)) throw new Error("denied"); },
       current: () => { if (mock.ports.authorization.current!("delivery.send", authority) !== true) throw new Error("denied"); },
     });
@@ -129,7 +130,7 @@ test("restored Teams query keeps the identity fence current during final SQLite 
   const directory = await mkdtemp(join(tmpdir(), "bau-teams-current-"));
   const service = await teamsServices(), denyActions: string[] = [];
   let store: InstanceType<typeof SqliteRecords> | undefined, host: Awaited<ReturnType<typeof createLocalTeamsHost>> | undefined;
-  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, audit: store.audit, admission: store.admission, budget: store.budget }; };
+  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, admission: store.admission, budget: store.budget }; };
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   const post = (body: unknown) => fetch(host!.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
   try {

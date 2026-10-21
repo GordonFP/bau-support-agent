@@ -15,7 +15,7 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} C assi
     controlPorts: (ports) => {
       if (!durable) return {};
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, audit: store.audit, records: store.records, budget: store.budget };
+      return { admission: store.admission, audit: store.audit, records: store.records, deliveryLedger: store.deliveryLedger, budget: store.budget };
     } });
   try {
     await mock.receive();
@@ -40,7 +40,7 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} C tech
   const mock = createMockTroubleshooting({ recordGrants: grants, denyActions, controlPorts: (ports) => {
     if (!durable) return {};
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, audit: store.audit, records: store.records, budget: store.budget };
+    return { admission: store.admission, audit: store.audit, records: store.records, deliveryLedger: store.deliveryLedger, budget: store.budget };
   } });
   try {
     await mock.receive(); await mock.closed;
@@ -84,7 +84,7 @@ for (const durable of [false, true]) for (const operation of ["read", "export"] 
   const mock = createMockTroubleshooting({ recordGrants: grants, controlPorts: (ports) => {
     if (durable) store = new SqliteRecords(directory, ports);
     const audit = store?.audit ?? ports.audit;
-    return { ...(store ? { admission: store.admission, records: store.records, budget: store.budget, retention: store.retention } : {}),
+    return { ...(store ? { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, budget: store.budget, retention: store.retention } : {}),
       audit: { ...audit, complete: async (context, action, outcome, details) => {
         await audit.complete(context, action, outcome, details);
         if (action === `records.${operation}`) { ready.resolve(); await release.promise; }

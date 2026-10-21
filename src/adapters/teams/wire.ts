@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod/v4";
 import type { App } from "@microsoft/teams.apps";
@@ -17,7 +16,7 @@ interface Lease { readonly kind: "proof" | "write"; readonly mapping: TeamsMappi
 const receiptSchema = z.strictObject({ id: z.string().min(1).max(256) });
 interface Operation {
   binding: string; result: Promise<DeliveryResult> | DeliveryResult; settled: boolean;
-  readonly durablyCompleted?: () => boolean; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"];
+  readonly completion?: { readonly confirmed: boolean }; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"];
 }
 function settleOperation(entry: Operation, pending: Promise<DeliveryResult>) {
   // A settled native Promise retains its AsyncLocalStorage lease. Cache only the result value.
@@ -120,24 +119,34 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
     if (mappings.length !== 1) return Promise.resolve("failed");
     const mapping = mappings[0]!;
     const id = JSON.stringify([deliveryKey, attempt.segment]);
-    const binding = JSON.stringify([destinationRef, attempt.caseRef, attempt.phaseId, attempt.text]);
+    const binding = fault || faultOperations.has(id) ? JSON.stringify([destinationRef, attempt.caseRef, attempt.phaseId, attempt.text]) : attempt.bindingRef;
+    if (!binding || !fault && !faultOperations.has(id) && attempt.ticket && (attempt.ticket.caseRef !== attempt.caseRef || attempt.ticket.deliveryKey !== deliveryKey ||
+      attempt.ticket.segment !== attempt.segment || attempt.ticket.bindingRef !== attempt.bindingRef)) return Promise.resolve("failed");
     const cache = fault ? faultOperations : operations;
     const previous = operations.get(id) ?? faultOperations.get(id);
-    if (previous) return previous.binding === binding ? Promise.resolve(previous.result) : Promise.resolve("failed");
+    const recover = (result: DeliveryResult | Promise<DeliveryResult>): Promise<DeliveryResult> => track((async () => {
+      try {
+        const value = await result;
+        await attempt.beforeWrite(attempt.text);
+        if (stopping.signal.aborted || attempt.signal.aborted || ports.clock.now() >= attempt.deadline ||
+          ports.authorization.current?.("teams.identity", { ...mapping.actor, resourceRefs: [] }) !== true) return "failed";
+        if (!attempt.current) return "failed"; attempt.current(); return value;
+      } catch { return "failed"; }
+    })());
+    if (previous) return previous.binding === binding && work.size < MAX_ACTIVE_CASES ? recover(previous.result) : Promise.resolve("failed");
+    if (!fault && attempt.receipt && work.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
+    if (!fault && attempt.receipt) return recover(attempt.receipt.state === "complete" ? attempt.receipt.result : attempt.receipt.state === "pending" ? "unknown" : "failed");
     if (fault && faultOperations.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     if (work.size >= MAX_ACTIVE_CASES) return Promise.resolve("failed");
     const lease: Lease = { kind: "write", mapping, attempt, deadline: attempt.deadline, signal: AbortSignal.any([attempt.signal, stopping.signal]), wrote: false };
     const persisted = async (entry: { actor: TeamsMapping["actor"]; caseRef: string; deliveryKey: string; segment: number; binding: string }): Promise<{ known: boolean; result?: DeliveryResult }> => {
-      const read = track(Promise.resolve().then(() => ports.records.read(entry.actor, entry.caseRef)));
+      const read = track(Promise.resolve().then(() => ports.deliveryLedger.read(entry.actor, { caseRef: entry.caseRef, deliveryKey: entry.deliveryKey, segment: entry.segment, bindingRef: entry.binding })));
       const saved = await beforeDeadline(ports.clock, Math.min(lease.deadline, ports.clock.now() + 5_000), () => read, lease.signal);
       check(lease);
-      if (saved?.scope !== "full") return { known: false };
-      const delivery = saved.deliveries.find((item) => item.deliveryKey === entry.deliveryKey && item.segment === entry.segment);
-      const completed = delivery && saved.audits.some((item) => item.stage === "complete" && item.callId === delivery.callId &&
-        ["delivery.send", "delivery.notice", "delivery.fault"].includes(String(item.action)));
-      if (!completed) return { known: true };
-      if (delivery.bindingRef !== createHash("sha256").update(entry.binding).digest("hex")) return { known: true, result: "failed" };
-      return { known: true, result: { status: delivery.status, ...(delivery.receiptRef ? { receiptRef: delivery.receiptRef } : {}) } };
+      if (!saved) return { known: false };
+      if (saved.state === "binding_mismatch") return { known: true, result: "failed" };
+      if (saved.state === "complete") return { known: true, result: saved.result };
+      return saved.state === "pending" ? { known: true, result: "unknown" } : { known: true };
     };
     const result: Promise<DeliveryResult> = track(local.run(lease, async (): Promise<DeliveryResult> => {
       try {
@@ -148,7 +157,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
           const candidates = [...operations.entries()].filter(([key, entry]) => key !== id && entry.settled);
           for (const [key, entry] of candidates) {
             if (operations.size <= 4_096) break;
-            if (entry.durablyCompleted?.() === true) { if (operations.get(key) === entry) operations.delete(key); continue; }
+            if (entry.completion?.confirmed === true) { if (operations.get(key) === entry) operations.delete(key); continue; }
             const durable = await persisted(entry);
             if (durable.known && durable.result !== undefined && operations.get(key) === entry) operations.delete(key);
           }
@@ -157,7 +166,16 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
         if (!fault && overflowed) {
           const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
           if (!prior.known) return "failed";
-          if (prior.result !== undefined) return prior.result;
+          if (prior.result !== undefined && !(prior.result === "unknown" && attempt.ticket && !attempt.ticket.completion.confirmed)) return prior.result;
+          if (prior.result === undefined && !attempt.ticket) return "failed";
+        }
+        if (!fault && !attempt.ticket) {
+          const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
+          return prior.known ? prior.result ?? "failed" : "failed";
+        }
+        if (!fault && !attempt.ticket?.dispatch.claim()) {
+          const prior = await persisted({ actor: mapping.actor, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, binding });
+          return prior.known ? recover(prior.result ?? "unknown") : "failed";
         }
         check(lease);
         const sent = await app.send(mapping.conversationId, { type: "message", text: attempt.text, textFormat: "plain" });
@@ -170,7 +188,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
       // Pooled HTTP resources may retain the ALS lease after the original send settles.
       finally { delete lease.attempt; lease.signal = stopping.signal; }
     }));
-    const entry = { binding, result, settled: false, ...(attempt.durablyCompleted ? { durablyCompleted: attempt.durablyCompleted } : {}), caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
+    const entry = { binding, result, settled: false, ...(attempt.ticket ? { completion: attempt.ticket.completion } : {}), caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
     cache.set(id, entry);
     settleOperation(entry, result);
     return result;

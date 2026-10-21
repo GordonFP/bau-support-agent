@@ -83,7 +83,7 @@ test("C native purge removes full records and named-file residues while preservi
     model: async (call, draft) => { context = call; return { candidate: draft, actualMicrousd: null }; },
     controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, audit: store.audit, records: store.records, budget: store.budget, retention: store.retention };
+      return { admission: store.admission, audit: store.audit, records: store.records, deliveryLedger: store.deliveryLedger, budget: store.budget, retention: store.retention };
     } });
   try {
     await mock.receive({ input: { applicationId: "SYNTHETIC-SECRET-APPLICATION", question: marker } }); await mock.closed;
@@ -203,7 +203,7 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} purge 
     };
     if (!durable) return {};
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
   } });
   try {
     await mock.receive(); await mock.closed;
@@ -224,7 +224,7 @@ for (const failure of ["retention:delete:before_commit", "retention:vacuum:befor
   const copy = { copyRef: "backup", kind: "backup" as const, verificationRef: "synthetic-local-private-files-1" as const };
   const mock = createMockTroubleshooting({ clock, lifecycleActors: [lifecycleActor], controlPorts: (ports) => {
     store = new SqliteRecords(directory, ports, { controlledCopies: [copy], fault: (point) => { if (fail && point === failure) throw new Error("synthetic I/O error"); } });
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
   } });
   try {
     await mkdir(join(directory, "controlled-copies", "backup"), { recursive: true, mode: 0o700 });
@@ -275,7 +275,7 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} late m
   }, controlPorts: (ports) => {
     if (!durable) return {};
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
   } });
   try {
     await mock.receive(); await started.promise;
@@ -304,7 +304,7 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} an obs
   const mock = createMockTroubleshooting({ lifecycleActors: [lifecycleActor], clock, controlPorts: (ports) => {
     if (!durable) return {};
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
   } });
   try {
     await mock.receive(); await mock.closed;
@@ -510,7 +510,7 @@ for (const durable of [false, true]) test(`${durable ? "SQLite" : "Mock"} status
   const mock = createMockTroubleshooting({ clock, lifecycleActors: [lifecycleActor], controlPorts: (ports) => {
     if (!durable) return {};
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
   } });
   try {
     await mock.receive(); await mock.closed;

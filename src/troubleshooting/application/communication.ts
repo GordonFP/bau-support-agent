@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type { DiagnosticReport } from "../domain/simulator.js";
 import type { CallContext, InformationQuestion, Ports } from "./ports.js";
+import type { DeliveryReceipt, DeliveryTicket } from "./delivery-ledger.js";
 import { recordDenial } from "./authorization-audit.js";
 
 export const MAX_MESSAGE_BYTES = 24_576;
@@ -17,15 +17,10 @@ export interface DeliveryAttempt {
   readonly deadline: number;
   readonly signal: AbortSignal;
   readonly current?: () => void;
-  /** Host-owned completion receipt: true only after this segment completion is durably audited. */
-  readonly durablyCompleted?: () => boolean;
+  readonly bindingRef?: string;
+  readonly ticket?: DeliveryTicket;
+  readonly receipt?: DeliveryReceipt;
   readonly beforeWrite: (text?: string) => Promise<void>;
-}
-
-// Cached completion receipts must retain only their confirmation bit, never a phase context.
-function deliveryCompletion() {
-  let confirmed = false;
-  return { current: () => confirmed, confirm: () => { confirmed = true; } };
 }
 
 function segments(text: string, cap: number): string[] {
@@ -58,13 +53,14 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
       if (ports.clock.now() >= context.deadline) throw new Error("timeout");
     };
     await authorized();
-    const delivery = { deliveryKey, segment: index + 1, bindingRef: createHash("sha256").update(JSON.stringify([context.destinationRef, context.caseRef, context.phaseId, text])).digest("hex") };
-    await ports.audit.intent(current, action, { delivery });
-    const completion = deliveryCompletion();
+    const begun = await ports.deliveryLedger.begin(current, { kind, deliveryKey, segment: index + 1,
+      binding: { destinationRef: context.destinationRef, caseRef: context.caseRef, phaseId: context.phaseId, text } });
+    if (begun.state === "existing" && begun.receipt.state === "binding_mismatch") throw new Error("invalid_request");
     const attempt: DeliveryAttempt = Object.freeze({
       caseRef: context.caseRef, phaseId: context.phaseId, segment: index + 1, total: parts.length,
       text, deadline: context.deadline, signal: context.signal,
-      durablyCompleted: completion.current,
+      bindingRef: begun.state === "new" ? begun.ticket.bindingRef : begun.bindingRef,
+      ...(begun.state === "new" ? { ticket: begun.ticket } : { receipt: begun.receipt }),
       current: () => { check(); if (ports.authorization.current?.(action, current) !== true || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
       beforeWrite: async (actual = text) => {
         if (actual !== text || !ports.sanitization.safe(text)) throw new Error("unsafe_content");
@@ -86,12 +82,10 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
       if (!["delivered", "unknown", "failed"].includes(status) || receiptRef !== undefined && (typeof receiptRef !== "string" || !/^[a-f0-9]{64}$/.test(receiptRef))) throw new Error("schema_mismatch");
     } catch (error) {
       const status = invoked ? "unknown" : "failed";
-      await ports.audit.complete(current, action, status, { delivery: { ...delivery, status } });
-      completion.confirm();
+      if (begun.state === "new") await ports.deliveryLedger.complete(current, begun.ticket, { status });
       throw error;
     }
-    await ports.audit.complete(current, action, "ok", { delivery: { ...delivery, status, ...(receiptRef ? { receiptRef } : {}) } });
-    completion.confirm();
+    if (begun.state === "new") await ports.deliveryLedger.complete(current, begun.ticket, { status, ...(receiptRef ? { receiptRef } : {}) });
     check();
     if (status !== "delivered") return status;
   }

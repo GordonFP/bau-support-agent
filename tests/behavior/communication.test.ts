@@ -60,10 +60,10 @@ test("an unknown accepted-status write stops before investigation instead of dis
 for (const failure of ["revoked", "null", "status", "receipt", "receipt_object"] as const) test(`D completes persisted send intent after ${failure}`, async () => {
   const denyActions: string[] = [];
   const mock = createMockTroubleshooting({ denyActions, controlPorts: (ports) => {
-    const audit = ports.audit;
-    return { audit: { ...audit, intent: async (context, action, details) => {
-      const result = await audit.intent(context, action, details);
-      if (action === "delivery.send" && failure === "revoked") denyActions.push(action);
+    const ledger = ports.deliveryLedger;
+    return { deliveryLedger: { ...ledger, begin: async (context, input) => {
+      const result = await ledger.begin(context, input);
+      if (input.kind === "report" && failure === "revoked") denyActions.push("delivery.send");
       return result;
     } } };
   } });
@@ -82,15 +82,15 @@ for (const failure of ["revoked", "null", "status", "receipt", "receipt_object"]
 
 test("D exposes durable completion only after C has confirmed the segment result audit", async () => {
   const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
-  let completed: (() => boolean) | undefined;
+  let completed: { readonly confirmed: boolean } | undefined;
   const mock = createMockTroubleshooting({ controlPorts: (ports) => {
-    const audit = ports.audit;
-    return { audit: { ...audit, complete: async (context, action, outcome, details) => {
-      if (action === "delivery.send") { held.resolve(); await release.promise; }
-      await audit.complete(context, action, outcome, details);
+    const ledger = ports.deliveryLedger;
+    return { deliveryLedger: { ...ledger, complete: async (context, ticket, result) => {
+      if (ticket.deliveryKey.includes(":report:")) { held.resolve(); await release.promise; }
+      await ledger.complete(context, ticket, result);
     } } };
   } });
-  mock.ports.delivery.send = async (_destination, _report, _key, attempt) => { await attempt!.beforeWrite(); completed = attempt!.durablyCompleted; return "delivered"; };
-  try { await mock.receive(); await held.promise; assert.equal(completed?.(), false); release.resolve(); await mock.closed; assert.equal(completed?.(), true); }
+  mock.ports.delivery.send = async (_destination, _report, _key, attempt) => { await attempt!.beforeWrite(); completed = attempt!.ticket?.completion; return "delivered"; };
+  try { await mock.receive(); await held.promise; assert.equal(completed?.confirmed, false); release.resolve(); await mock.closed; assert.equal(completed?.confirmed, true); }
   finally { release.resolve(); }
 });

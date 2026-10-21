@@ -1,3 +1,4 @@
+import { createDeliveryLedger, deliveryRecord, type StoredDelivery } from "../../troubleshooting/application/delivery-ledger.js";
 import { Troubleshooting } from "../../troubleshooting/application/troubleshooting.js";
 import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
 import { randomUUID } from "node:crypto";
@@ -9,7 +10,7 @@ import type { OfflineScope } from "../../troubleshooting/application/troubleshoo
 import type { DiagnosticReport, SimulatorObservation } from "../../troubleshooting/domain/simulator.js";
 import { pspEvents, type PspObservation } from "../../troubleshooting/domain/psp.js";
 import type { ApplicationCandidates, CallContext, Ports, RuntimeRequest, SourceEvidence, TrustedActor, VerifiedInbound } from "../../troubleshooting/application/ports.js";
-import type { InitialCase, CaseRecord, DeliveryRecord, RecordRole, SavedContext } from "../../troubleshooting/application/records.js";
+import type { InitialCase, CaseRecord, RecordRole, SavedContext } from "../../troubleshooting/application/records.js";
 import { RetentionLifecycle, type RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
 import { recordAccessContext, recordActor, recordDisclosure, recordRole } from "../../troubleshooting/application/record-access.js";
 import { MockModelBudget } from "./model-budget.js";
@@ -35,7 +36,7 @@ export interface MockOptions {
   readonly modelProfile?: "memory_mock" | "local_protocol";
   readonly lifecycleActors?: readonly TrustedActor[];
   readonly recordGrants?: readonly { readonly actor: TrustedActor; readonly role: RecordRole; readonly caseRefs: readonly string[]; readonly resourceRefs: readonly string[] }[];
-  readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "audit" | "budget" | "retention">>;
+  readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "deliveryLedger" | "audit" | "budget" | "retention">>;
   readonly authorizedActors?: readonly TrustedActor[];
   readonly observation?: SimulatorObservation | null;
   readonly completeness?: "complete" | "partial" | "unknown";
@@ -69,7 +70,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   const costFor = (callId: string) => modelBudget.cost(callId);
   const expiredEvents = new Map<string, string>();
   const admissions = new Map<string, { caseRef: string; principalRef: string; active: boolean }>();
-  const cases = new Map<string, { initial: InitialCase; records: CaseRecord[]; deliveries: DeliveryRecord[] }>();
+  const cases = new Map<string, { initial: InitialCase; records: CaseRecord[]; deliveries: StoredDelivery[] }>();
   const authorizedActors = structuredClone(options.authorizedActors ?? [
     { principalRef: "principal-1", tenantRef: "tenant-1", destinationRef: "private-conversation-1" },
   ]);
@@ -109,7 +110,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
     const context = recordAccessContext(actor, owner, role, `${caseRef}:${action}:${randomUUID()}`, ports.clock.now());
     await ports.audit.intent(context, action);
     const result = structuredClone({ scope: "full" as const, view: saved.initial.view, records: saved.records,
-      audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries });
+      audits: audits.filter((entry) => entry.caseRef === caseRef), deliveries: saved.deliveries.map(deliveryRecord) });
     await ports.audit.complete(context, action, "allowed");
     try { await beforeDisclose?.(() => { if (ports.retention?.closed()) throw new Error("denied"); if (ports.authorization.current && ports.authorization.current(action, { ...owner, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...owner, phaseId: saved.initial.view.phaseId })); }
     catch { await recordDenial(ports.audit, context); return null; }
@@ -124,7 +125,33 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
   const readRecord = async (actor: TrustedActor, caseRef: string, action: string, beforeDisclose?: (current: () => void, owner: SavedContext) => Promise<void>) => {
     try { return await authorizedRecord(actor, caseRef, action, beforeDisclose); } catch { throw new Error("unavailable"); }
   };
+  const writeAudit = (context: CallContext, action: string, stage: "intent" | "complete", outcome: string, details?: import("../../troubleshooting/application/records.js").AuditDetails) => {
+    if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(context, action); throw new Error("denied"); }
+    if (options.auditFails === `${action}:${stage}`) throw new Error("synthetic-audit-failure");
+    const record = structuredClone(auditRecord(context, action, stage, outcome, ports.clock.utc(), details, costFor(context.callId)));
+    events.push({ action: `audit:${action}:${stage}`, input: stage === "intent" ? structuredClone({ ...context, signal: undefined, details }) : { callId: context.callId, outcome, details } });
+    audits.push(record);
+  };
   const ports: Ports = {
+    deliveryLedger: createDeliveryLedger({
+      atomic: (operation) => {
+        const eventCount = events.length, auditCount = audits.length;
+        const deliveries = new Map([...cases].map(([key, value]) => [key, structuredClone(value.deliveries)]));
+        try { return operation(); } catch (error) {
+          events.length = eventCount; audits.length = auditCount;
+          for (const [key, values] of deliveries) { const saved = cases.get(key); if (saved) saved.deliveries = values; }
+          throw error;
+        }
+      },
+      owner: (caseRef) => cases.get(caseRef)?.initial.context ?? null,
+      find: (key) => { for (const saved of cases.values()) { const value = saved.deliveries.find((item) => item.deliveryKey === key.deliveryKey && item.segment === key.segment); if (value) return value; } return null; },
+      put: (record) => {
+        const saved = cases.get(record.caseRef); if (!saved) throw new Error("denied");
+        saved.deliveries = [...saved.deliveries.filter((item) => item.deliveryKey !== record.deliveryKey || item.segment !== record.segment), structuredClone(record)];
+      },
+      audit: writeAudit,
+    }, { get authorization() { return ports.authorization; }, get clock() { return ports.clock; }, get audit() { return ports.audit; },
+      get sanitization() { return ports.sanitization; }, get retention() { return ports.retention; } }),
     records: {
       async append(context, record) {
         context = contextSnapshot(context);
@@ -193,27 +220,8 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       clear() {},
     },
     audit: {
-      async intent(context, action, details) {
-        if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(context, action); throw new Error("denied"); }
-        if (options.auditFails === `${action}:intent`) throw new Error("synthetic-audit-failure");
-        events.push({ action: `audit:${action}:intent`, input: structuredClone({ ...context, signal: undefined, details }) });
-        audits.push(structuredClone(auditRecord(context, action, "intent", "pending", ports.clock.utc(), details, costFor(context.callId))));
-        if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery) {
-          cases.get(context.caseRef)?.deliveries.push({ schemaVersion: 1, caseRef: context.caseRef, callId: context.callId,
-            deliveryKey: details.delivery.deliveryKey, segment: details.delivery.segment, ...(details.delivery.bindingRef ? { bindingRef: details.delivery.bindingRef } : {}), status: "unknown" });
-        }
-        return `${context.callId}:intent`;
-      },
-      async complete(context, action, outcome, details) {
-        if (ports.retention?.closed()) { ports.retention.recordDeniedAccess(context, action); throw new Error("denied"); }
-        if (options.auditFails === `${action}:complete`) throw new Error("synthetic-audit-failure");
-        events.push({ action: `audit:${action}:complete`, input: { callId: context.callId, outcome, details } });
-        audits.push(structuredClone(auditRecord(context, action, "complete", outcome, ports.clock.utc(), details, costFor(context.callId))));
-        if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery?.status) {
-          const saved = cases.get(context.caseRef);
-          if (saved) saved.deliveries = saved.deliveries.map((item) => item.callId === context.callId ? { ...item, status: details.delivery!.status!, ...(details.delivery!.receiptRef ? { receiptRef: details.delivery!.receiptRef } : {}) } : item);
-        }
-      },
+      async intent(context, action, details) { writeAudit(context, action, "intent", "pending", details); return `${context.callId}:intent`; },
+      async complete(context, action, outcome, details) { writeAudit(context, action, "complete", outcome, details); },
     },
     budget: {
       reserve: (context, amount, beforeStart) => modelBudget.reserve(context, amount, beforeStart),
@@ -307,6 +315,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
         content: [{ type: "text", text: typeof response.candidate === "string" ? response.candidate : JSON.stringify(response.candidate) }] } };
     } },
     delivery: { async notice(destinationRef, notice, deliveryKey, attempt) {
+      if (attempt?.receipt) return attempt.receipt.state === "complete" ? attempt.receipt.result : "unknown";
       await attempt?.beforeWrite();
       events.push({ action: "delivery.notice", input: { destinationRef, notice, deliveryKey } });
       return "delivered";
@@ -315,6 +324,7 @@ export function createMockTroubleshooting(options: MockOptions = {}) {
       events.push({ action: "delivery.fault", input: { destinationRef, notice, deliveryKey } });
       return "delivered";
     }, async send(destinationRef, report, deliveryKey, attempt) {
+      if (attempt?.receipt) return attempt.receipt.state === "complete" ? attempt.receipt.result : "unknown";
       await attempt?.beforeWrite();
       events.push({ action: "delivery.send", input: { destinationRef, report, deliveryKey } });
       sent.resolve({ destinationRef, report, deliveryKey });

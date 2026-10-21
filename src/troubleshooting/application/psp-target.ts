@@ -1,7 +1,7 @@
 import type { TroubleshootingCase } from "../domain/simulator.js";
 import type { PspObservation } from "../domain/psp.js";
-import type { ReadResult, VerifiedInbound } from "./ports.js";
-import type { Identifier, LogRead, TargetResolution } from "./simulator-target.js";
+import type { VerifiedInbound } from "./ports.js";
+import type { Identifier, LogRead, TargetResolution, TargetSelection } from "./simulator-target.js";
 
 type Selector = ({ readonly application: Identifier; readonly customer?: Identifier } | { readonly customer: Identifier; readonly application?: never }) &
   { readonly shop?: Identifier; readonly binding?: Identifier };
@@ -34,11 +34,11 @@ export class PspTarget {
       ...(selector.shop ? { shopId: selector.shop.raw } : {}), ...(selector.binding ? { bindingId: selector.binding.raw } : {}) };
   }
   private selectCandidate(candidate: Candidate): void { this.state = Object.freeze({ kind: "fixed", target: candidate.target }); }
-  select(content: Readonly<Record<string, unknown>>): boolean {
-    if (this.state.kind !== "choosing" || Object.keys(content).some((key) => key !== "candidateRef")) return false;
+  select(content: Readonly<Record<string, unknown>>): TargetSelection | null {
+    if (this.state.kind !== "choosing" || Object.keys(content).some((key) => key !== "candidateRef")) return null;
     const candidate = this.state.candidates.find((candidate) => candidate.candidateRef === content.candidateRef);
-    if (!candidate) return false;
-    this.selectCandidate(candidate); return true;
+    if (!candidate) return null;
+    return { applicationRef: candidate.target.application.ref, commit: () => this.selectCandidate(candidate) };
   }
   resolve(raw: LogRead, safe: LogRead, questionId: string): TargetResolution {
     const selector = this.selector;

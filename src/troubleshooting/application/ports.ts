@@ -4,6 +4,7 @@ import type { BudgetSettlement, BudgetStatus } from "./model-budget.js";
 import type { BeforeModelSend, ModelResponse, ModelTurn } from "./model-contract.js";
 
 import type { DeliveryAttempt, DeliveryNotice, DeliveryResult } from "./communication.js";
+import type { DeliveryLedger } from "./delivery-ledger.js";
 import type { Retention } from "./retention.js";
 import type { PspObservation } from "../domain/psp.js";
 
@@ -149,6 +150,7 @@ export interface RuntimeRequest {
 export interface Ports {
   readonly retention?: Retention;
   readonly records: CaseRecords;
+  readonly deliveryLedger: DeliveryLedger;
   readonly admission: {
     lookup?(key: string): Promise<{ readonly caseRef: string; readonly principalRef: string } | null>;
     allocateCaseRef?(): string;

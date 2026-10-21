@@ -26,7 +26,7 @@ export async function openMockRuntime(input: unknown, controls: RuntimeTestPorts
     const mock = createMockTroubleshooting({ pspObservation: syntheticPsp, clock: { now: () => performance.now(), utc: () => new Date().toISOString() }, ...controls.mocks,
       controlPorts: (ports) => {
         store = new SqliteRecords(config.recordsDirectory, ports, controls.storeFault ? { fault: controls.storeFault } : {});
-        return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget, retention: store.retention };
+        return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget, retention: store.retention };
       } });
     const records = store!;
     const context: CallContext = { ...mock.inbound, caseRef: "bootstrap", phaseId: 1, callId: `bootstrap:${randomUUID()}`,

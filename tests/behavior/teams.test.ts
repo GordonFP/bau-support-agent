@@ -233,7 +233,7 @@ test("a consumed report with lost acknowledgement stays durably unknown across n
   const { SqliteRecords } = await import("../../src/adapters/records/sqlite.js");
   const directory = await mkdtemp(join(tmpdir(), "bau-teams-unknown-"));
   const service = await teamsServices(); let store: InstanceType<typeof SqliteRecords> | undefined;
-  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, audit: store.audit, admission: store.admission, budget: store.budget, retention: store.retention }; };
+  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, admission: store.admission, budget: store.budget, retention: store.retention }; };
   const first = createMockTroubleshooting({ controlPorts: controls, model: async (_context, draft) => { service.setWriteMode("reset"); return { candidate: draft, actualMicrousd: 1_000 }; } });
   const host = await createLocalTeamsHost(service.configuration, { application: first.application, ports: first.ports });
   let restarted: Awaited<ReturnType<typeof createLocalTeamsHost>> | undefined;
@@ -462,7 +462,7 @@ test("a restored SQLite query cannot disclose case metadata after application cl
   const directory = await mkdtemp(join(tmpdir(), "bau-teams-query-close-"));
   const service = await teamsServices(); const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   let store: InstanceType<typeof SqliteRecords> | undefined, host: Awaited<ReturnType<typeof createLocalTeamsHost>> | undefined;
-  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, audit: store.audit, admission: store.admission, budget: store.budget, retention: store.retention }; };
+  const controls = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => { store = new SqliteRecords(directory, ports); return { records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, admission: store.admission, budget: store.budget, retention: store.retention }; };
   const post = (body: unknown) => fetch(host!.url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${service.serviceToken()}` }, body: JSON.stringify(body) });
   try {
     const first = createMockTroubleshooting({ controlPorts: controls });

@@ -1,6 +1,7 @@
 import type { SimulatorObservation, TroubleshootingCase } from "../domain/simulator.js";
-import type { InformationQuestion, Ports, ReadResult, VerifiedInbound } from "./ports.js";
+import type { InformationQuestion, Ports, VerifiedInbound } from "./ports.js";
 
+export interface TargetSelection { readonly applicationRef: string; commit(): void }
 export interface Identifier { readonly raw: string; readonly ref: string }
 export type LogRead = Awaited<ReturnType<Ports["logs"]["read"]>>;
 export type TargetResolution = { readonly kind: "selected" } | { readonly kind: "question"; readonly question: InformationQuestion } | { readonly kind: "observation" };
@@ -25,12 +26,13 @@ export class SimulatorTarget {
     throw new Error("invalid_request");
   }
   private selectCandidate(candidate: Candidate): void { this.state = Object.freeze({ kind: "fixed", application: candidate.application }); }
-  select(content: Readonly<Record<string, unknown>>): boolean {
-    if (this.state.kind !== "choosing" || Object.keys(content).some((key) => !["submittedAt", "candidateRef"].includes(key))) return false;
+  select(content: Readonly<Record<string, unknown>>): TargetSelection | null {
+    if (this.state.kind !== "choosing" || Object.keys(content).some((key) => !["submittedAt", "candidateRef"].includes(key))) return null;
     const matches = this.state.candidates.filter((candidate) => candidate.submittedAt === content.submittedAt &&
       (content.candidateRef === undefined || content.candidateRef === candidate.candidateRef));
-    if (matches.length !== 1 || !matches[0]) return false;
-    this.selectCandidate(matches[0]); return true;
+    if (matches.length !== 1 || !matches[0]) return null;
+    const candidate = matches[0];
+    return { applicationRef: candidate.application.ref, commit: () => this.selectCandidate(candidate) };
   }
   resolve(raw: LogRead, safe: LogRead, questionId: string): TargetResolution {
     if (safe.value && "kind" in safe.value && safe.value.kind === "application_candidates") {

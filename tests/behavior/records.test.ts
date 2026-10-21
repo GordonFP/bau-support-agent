@@ -53,7 +53,7 @@ test("A survives a completed-case restart: duplicates are not reinvestigated and
   let store: SqliteRecords | undefined;
   const boot = () => createMockTroubleshooting({ controlPorts: (ports) => {
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
   } });
   try {
     const first = boot();
@@ -92,7 +92,7 @@ test("a persisted duplicate remains readable after restart when 32 new cases fil
   const boot = (waiting = false) => createMockTroubleshooting({ ...(waiting ? { agent: async () => { await hold.promise; return null; } } : {}),
     controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+      return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
     } });
   const active: string[] = [];
   let restarted: ReturnType<typeof createMockTroubleshooting> | undefined;
@@ -181,7 +181,7 @@ test("C exports versioned sanitized model exchanges, evidence and report without
   try {
     const mock = createMockTroubleshooting({ controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+      return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
     } });
     await mock.receive();
     await mock.closed;
@@ -223,7 +223,7 @@ test("restart interrupts a model in flight and preserves its attempt count and u
   let store: SqliteRecords | undefined;
   const controlPorts = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => {
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
   };
   try {
     const first = createMockTroubleshooting({ controlPorts, model: async (_context, draft) => {
@@ -337,7 +337,7 @@ test("C audit carries bounded scope, authorization, completeness and settlement 
   try {
     const mock = createMockTroubleshooting({ controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+      return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
     } });
     await mock.receive();
     await mock.closed;
@@ -363,7 +363,7 @@ test("a crash after platform send preserves the original segment as delivery_unk
   let store: SqliteRecords | undefined;
   const controlPorts = (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => {
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
   };
   try {
     const first = createMockTroubleshooting({ controlPorts });
@@ -402,7 +402,7 @@ for (const failure of ["audit:logs.read:intent", "audit:logs.read:complete", "au
         store = new SqliteRecords(directory, ports, { fault: (checkpoint) => {
           if (checkpoint === failure) throw new Error("synthetic-storage-failure");
         } });
-        return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+        return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
       } });
       await mock.receive();
       await mock.closed;
@@ -427,7 +427,7 @@ for (const adapter of ["mock", "sqlite"] as const) {
     try {
       const mock = createMockTroubleshooting({ denyActions, ...(adapter === "sqlite" ? { controlPorts: (ports: ReturnType<typeof createMockTroubleshooting>["ports"]) => {
         store = new SqliteRecords(directory, ports);
-        return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+        return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
       } } : {}) });
       await mock.receive();
       await mock.closed;
@@ -511,7 +511,7 @@ test("named SQLite storage and journal files contain no original synthetic ident
   try {
     const mock = createMockTroubleshooting({ controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+      return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
     } });
     await mock.receive();
     await mock.closed;
@@ -602,7 +602,7 @@ test("A queries before and after clarification use distinct durable read operati
   try {
     const mock = createMockTroubleshooting({ customerCandidates: candidates, controlPorts: (ports) => {
       store = new SqliteRecords(directory, ports);
-      return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+      return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
     } });
     await mock.receive({ input: { customerId: "SYNTHETIC-SECRET-CUSTOMER", question: "Why is this waiting?" } });
     await mock.phaseClosed(1);
@@ -638,4 +638,94 @@ test("C reads and exports multiple accepted records exceeding the individual wri
     }
     await assert.rejects(store.records.append(context, { schemaVersion: 1, recordRef: "case-1:oversized", kind: "tool_result", payload: "x".repeat(1_048_576) }), { message: "unsafe_content" });
   } finally { store.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+for (const adapter of ["mock", "sqlite"] as const) test(`C ${adapter} delivery receipt snapshots its addressed key before asynchronous authorization`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-delivery-key-"));
+  let store: SqliteRecords | undefined;
+  const mock = createMockTroubleshooting({ ...(adapter === "sqlite" ? { controlPorts: (ports) => {
+    store = new SqliteRecords(directory, ports); return { admission: store.admission, records: store.records, audit: store.audit,
+      deliveryLedger: store.deliveryLedger, budget: store.budget, retention: store.retention };
+  } } : {}) });
+  try {
+    await mock.receive(); await mock.closed;
+    const saved = await mock.ports.records.read(mock.inbound, "case-1"); assert.ok(saved?.scope === "full");
+    const delivery = saved.deliveries.find((entry) => entry.deliveryKey === "case-1:report:1"); assert.ok(delivery?.bindingRef);
+    const query = { caseRef: "case-1", deliveryKey: delivery.deliveryKey, segment: delivery.segment, bindingRef: delivery.bindingRef };
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    const allows = mock.ports.authorization.allows; let waiting = true;
+    mock.ports.authorization.allows = async (action, authority) => {
+      if (action === "records.read" && waiting) { waiting = false; entered.resolve(); await release.promise; }
+      return allows(action, authority);
+    };
+    const pending = mock.ports.deliveryLedger.read(mock.inbound, query); await entered.promise;
+    query.caseRef = "foreign-case"; query.deliveryKey = "foreign-case:report:1";
+    release.resolve();
+    assert.equal((await pending)?.state, "complete");
+  } finally { await mock.application.close(); store?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+for (const adapter of ["mock", "sqlite"] as const) test(`C ${adapter} delivery ledger owns typed pending/completed receipts and refuses historical rebinding or revoked recovery`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-delivery-receipt-"));
+  const denyActions: string[] = []; let store: SqliteRecords | undefined;
+  const mock = createMockTroubleshooting({ denyActions, ...(adapter === "sqlite" ? { controlPorts: (ports) => {
+    store = new SqliteRecords(directory, ports); return { admission: store.admission, records: store.records, audit: store.audit,
+      deliveryLedger: store.deliveryLedger, budget: store.budget, retention: store.retention };
+  } } : {}) });
+  try {
+    await mock.receive(); await mock.closed;
+    const operation = { ...context, callId: "case-1:ledger-direct" };
+    const input = { kind: "report" as const, deliveryKey: "case-1:report:direct", segment: 1,
+      binding: { destinationRef: actor.destinationRef, caseRef: "case-1", phaseId: 1, text: "Synthetic ledger message." } };
+    const begin = await mock.ports.deliveryLedger.begin(operation, input); assert.equal(begin.state, "new"); if (begin.state !== "new") return;
+    assert.equal(begin.ticket.completion.confirmed, false);
+    const fullRead = mock.ports.records.read;
+    mock.ports.records.read = async () => { throw new Error("full_case_disclosure_must_not_be_needed"); };
+    assert.deepEqual(await mock.ports.deliveryLedger.read(actor, begin.ticket), { state: "pending" });
+    for (const invalid of [{ status: "delivered", caseRef: "foreign-case" }, { status: "delivered", receiptRef: BigInt("9".repeat(64)) }]) {
+      await assert.rejects(mock.ports.deliveryLedger.complete(operation, begin.ticket, invalid as never), { message: "invalid_request" });
+      assert.deepEqual(await mock.ports.deliveryLedger.read(actor, begin.ticket), { state: "pending" });
+      assert.equal(begin.ticket.completion.confirmed, false);
+    }
+    assert.equal((await mock.ports.deliveryLedger.begin({ ...operation, callId: "case-1:other-call" }, input)).state, "existing");
+    assert.deepEqual(await mock.ports.deliveryLedger.begin(operation, { ...input, binding: { ...input.binding, text: "Different message." } }),
+      { state: "existing", receipt: { state: "binding_mismatch" }, bindingRef: "1320f282d1c9fc8a1967a4cf39576d843cb9fc2f68452542715c766c5825d289" });
+    await mock.ports.deliveryLedger.complete(operation, begin.ticket, { status: "unknown" });
+    assert.equal(begin.ticket.completion.confirmed, true);
+    assert.deepEqual(await mock.ports.deliveryLedger.read(actor, begin.ticket), { state: "complete", result: { status: "unknown" } });
+    await mock.ports.deliveryLedger.complete(operation, begin.ticket, { status: "unknown" });
+    await assert.rejects(mock.ports.deliveryLedger.complete(operation, begin.ticket, { status: "delivered" }), { message: "invalid_request" });
+    denyActions.push("records.read"); assert.equal(await mock.ports.deliveryLedger.read(actor, begin.ticket), null);
+    denyActions.push("delivery.send"); await assert.rejects(mock.ports.deliveryLedger.begin(operation, input), { message: "denied" });
+    denyActions.length = 0; mock.ports.records.read = fullRead;
+    const saved = await fullRead(actor, "case-1"); assert.ok(saved?.scope === "full");
+    assert.deepEqual(saved.audits.filter((entry) => entry.callId === operation.callId && entry.action === "delivery.send").map((entry) => entry.stage), ["intent", "complete"]);
+  } finally { await mock.application.close(); store?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("C typed delivery intent and completion each roll back their ledger row and audit together on SQLite failure", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bau-delivery-atomic-")), mock = createMockTroubleshooting();
+  let fail: string | undefined;
+  const store = new SqliteRecords(directory, mock.ports, { fault: (checkpoint) => { if (checkpoint === fail) throw new Error("synthetic_storage_failure"); } });
+  try {
+    await store.admission.confirm({ key: "atomic-delivery", caseRef: "case-1", principalRef: actor.principalRef, initial: { context, view, input: { applicationId: "safe-application", question: "Why?" } } });
+    const operation = { ...context, callId: "case-1:atomic-send" }, input = { kind: "report" as const, deliveryKey: "case-1:report:atomic", segment: 1,
+      binding: { destinationRef: actor.destinationRef, caseRef: "case-1", phaseId: 1, text: "Different message." } };
+    const query = { caseRef: "case-1", deliveryKey: input.deliveryKey, segment: 1, bindingRef: "1320f282d1c9fc8a1967a4cf39576d843cb9fc2f68452542715c766c5825d289" };
+    fail = "audit:delivery.send:intent";
+    await assert.rejects(store.deliveryLedger.begin(operation, input), { message: "audit_unavailable" });
+    assert.deepEqual(await store.deliveryLedger.read(actor, query), { state: "absent" });
+    fail = undefined;
+    const begin = await store.deliveryLedger.begin(operation, input); assert.ok(begin.state === "new");
+    fail = "audit:delivery.send:complete";
+    await assert.rejects(store.deliveryLedger.complete(operation, begin.ticket, { status: "unknown" }), { message: "audit_unavailable" });
+    assert.equal(begin.ticket.completion.confirmed, false);
+    assert.deepEqual(await store.deliveryLedger.read(actor, query), { state: "pending" });
+    let saved = await store.records.read(actor, "case-1"); assert.ok(saved?.scope === "full");
+    assert.deepEqual(saved.audits.filter((entry) => entry.callId === operation.callId).map((entry) => entry.stage), ["intent"]);
+    fail = undefined; await store.deliveryLedger.complete(operation, begin.ticket, { status: "unknown" });
+    assert.equal(begin.ticket.completion.confirmed, true);
+    saved = await store.records.read(actor, "case-1"); assert.ok(saved?.scope === "full");
+    assert.deepEqual(saved.audits.filter((entry) => entry.callId === operation.callId).map((entry) => entry.stage), ["intent", "complete"]);
+  } finally { store.close(); await mock.application.close(); await rm(directory, { recursive: true, force: true }); }
 });

@@ -19,6 +19,24 @@ export class AuditBoundary {
     };
   }
 
+  deliveryLedger(raw: Ports["deliveryLedger"]): Ports["deliveryLedger"] {
+    return {
+      begin: async (context, input) => {
+        const action = input.kind === "report" ? "delivery.send" : "delivery.notice";
+        this.check(context, action);
+        try { return await raw.begin(context, input); }
+        catch (error) { if (error instanceof Error && error.message === "audit_unavailable") this.fail(context, action, "intent"); throw error; }
+      },
+      complete: async (context, ticket, result) => {
+        const action = ticket.kind === "report" ? "delivery.send" : "delivery.notice";
+        this.check(context, action);
+        try { await raw.complete(context, ticket, result); }
+        catch (error) { if (error instanceof Error && error.message === "audit_unavailable") this.fail(context, action, "complete"); throw error; }
+      },
+      read: (actor, query) => raw.read(actor, query),
+    };
+  }
+
   hasLost(caseRef: string): boolean { return this.lost.has(caseRef); }
 
   private check(context: CallContext, action: string): void {

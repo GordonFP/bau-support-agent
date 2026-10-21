@@ -435,7 +435,7 @@ for (const kind of ["logs", "code"] as const) test(`independent B ${kind} denial
   let store: InstanceType<typeof SqliteRecords> | undefined;
   const mock = createMockTroubleshooting({ denyActions: [action], controlPorts: (ports) => {
     store = new SqliteRecords(directory, ports);
-    return { admission: store.admission, records: store.records, audit: store.audit, budget: store.budget };
+    return { admission: store.admission, records: store.records, deliveryLedger: store.deliveryLedger, audit: store.audit, budget: store.budget };
   } });
   try {
     await mock.receive(); await mock.closed;

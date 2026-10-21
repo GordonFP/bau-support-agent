@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CallContext, Ports, TrustedActor } from "../../troubleshooting/application/ports.js";
-import type { AuditDetails, CaseRecord, CaseRecords, DeliveryRecord, InitialCase, SavedContext, StoredCase, RecordDisclosure } from "../../troubleshooting/application/records.js";
+import type { AuditDetails, CaseRecord, CaseRecords, InitialCase, SavedContext, StoredCase, RecordDisclosure } from "../../troubleshooting/application/records.js";
 import { auditRecord } from "../../troubleshooting/application/audit-record.js";
 import { SqliteSession } from "./sqlite-session.js";
 import { deniedContext, recordDenial } from "../../troubleshooting/application/authorization-audit.js";
@@ -13,6 +13,7 @@ import type { ControlledCopy } from "./controlled-copies.js";
 import { sqliteRetention } from "./sqlite-retention.js";
 import type { RetentionState } from "../../troubleshooting/application/retention-lifecycle.js";
 import { isRetentionClosed, type Retention } from "../../troubleshooting/application/retention.js";
+import { createDeliveryLedger, deliveryRecord, type DeliveryLedger, type StoredDelivery } from "../../troubleshooting/application/delivery-ledger.js";
 import { SqliteBudget } from "./sqlite-budget.js";
 
 type Controls = Pick<Ports, "authorization" | "sanitization" | "clock">;
@@ -20,6 +21,7 @@ type Controls = Pick<Ports, "authorization" | "sanitization" | "clock">;
 export class SqliteRecords {
   private readonly session: SqliteSession;
   readonly records: CaseRecords;
+  readonly deliveryLedger: DeliveryLedger;
   readonly budget: SqliteBudget;
   readonly retention: Retention;
 
@@ -109,6 +111,28 @@ export class SqliteRecords {
       this.budget = new SqliteBudget(this.session, controls, () => this.options.fault?.("budget:reserve:before_commit"), () => this.retention.closed());
       this.retention.onClose(async () => this.budget.close());
     } catch { this.session.close(); throw new Error("unavailable"); }
+    this.deliveryLedger = createDeliveryLedger({
+      atomic: (operation) => this.session.transaction(operation),
+      owner: (caseRef) => {
+        const row = this.session.database.prepare("SELECT context FROM cases WHERE case_ref=?").get(caseRef);
+        return row ? JSON.parse(String(row.context)) as SavedContext : null;
+      },
+      find: (key) => {
+        const row = this.session.database.prepare("SELECT value FROM deliveries WHERE delivery_key=? AND segment=?").get(key.deliveryKey, key.segment);
+        if (!row) return null;
+        const record = JSON.parse(String(row.value)) as StoredDelivery;
+        if (record.stage) return record;
+        // Legacy intent rows and completed-unknown rows are distinguished inside C, without loading case records.
+        const completed = this.session.database.prepare("SELECT action FROM audit WHERE call_id=? AND stage='complete' AND action IN ('delivery.send','delivery.notice') LIMIT 1").get(record.callId);
+        return { ...record, stage: completed ? "complete" : "pending", kind: completed?.action === "delivery.notice" ? "notice" : "report" };
+      },
+      put: (record) => { this.session.database.prepare("INSERT INTO deliveries VALUES(?,?,?,?,?) ON CONFLICT(delivery_key,segment) DO UPDATE SET value=excluded.value")
+        .run(record.deliveryKey, record.segment, record.caseRef, record.callId, JSON.stringify(record)); },
+      audit: (context, action, stage, outcome, details) => {
+        this.auditInsert(context, action, stage, outcome, details);
+        this.options.fault?.(`audit:${action}:${stage}`);
+      },
+    }, { ...controls, audit: this.audit, retention: this.retention });
     this.records = { append: async (context, record) => {
       try { await this.append(context, record); }
       catch (error) { throw new Error(error instanceof Error && ["denied", "invalid_request", "unsafe_content"].includes(error.message) ? error.message : "unavailable"); }
@@ -184,16 +208,6 @@ export class SqliteRecords {
         return String(previous.receipt);
       }
     }
-    if (["delivery.send", "delivery.notice"].includes(action) && details?.delivery) {
-      const delivery = details.delivery;
-      if (!Number.isSafeInteger(delivery.segment) || delivery.segment < 1 || !delivery.deliveryKey.startsWith(`${context.caseRef}:`)) throw new Error("invalid_request");
-      const previous = this.session.database.prepare("SELECT call_id FROM deliveries WHERE delivery_key=? AND segment=?").get(delivery.deliveryKey, delivery.segment);
-      if (previous && String(previous.call_id) !== context.callId) throw new Error("invalid_request");
-      const record: DeliveryRecord = { schemaVersion: 1, caseRef: context.caseRef, callId: context.callId,
-        deliveryKey: delivery.deliveryKey, segment: delivery.segment, ...(delivery.bindingRef ? { bindingRef: delivery.bindingRef } : {}), ...(delivery.receiptRef ? { receiptRef: delivery.receiptRef } : {}), status: stage === "complete" ? delivery.status ?? "unknown" : "unknown" };
-      this.session.database.prepare("INSERT INTO deliveries VALUES(?,?,?,?,?) ON CONFLICT(delivery_key,segment) DO UPDATE SET value=excluded.value")
-        .run(delivery.deliveryKey, delivery.segment, context.caseRef, context.callId, JSON.stringify(record));
-    }
     this.session.database.prepare("INSERT INTO audit(receipt,call_id,action,stage,value) VALUES (?,?,?,?,?)")
       .run(receipt, context.callId, action, stage, JSON.stringify(value));
     return receipt;
@@ -244,7 +258,7 @@ export class SqliteRecords {
     const audits = this.session.database.prepare("SELECT value FROM audit WHERE json_extract(value,'$.caseRef')=? ORDER BY sequence").all(caseRef)
       .map((entry) => JSON.parse(String(entry.value)) as Readonly<Record<string, unknown>>);
     const deliveries = this.session.database.prepare("SELECT value FROM deliveries WHERE case_ref=? ORDER BY delivery_key,segment").all(caseRef)
-      .map((entry) => JSON.parse(String(entry.value)) as DeliveryRecord);
+      .map((entry) => deliveryRecord(JSON.parse(String(entry.value)) as StoredDelivery));
     await this.audit.complete(context, action, "allowed");
     try { await beforeDisclose?.(() => { if (this.retention.closed()) throw new Error("denied"); if (this.controls.authorization.current && this.controls.authorization.current(action, { ...saved, ...actor }) !== true) throw new Error("denied"); }, savedContextSnapshot({ ...saved, phaseId: (JSON.parse(String(row.view)) as InitialCase["view"]).phaseId })); }
     catch { await recordDenial(this.audit, context); return null; }
