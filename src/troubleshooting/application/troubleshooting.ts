@@ -15,7 +15,8 @@ import { sendNotice, sendReport } from "./communication.js";
 import { retryModel } from "./model-retry.js";
 import { codeQuery } from "./code-query.js";
 import type { CodeSearchQuery, CodeSnippetQuery, CodeTraceQuery } from "./ports.js";
-import { caseRepositories, caseResources } from "./resource-scope.js";
+import { HostExecutions, type PhaseExecution } from "./phase-execution.js";
+import { caseRepositories } from "./resource-scope.js";
 
 const reasons = new Set<SafeReason>(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable",
   "timeout", "cancelled", "rate_limited", "budget_exhausted", "version_unknown", "version_mismatch", "unsafe_content", "audit_unavailable"]);
@@ -24,11 +25,10 @@ const safeReason = (error: unknown): SafeReason => error instanceof Error && rea
 
 interface RunningCase {
   readonly eventKey: string;
-  readonly closedPhases: Set<number>;
+  readonly executions: Map<number, PhaseExecution>;
   terminalSaved?: boolean;
   inbound: VerifiedInbound;
-  controller: AbortController;
-  context: CallContext;
+  phaseId: number;
   readonly investigation: TroubleshootingCase;
   replyTail: Promise<void>;
   readonly replyFlights: Map<string, Promise<InformationResult>>;
@@ -38,10 +38,6 @@ interface RunningCase {
   finishedMono?: number;
   recordSequence: number;
   cleanupDeadline?: number;
-  readonly closures: Map<number, Promise<void>>;
-  readonly aborts: Map<number, Promise<void>>;
-  readonly work: Map<number, Set<Promise<unknown>>>;
-  readonly stopping: Map<number, Promise<void>>;
   cancelDeadline?: () => void;
   candidates?: ApplicationCandidates["candidates"];
   pspCandidates?: PspTargetCandidates["candidates"];
@@ -82,10 +78,9 @@ class ReadyTroubleshooting {
   private readonly pendingAdmissions = new Set<string>();
   private readonly persistedLookups = new Map<string, Promise<Acceptance | null>>();
   private sequence = 0;
-  private readonly controlWork = new Set<Promise<unknown>>();
+  private readonly hostExecutions = new HostExecutions();
   private readonly terminalReads = new Map<string, { deadline: number; work: Promise<{ saved: StoredCase; owner: SavedContext; current: () => void } | null> }>();
   private readonly disclosureWork = new Set<Promise<void>>();
-  private admissionCloseFailed = false;
   private hostClosed = false;
   private closing?: Promise<void>;
   private readonly auditBoundary?: AuditBoundary;
@@ -104,8 +99,8 @@ class ReadyTroubleshooting {
       let cleanupFailed = false;
       for (const running of active) {
         running.view = { ...running.view, state: "stopped", stopReason: "cancelled" };
-        running.investigation.stop(); running.investigation.forget(); running.controller.abort(); running.cancelDeadline?.();
-        try { ports.sanitization.clear(running.context.caseRef); } catch { cleanupFailed = true; }
+        running.investigation.stop(); running.investigation.forget(); this.execution(running).controller.abort(); running.cancelDeadline?.();
+        try { ports.sanitization.clear(this.execution(running).context.caseRef); } catch { cleanupFailed = true; }
         running.inbound = { ...running.inbound, input: { question: "" } };
         delete running.candidates;
         delete running.pspCandidates;
@@ -113,17 +108,18 @@ class ReadyTroubleshooting {
         delete running.pspBoundAt;
       }
       this.cases.clear(); this.acceptances.clear(); this.pendingAdmissions.clear(); this.persistedLookups.clear();
-      while (this.controlWork.size) await Promise.allSettled([...this.controlWork]);
-      const closed = await Promise.allSettled(active.flatMap((running) => [Promise.resolve().then(() => ports.agent.abort(running.context.caseRef, running.context.phaseId)),
-        this.closePhase(running, running.context, ports), ...running.closures.values(), ...running.replyFlights.values()]));
-      if (cleanupFailed || this.admissionCloseFailed || closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
+      const closed = await Promise.allSettled([this.hostExecutions.close(), ...active.flatMap((running) => [
+        this.execution(running).abort(), ...[...running.executions.values()].map((phase) => phase.close()), ...running.replyFlights.values()])]);
+      if (cleanupFailed || closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
     })();
   }
 
-  private trackControl<T>(task: Promise<T>): Promise<T> {
-    this.controlWork.add(task);
-    void task.then(() => this.controlWork.delete(task), () => this.controlWork.delete(task));
-    return task;
+  private trackControl<T>(task: Promise<T>): Promise<T> { return this.hostExecutions.track(task); }
+
+  private execution(running: RunningCase, phaseId = running.phaseId): PhaseExecution {
+    const phase = running.executions.get(phaseId);
+    if (!phase) throw new Error("unavailable");
+    return phase;
   }
 
   private retentionClosed(): boolean {
@@ -143,13 +139,13 @@ class ReadyTroubleshooting {
       if (!running) {
         return await this.persistedDuplicate(inbound, key, accepted.view.caseRef) ?? { status: "denied", reason: "denied" };
       }
-      if (running.context.principalRef !== inbound.principalRef) {
+      if (this.execution(running).context.principalRef !== inbound.principalRef) {
         await this.denied(inbound, accepted.view.caseRef);
         return { status: "denied", reason: "denied" };
       }
       try {
-        if (!await this.configured.authorization.allows("accept", running.context)) {
-          await recordDenial(this.configured.audit, running.context);
+        if (!await this.configured.authorization.allows("accept", this.execution(running).context)) {
+          await recordDenial(this.configured.audit, this.execution(running).context);
           return { status: "denied", reason: "denied" };
         }
         return { status: "duplicate", view: this.viewOf(running, this.configured) };
@@ -276,8 +272,8 @@ class ReadyTroubleshooting {
       usage: { modelAttempts: 0, logRecords: 0, logCoverageMs: 0 }, elapsedMs: 0,
       phases: [{ phaseId: 1, startedAt: now }], inputWaits: [] };
     const investigation = new TroubleshootingCase(caseRef);
-    const running: RunningCase = { eventKey: key, closedPhases: new Set(), inbound: structuredClone(inbound), context, controller, view, investigation,
-      replyTail: Promise.resolve(), replyFlights: new Map(), closures: new Map(), aborts: new Map(), work: new Map(), stopping: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
+    const running: RunningCase = { eventKey: key, executions: new Map(), inbound: structuredClone(inbound), phaseId: context.phaseId, view, investigation,
+      replyTail: Promise.resolve(), replyFlights: new Map(), replyEvents: new Set(), coverageWindows: new Set(),
       recordSequence: 0, acceptedMono: context.deadline - CASE_EXECUTION_MS };
     let admitted = false;
     try {
@@ -291,10 +287,11 @@ class ReadyTroubleshooting {
           if (saved?.scope === "full") return { status: "duplicate", view: saved.view };
         }
         return existing && confirmation.principalRef === context.principalRef && this.owns(inbound, existing) &&
-          await ports.authorization.allows("accept", existing.context)
+          await ports.authorization.allows("accept", this.execution(existing).context)
           ? { status: "duplicate", view: this.viewOf(existing, ports) } : { status: "service_unavailable", reason: "unavailable" };
       }
       admitted = true;
+      running.executions.set(context.phaseId, this.hostExecutions.create(context, controller, ports.agent, () => this.releaseCase(running)));
     } catch { return { status: "service_unavailable", reason: "unavailable" }; }
     finally { if (!admitted) { try { ports.sanitization.clear(caseRef); } catch { /* candidate was not accepted */ } } }
     try {
@@ -332,7 +329,7 @@ class ReadyTroubleshooting {
       return { status: "accepted", view: structuredClone(view) };
     } finally {
       if (running.view.state === "completed" || running.view.state === "stopped") {
-        const closing = this.closePhase(running, context, ports).catch((error) => { this.admissionCloseFailed = true; throw error; });
+        const closing = this.execution(running, context.phaseId).close();
         void this.trackControl(closing).catch(() => {});
       }
     }
@@ -347,8 +344,8 @@ class ReadyTroubleshooting {
       const saved = await this.terminalView(reply, reply?.reply?.caseRef, "provideInformation", reply?.eventRef, signal);
       return saved ? saved.duplicate ? { status: "duplicate", view: saved.view } : { status: "terminal", view: saved.view, newCaseRequired: true } : { status: "denied", reason: "denied" };
     }
-    if (!running || reply.principalRef !== running.context.principalRef || reply.tenantRef !== running.context.tenantRef ||
-      reply.destinationRef !== running.context.destinationRef) {
+    if (!running || reply.principalRef !== this.execution(running).context.principalRef || reply.tenantRef !== this.execution(running).context.tenantRef ||
+      reply.destinationRef !== this.execution(running).context.destinationRef) {
       await this.denied(reply, reply?.reply?.caseRef ?? "unresolved");
       return { status: "denied", reason: "denied" };
     }
@@ -356,7 +353,7 @@ class ReadyTroubleshooting {
     if (previous) {
       await previous;
       try {
-        if (!await this.configured.authorization.allows("provideInformation", running.context)) return { status: "denied", reason: "denied" };
+        if (!await this.configured.authorization.allows("provideInformation", this.execution(running).context)) return { status: "denied", reason: "denied" };
         return { status: "duplicate", view: this.viewOf(running, this.configured) };
       } catch { return { status: "denied", reason: "unavailable" }; }
     }
@@ -369,7 +366,7 @@ class ReadyTroubleshooting {
 
   private async resumeFromInformation(running: RunningCase, reply: InformationReply, ports: Ports): Promise<InformationResult> {
     try {
-      if (!await ports.authorization.allows("provideInformation", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied", reason: "denied" }; }
+      if (!await ports.authorization.allows("provideInformation", this.execution(running).context)) { await recordDenial(ports.audit, this.execution(running).context); return { status: "denied", reason: "denied" }; }
       if (running.replyEvents.has(reply.eventRef)) return { status: "duplicate", view: this.viewOf(running, ports) };
       if (running.view.state === "completed" || running.view.state === "stopped") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
       if (reply.content && ["applicationId", "customerId", "shopId", "bindingId", "scenario"].some((field) => field in reply.content)) {
@@ -387,7 +384,7 @@ class ReadyTroubleshooting {
         return { status: "needs_information", view: this.viewOf(running, ports) };
       }
       const candidate = psp ? pspMatches[0]! : matches[0]!;
-      const context = { ...running.context, callId: `${running.context.caseRef}:reply:${reply.eventRef}` };
+      const context = { ...this.execution(running).context, callId: `${this.execution(running).context.caseRef}:reply:${reply.eventRef}` };
       const budget = await ports.budget.status(context.caseRef);
       if (running.view.state !== "awaiting_input") return { status: "terminal", view: this.viewOf(running, ports), newCaseRequired: true };
       if (running.view.usage.modelAttempts >= MAX_MODEL_ATTEMPTS || running.view.usage.logRecords >= MAX_LOG_RECORDS || budget.reservedMicrousd >= CASE_MODEL_MICROUSD) {
@@ -405,9 +402,10 @@ class ReadyTroubleshooting {
       const controller = new AbortController();
       const phase = phaseWindow(ports.clock);
       const startedAt = phase.startedAt;
-      running.context = Object.freeze({ ...running.context, phaseId, callId: `${context.caseRef}:phase-${phaseId}:start`,
+      const resumedContext = Object.freeze({ ...this.execution(running).context, phaseId, callId: `${context.caseRef}:phase-${phaseId}:start`,
         deadline: phase.deadline, signal: controller.signal });
-      running.controller = controller;
+      running.executions.set(phaseId, this.hostExecutions.create(resumedContext, controller, ports.agent, () => this.releaseCase(running)));
+      running.phaseId = phaseId;
       running.inbound = { ...running.inbound, input: { applicationId: candidate.applicationId, question: running.inbound.input.question,
         ...(psp && "shopId" in candidate ? { scenario: "psp", shopId: candidate.shopId, bindingId: candidate.bindingId } : {}) } };
       if ("customerId" in candidate) running.pspCustomerId = candidate.customerId;
@@ -440,15 +438,11 @@ class ReadyTroubleshooting {
   }
 
   private trackWork<T>(running: RunningCase, phaseId: number, task: Promise<T>): Promise<T> {
-    const pending = running.work.get(phaseId) ?? new Set<Promise<unknown>>();
-    running.work.set(phaseId, pending); pending.add(task);
-    const ended = () => { pending.delete(task); if (!pending.size) running.work.delete(phaseId); this.releaseCase(running); };
-    void task.then(ended, ended);
-    return task;
+    return this.execution(running, phaseId).track(task);
   }
 
   private saveView(running: RunningCase, ports: Ports): Promise<void> {
-    return this.saveRecord(running, running.context, ports, { recordRef: `${running.context.caseRef}:view:${++running.recordSequence}`,
+    return this.saveRecord(running, this.execution(running).context, ports, { recordRef: `${this.execution(running).context.caseRef}:view:${++running.recordSequence}`,
       schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) });
   }
 
@@ -460,9 +454,9 @@ class ReadyTroubleshooting {
       running.view = { ...running.view, state: "stopped", stopReason: "audit_unavailable" };
       this.endPhase(running, "stopped", ports);
     }
-    void this.stopPhase(running, running.context, "audit_unavailable", ports);
+    void this.stopPhase(running, this.execution(running).context, "audit_unavailable", ports);
     if (stage !== "complete" && action !== "delivery.send") return;
-    const current = running.context;
+    const current = this.execution(running).context;
     const deadline = running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS;
     const notice = "Investigation stopped because audit storage is unavailable." as const;
     const allowed = async () => {
@@ -479,20 +473,20 @@ class ReadyTroubleshooting {
   }
 
   private endPhase(running: RunningCase, outcome: "awaiting_input" | "completed" | "stopped", ports: Ports): void {
-    running.view = { ...running.view, phases: running.view.phases.map((phase) => phase.phaseId === running.context.phaseId && !phase.endedAt
+    running.view = { ...running.view, phases: running.view.phases.map((phase) => phase.phaseId === this.execution(running).context.phaseId && !phase.endedAt
       ? { ...phase, endedAt: ports.clock.utc(), outcome } : phase) };
     if (outcome !== "awaiting_input") {
       running.investigation.stop();
       running.finishedMono ??= ports.clock.now();
       running.cleanupDeadline ??= ports.clock.now() + CLEANUP_MS;
       running.cancelDeadline?.();
-      running.controller.abort();
-      try { ports.sanitization.clear(running.context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
+      this.execution(running).controller.abort();
+      try { ports.sanitization.clear(this.execution(running).context.caseRef); } catch { /* no raw cleanup errors leave the host */ }
       running.inbound = { ...running.inbound, input: { question: "" } };
       delete running.candidates; delete running.pspCandidates; delete running.pspCustomerId; delete running.pspBoundAt;
-      void this.trackWork(running, running.context.phaseId, Promise.resolve().then(() => ports.admission.release(running.context.caseRef))).catch(() => {});
+      void this.trackWork(running, this.execution(running).context.phaseId, Promise.resolve().then(() => ports.admission.release(this.execution(running).context.caseRef))).catch(() => {});
     }
-    const context = running.context;
+    const context = this.execution(running).context;
     const record: CaseRecord = { recordRef: `${context.caseRef}:view:${++running.recordSequence}`,
       schemaVersion: 1, kind: "view", payload: this.viewOf(running, ports) };
     void this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.records.append(context, record)).then(() => { if (outcome !== "awaiting_input") running.terminalSaved = true; }))
@@ -501,10 +495,10 @@ class ReadyTroubleshooting {
 
   private armDeadline(running: RunningCase, ports: Ports): void {
     running.cancelDeadline?.();
-    const context = running.context;
-    const controller = running.controller;
+    const context = this.execution(running).context;
+    const controller = this.execution(running).controller;
     const expire = () => {
-      if (running.context.phaseId !== context.phaseId || running.view.state !== "investigating" ||
+      if (this.execution(running).context.phaseId !== context.phaseId || running.view.state !== "investigating" ||
         controller.signal.aborted || ports.clock.now() < context.deadline) return;
       running.view = { ...running.view, state: "stopped", stopReason: "timeout" };
       this.endPhase(running, "stopped", ports);
@@ -513,60 +507,32 @@ class ReadyTroubleshooting {
     running.cancelDeadline = schedule(ports.clock, context.deadline, expire);
   }
 
-  private closePhase(running: RunningCase, context: CallContext, ports: Ports): Promise<void> {
-    const previous = running.closures.get(context.phaseId);
-    if (previous) return previous;
-    const operation = (async () => {
-      const closed = await Promise.allSettled([Promise.resolve().then(() => ports.agent.close(context.caseRef, context.phaseId)), running.aborts.get(context.phaseId), (async () => {
-        while (running.work.get(context.phaseId)?.size) await Promise.allSettled([...running.work.get(context.phaseId)!]);
-      })()]);
-      if (closed.some((result) => result.status === "rejected")) throw new Error("unavailable");
-      running.closedPhases.add(context.phaseId); this.releaseCase(running);
-    })();
-    void operation.catch(() => {});
-    running.closures.set(context.phaseId, operation);
-    return operation;
-  }
-
-  private abortPhase(running: RunningCase, context: CallContext, ports: Ports): Promise<void> {
-    const previous = running.aborts.get(context.phaseId);
-    if (previous) return previous;
-    const operation = this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.agent.abort(context.caseRef, context.phaseId)));
-    running.aborts.set(context.phaseId, operation); void operation.catch(() => {});
-    return operation;
-  }
-
   private stopPhase(running: RunningCase, context: CallContext, reason: string, ports: Ports): Promise<void> {
-    const previous = running.stopping.get(context.phaseId);
-    if (previous) return previous;
     const deadline = running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS;
-    const operation = beforeDeadline(ports.clock, deadline, async () => {
+    return this.execution(running, context.phaseId).stop(() => beforeDeadline(ports.clock, deadline, async () => {
       if (this.auditBoundary?.hasLost(context.caseRef)) {
-        const abort = this.abortPhase(running, context, ports);
-        void this.closePhase(running, context, ports).catch(() => {});
+        const abort = this.execution(running, context.phaseId).abort();
+        void this.execution(running, context.phaseId).close().catch(() => {});
         await abort;
         return;
       }
       const audit = { ...context, callId: `${context.caseRef}:phase-${context.phaseId}:${reason}` };
       try { await this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.audit.intent(audit, reason))); } catch { /* local stop remains effective */ }
       if (ports.clock.now() >= deadline) return;
-      const abort = this.abortPhase(running, context, ports);
+      const abort = this.execution(running, context.phaseId).abort();
       const complete = this.trackWork(running, context.phaseId, Promise.resolve().then(() => ports.audit.complete(audit, reason, "stopped")));
-      void this.closePhase(running, context, ports).catch(() => {});
+      void this.execution(running, context.phaseId).close().catch(() => {});
       await Promise.allSettled([abort, complete]);
-    }).catch(() => {});
-    running.stopping.set(context.phaseId, operation);
-    return operation;
+    }).catch(() => {}));
   }
 
   private releaseCase(running: RunningCase): void {
-    if (!["completed", "stopped"].includes(running.view.state) || running.work.size || running.replyFlights.size ||
-      this.pendingAdmissions.has(running.eventKey) || !running.terminalSaved || !running.closedPhases.has(running.context.phaseId) ||
-      [...running.closures.keys()].some((phase) => !running.closedPhases.has(phase))) return;
+    if (!["completed", "stopped"].includes(running.view.state) || running.replyFlights.size ||
+      this.pendingAdmissions.has(running.eventKey) || !running.terminalSaved || [...running.executions.values()].some((phase) => !phase.closed)) return;
     running.investigation.forget();
-    if (this.cases.get(running.context.caseRef) === running) this.cases.delete(running.context.caseRef);
+    if (this.cases.get(this.execution(running).context.caseRef) === running) this.cases.delete(this.execution(running).context.caseRef);
     this.acceptances.delete(running.eventKey);
-    running.replyEvents.clear(); running.coverageWindows.clear(); running.closures.clear(); running.aborts.clear(); running.stopping.clear();
+    running.replyEvents.clear(); running.coverageWindows.clear();
   }
 
   // Host cancellation ends only this caller's wait; the shared record operation retains its bounded slot until it settles.
@@ -634,7 +600,7 @@ class ReadyTroubleshooting {
   }
 
   private owns(actor: TrustedActor, running: RunningCase): boolean {
-    return !!actor && actor.principalRef === running.context.principalRef && actor.tenantRef === running.context.tenantRef && actor.destinationRef === running.context.destinationRef;
+    return !!actor && actor.principalRef === this.execution(running).context.principalRef && actor.tenantRef === this.execution(running).context.tenantRef && actor.destinationRef === this.execution(running).context.destinationRef;
   }
 
   private async denied(actor: TrustedActor, caseRef: string): Promise<void> {
@@ -649,14 +615,14 @@ class ReadyTroubleshooting {
     if (!running) { const view = await this.terminalView(actor, caseRef, "cancel", undefined, signal); return view?.view ?? { status: "denied" }; }
     if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {
-      if (!await ports.authorization.allows("cancel", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
+      if (!await ports.authorization.allows("cancel", this.execution(running).context)) { await recordDenial(ports.audit, this.execution(running).context); return { status: "denied" }; }
       if (running.view.state === "completed" || running.view.state === "stopped") return this.viewOf(running, ports);
-      const context = { ...running.context, callId: `${caseRef}:phase-${running.context.phaseId}:cancel` };
+      const context = { ...this.execution(running).context, callId: `${caseRef}:phase-${this.execution(running).context.phaseId}:cancel` };
       running.view = { ...running.view, state: "stopped", stopReason: "cancelled" };
       this.endPhase(running, "stopped", ports);
       const notification = { ...context, deadline: running.cleanupDeadline!, signal: new AbortController().signal };
       const status = this.trackWork(running, context.phaseId, sendNotice(ports, notification,
-        { kind: "status", state: "stopped", caseRef }, () => { if (this.retentionClosed() || this.auditBoundary?.hasLost(caseRef) || running.context.phaseId !== context.phaseId) throw new Error("cancelled"); }));
+        { kind: "status", state: "stopped", caseRef }, () => { if (this.retentionClosed() || this.auditBoundary?.hasLost(caseRef) || this.execution(running).context.phaseId !== context.phaseId) throw new Error("cancelled"); }));
       await Promise.allSettled([this.stopPhase(running, context, "cancel", ports), beforeDeadline(ports.clock, notification.deadline, () => status)]);
       return this.viewOf(running, ports);
     } catch { return { status: "denied" }; }
@@ -672,20 +638,28 @@ class ReadyTroubleshooting {
     }
     if (!this.owns(actor, running)) { await this.denied(actor, caseRef); return { status: "denied" }; }
     try {
-      if (!await ports.authorization.allows("get", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
-      const context = { ...running.context, callId: `${caseRef}:get:${randomUUID()}` };
+      if (!await ports.authorization.allows("get", this.execution(running).context)) { await recordDenial(ports.audit, this.execution(running).context); return { status: "denied" }; }
+      const context = { ...this.execution(running).context, callId: `${caseRef}:get:${randomUUID()}` };
       await ports.audit.intent(context, "get");
       await ports.audit.complete(context, "get", "allowed");
-      try { await beforeDisclose?.(() => { if (this.retentionClosed()) throw new Error("denied"); if (ports.authorization.current && ports.authorization.current("get", running.context) !== true) throw new Error("denied"); }, running.context); }
+      try { await beforeDisclose?.(() => { if (this.retentionClosed()) throw new Error("denied"); if (ports.authorization.current && ports.authorization.current("get", this.execution(running).context) !== true) throw new Error("denied"); }, this.execution(running).context); }
       catch { await recordDenial(ports.audit, context); return { status: "denied" }; }
-      if (!await ports.authorization.allows("get", running.context)) { await recordDenial(ports.audit, running.context); return { status: "denied" }; }
+      if (!await ports.authorization.allows("get", this.execution(running).context)) { await recordDenial(ports.audit, this.execution(running).context); return { status: "denied" }; }
       return this.viewOf(running, ports);
     } catch { return { status: "denied" }; }
   }
 
-  private async investigate(running: RunningCase, ports: Ports): Promise<void> {
-    const phaseContext = running.context;
-    const phaseController = running.controller;
+  private investigate(running: RunningCase, ports: Ports): Promise<void> {
+    const phase = this.execution(running);
+    const work = phase.track(this.executeInvestigation(running, ports));
+    void work.finally(() => beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS,
+      () => phase.close())).catch(() => {});
+    return work;
+  }
+
+  private async executeInvestigation(running: RunningCase, ports: Ports): Promise<void> {
+    const phaseContext = this.execution(running).context;
+    const phaseController = this.execution(running).controller;
     const phaseInbound = running.inbound;
     const phasePspCustomerId = running.pspCustomerId;
     const phasePspBoundAt = running.pspBoundAt;
@@ -711,7 +685,7 @@ class ReadyTroubleshooting {
     const assertCurrent = (allowEnded = false) => {
       if (this.retentionClosed()) throw new Error("cancelled");
       if (this.auditBoundary?.hasLost(phaseContext.caseRef)) throw new Error("audit_unavailable");
-      if ((!allowEnded && !investigation.isCurrentPhase(phaseContext.phaseId)) || phaseController.signal.aborted || running.context.phaseId !== phaseContext.phaseId) throw new Error("cancelled");
+      if ((!allowEnded && !investigation.isCurrentPhase(phaseContext.phaseId)) || phaseController.signal.aborted || this.execution(running).context.phaseId !== phaseContext.phaseId) throw new Error("cancelled");
     };
     const contextFor = (action: string): CallContext => Object.freeze({ ...phaseContext, callId: `${phaseContext.caseRef}:phase-${phaseContext.phaseId}:${action}:${++callSequence}` });
     const guarded = async <T>(action: string, operation: (context: CallContext) => Promise<T>, acceptResult?: (result: T, auditRef: string) => void | Promise<void>,
@@ -738,7 +712,7 @@ class ReadyTroubleshooting {
         try { auditRef = await ports.audit.intent(context, action, details); } catch { throw new Error("audit_unavailable"); }
         check();
         invoked = true;
-        const discarded = () => phaseController.signal.aborted || running.context.phaseId !== phaseContext.phaseId || ports.clock.now() >= context.deadline;
+        const discarded = () => phaseController.signal.aborted || this.execution(running).context.phaseId !== phaseContext.phaseId || ports.clock.now() >= context.deadline;
         let output: T;
         try { output = await operation(context); }
         catch (error) {
@@ -788,7 +762,7 @@ class ReadyTroubleshooting {
             await ports.audit.complete(context, action, "unknown");
           })())).catch(() => {});
         }
-        if (running.context.phaseId === phaseContext.phaseId && running.view.state === "investigating") {
+        if (this.execution(running).context.phaseId === phaseContext.phaseId && running.view.state === "investigating") {
           const reason = safeReason(error);
           running.view = { ...running.view, state: "stopped", stopReason: reason };
           this.endPhase(running, "stopped", ports);
@@ -840,7 +814,7 @@ class ReadyTroubleshooting {
       const { deadlineAt: _deadline, ...withoutDeadline } = running.view;
       running.view = { ...withoutDeadline, state: "awaiting_input", waitingStartedAt: ports.clock.utc(), question, inputWaits: [...running.view.inputWaits, { questionId: `${phaseContext.caseRef}:question:${phaseContext.phaseId}`, startedAt: ports.clock.utc() }] };
       this.endPhase(running, "awaiting_input", ports);
-      void this.abortPhase(running, phaseContext, ports).catch(() => {});
+      void this.execution(running, phaseContext.phaseId).abort().catch(() => {});
       throw new Error("awaiting_input");
     };
     const invoke = async (tool: string, query: unknown): Promise<unknown> => {
@@ -1005,6 +979,7 @@ class ReadyTroubleshooting {
                   if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
                 })) throw new Error("budget_exhausted");
                 admitted = true;
+
                 assertCurrent();
                 if (ports.clock.now() >= modelContext.deadline) throw new Error("timeout");
               }); }
@@ -1038,14 +1013,11 @@ class ReadyTroubleshooting {
       this.endPhase(running, "completed", ports);
     } catch (error: unknown) {
       const reason = safeReason(error);
-      if (running.context.phaseId === phaseContext.phaseId && running.view.state === "investigating") {
+      if (this.execution(running).context.phaseId === phaseContext.phaseId && running.view.state === "investigating") {
         running.view = { ...running.view, state: "stopped", stopReason: reason };
         this.endPhase(running, "stopped", ports);
         await this.stopPhase(running, phaseContext, reason, ports);
       }
-    } finally {
-      await beforeDeadline(ports.clock, running.cleanupDeadline ?? ports.clock.now() + CLEANUP_MS,
-        () => this.closePhase(running, phaseContext, ports)).catch(() => {});
     }
   }
 }
