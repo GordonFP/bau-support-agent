@@ -19,7 +19,7 @@
 
 根代理独立回放保留在同目录：原 F02/F03 脚本只替换 import 路径，baseline 为 40 retained / 0 Agent.close、较早时间；候选为 0 retained / 40 Agent.close、`.500Z`（`root-original-f02-f03-{baseline,candidate}.log`）。F01 原 32 请求脚本的复现保持原样保留，另一个独立适配 probe 先准备两个已完成案件，只挂起 case-1 的 C read，等待 32 个已认证 cancel 后断开全部客户端，原读仍挂起时用实际 Postman 查询 case-2；同一脚本 baseline HTTP 503／32 原读，候选 HTTP 200／1 原读（`root-f01-independent-{baseline,candidate}.log`）。它将门闩从“32 个原读”改为“32 个入站身份通过”，以兼容正确合并；没有声称原门闩脚本不改即可作为 GREEN。两次状态断言均通过，baseline 非 2xx 的 Postman CLI exit 1、候选 exit 0，脚本均 exit 0。
 
-## 当前固定验证
+## 270083b／b5c7efc 中间验证
 
 生产检查点为 `270083bbcc00327a2d359978a177fb15262a74ac`；其前一检查点 `25af1e5` 的 145 项相关组合及 macOS 506 项均通过。两者生产差别仅为恢复查询的每 caller view 快照复制，新增一个回归后行为总数 507。
 
@@ -29,7 +29,7 @@
 
 生产检查点 `270083b` 的普通双轴复核完成，Standards **0 硬违约／0 有意义 smell**、Spec **0 确认 finding**，独立原文位于 `code-review-270083b.md`。它不替代先前中断的专门安全复核。
 
-最终检查已执行的结果如下，镜像及最终收据另附：
+该检查点已执行的结果如下；最后的受理关闭失败补丁与新检查另附：
 
 | 检查 | 实际结果与日志 |
 | --- | --- |
@@ -55,9 +55,9 @@ joined native **3/3，0 fail/skip**（`final-joined-native.log`），使用实�
 BAU_KIBANA_TEST_ARTIFACT_CONFIG=/tmp/bau-spec14-context/kibana-test-artifact.json node --test --test-concurrency=1 --test-timeout=65000 dist/tests/contracts/codebase-kibana-native.test.js
 ```
 
-根代理在最终 `b5c7efc` 编译结果再次独立回放：`root-f01-independent-b5c7efc.log` 仍为 32 客户端断开、原 read 未结束且仅 1 flight、独立已完成案件 HTTP 200；`root-original-f02-f03-b5c7efc.log` 仍为混合精度 `.500Z`、40 案在宿主关闭前后 retained 均 0、调查 0／Agent.close 40。R01 原公开请求与第三次 delivery 查权撤权顺序保留，仅接入同一 authority 的 current 能力并替换 import；`root-identity-denied-b5c7efc.log` 为 revoked=true、物理输出仅 status，`root-identity-allowed-b5c7efc.log` 为 revoked=false、物理输出 status+simulator。两次本地 HTTP 断言通过，Postman exit 均 0；允许对照存在报告不表示撤权后仍发送，没有采用探针中该字段名称作相反结论。
+根代理在 `b5c7efc` 检查点编译结果再次独立回放：`root-f01-independent-b5c7efc.log` 仍为 32 客户端断开、原 read 未结束且仅 1 flight、独立已完成案件 HTTP 200；`root-original-f02-f03-b5c7efc.log` 仍为混合精度 `.500Z`、40 案在宿主关闭前后 retained 均 0、调查 0／Agent.close 40。R01 原公开请求与第三次 delivery 查权撤权顺序保留，仅接入同一 authority 的 current 能力并替换 import；`root-identity-denied-b5c7efc.log` 为 revoked=true、物理输出仅 status，`root-identity-allowed-b5c7efc.log` 为 revoked=false、物理输出 status+simulator。两次本地 HTTP 断言通过，Postman exit 均 0；允许对照存在报告不表示撤权后仍发送，没有采用探针中该字段名称作相反结论。
 
-## 本轮实际重建镜像
+## 99f75db 中间镜像（历史检查点）
 
 真实构建器以 clean Git archive `99f75db5d56dcb1b9d9226eedb3db5b4d6723714` 为来源实际构建成功，显式取消 BAU_IMAGE_DOCKER override，使用默认 `/usr/local/bin/docker`，没有复用标签的可变身份作为证据。新目录为 `/tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714/`，保存实际 `source/`、iidfile、inspect、build log、Docker save archive、inventory、OCI layout 和 receipt。历史 `/tmp/bau-image-review-a13-77b36f729c04562cdf3f38cecbd8e3ec7ee9f8a3` 未覆盖，不作为本轮来源证明。
 
@@ -74,7 +74,7 @@ BAU_KIBANA_TEST_ARTIFACT_CONFIG=/tmp/bau-spec14-context/kibana-test-artifact.jso
 | Runtime Skill SHA256 | `e204643dabd38e47d884b5aee74846b060e18fee46a50b3a6ddfd336f3d16a69` |
 | 平台／工具链／应用文件 | `linux/arm64`、Node24.22.0、TypeScript7.0.2、65 个 JS 与实际 inventory 逐字节匹配。 |
 
-`final-image-build-99f75db.log` 实际构建通过；`final-image-contracts-99f75db.log` 原容器／OCI 合同 **6/6，0 fail/skip**，使用上述不可变 config ID 与实际 OCI layout，覆盖非 root／无网／只读／资源上限、存储拒绝、两个场景、重复键与预算、取消／超时／未知关闭、审计失败、OCI 内容链与篡改拒绝。`final-image-source-99f75db.log` source canary **1/1**，忽略的额外 TS／陈旧 JS 均不进入 archive 编译，实际镜像 65 个 JS 与固定来源逐字节匹配。只清理合同自有容器与 volume，没有 registry 上传或部署；最终 `final-owned-containers.log` 与 `final-owned-volumes.log` 均无该合同前缀残留。根代理另只读核对 config／inspect revision／inventory 实际散列与 source 的 65 项清单、字节数及 SHA 均一致；与旧 `77b36f7` 镜像相比，只有 Teams host、troubleshooting application 和 Simulator domain 三个 JS 改变，符合本轮源码范围。最终提交仅在此 source pin 后追加交付文档，不改变镜像应用字节。
+`final-image-build-99f75db.log` 实际构建通过；`final-image-contracts-99f75db.log` 原容器／OCI 合同 **6/6，0 fail/skip**，使用上述不可变 config ID 与实际 OCI layout，覆盖非 root／无网／只读／资源上限、存储拒绝、两个场景、重复键与预算、取消／超时／未知关闭、审计失败、OCI 内容链与篡改拒绝。`final-image-source-99f75db.log` source canary **1/1**，忽略的额外 TS／陈旧 JS 均不进入 archive 编译，实际镜像 65 个 JS 与固定来源逐字节匹配。只清理合同自有容器与 volume，没有 registry 上传或部署；最终 `final-owned-containers.log` 与 `final-owned-volumes.log` 均无该合同前缀残留。根代理另只读核对 config／inspect revision／inventory 实际散列与 source 的 65 项清单、字节数及 SHA 均一致；与旧 `77b36f7` 镜像相比，只有 Teams host、troubleshooting application 和 Simulator domain 三个 JS 改变，符合本轮源码范围。该制品保留为当时通过的中间检查点；随后受理关闭失败补丁改变了应用字节，它不再作为本轮最终 runtime 证明，新镜像另附。
 
 ```sh
 env -u BAU_IMAGE_DOCKER node scripts/build-image.mjs /tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714
@@ -82,6 +82,14 @@ BAU_CONTAINER_IMAGE=sha256:0921baf529ddc2fc66f2476f61c2e1dceee5fa641df8f54329924
 BAU_IMAGE_INVENTORY=/tmp/bau-image-rereview-710-99f75db5d56dcb1b9d9226eedb3db5b4d6723714/inventory.json node --test dist/tests/contracts/image-source.test.js
 ```
 
+
+## 迟到受理关闭失败的补充核实
+
+最终收据之后的只读自查发现另一个 F02 组合边界：宿主开始关闭时 confirmed admission 尚未返回，迟到 candidate 不在原 active 快照；closePhase 虽被 controlWork 等待，若其 Agent.close 明确失败，通用 controlWork 的 allSettled 会吞掉拒绝，从而仍报告 closed。公开 A/Agent 故障探针 `f02-late-close-failure-probe.log` 实测 closeAttempts=1、status=closed。永久回归 `f02-late-close-failure-red.log` 得到 Missing expected rejection；只在调查前的统一关闭分支锁存 admissionCloseFailed，并在宿主关闭末尾检查该位，保持失败为 unknown，而不把可容忍的终态读拒绝升级为宿主关闭失败。`f02-late-close-failure-green.log` **7/7**，覆盖原 close 失败、两种各 40 案 GC、未结束 distinct 读、实际 Teams pre-ACK unknown 和 32 断开请求的正常 HTTP 对照；项目类型／构建通过（`final-typecheck-late-close.log`、`final-build-late-close.log`）。
+
+最终生产检查点 `c8a96e497b3e6f51d2ad212b89270051f57db7d4`，总行为数 **508**。macOS **508/508**（`final-macos-c8a96e4.log`）、原相同受限 Linux **508/508**（`final-linux-c8a96e4.log`），均 0 fail/skip；最新自有完整严格闭包通过（`final-own-strict-c8a96e4.log`），项目类型／构建日志见上。Pi／Teams 依赖及 consumer 未改变，正负 consumer 与互操作仍以本轮 b5 的实际结果为检查点，不冒称重新执行。
+
+此增量的普通 Spec／Standards 复核均 **0 确认 finding／0 硬违约／0 有意义 smell**，确认该失败位在受跟踪原 Promise 结束前锁定，普通 read 的拒绝不设置该位；它与 `270083b` 的两轴结果一起覆盖本轮完整代码。b5 的原 F01/F02/F03 和 R01 独立回放保留为该组检查点，c8 后续仅改变调查前 Agent.close 失败传播。最新 joined native **3/3，0 fail/skip**（`final-joined-native-c8a96e4.log`），与上轮完全相同固定制品／loopback 合成配置。根代理用同一独立公开 A probe 对 99f75db 的实际 source/tree 编译基线与 c8 候选复验：`root-late-close-failure-baseline99.log` 为原 closeAttempts=1、调查=0 却 closed；`root-late-close-failure-c8a96e4.log` 为 closeAttempts=1、调查=0、unknown。双方均确认原 confirm 未 settled 时 shutdown 仍 pending；两个脚本 exit 0 代表对应预期观察成立，基线脚本断言的是已知 bug 现象，不能记成缺陷检测已通过。新固定 archive 镜像尚在执行，不沿用 99f75db 历史镜像作为最终证明。
 
 ## 范围与未执行项
 
