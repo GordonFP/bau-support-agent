@@ -17,6 +17,8 @@ export interface DeliveryAttempt {
   readonly deadline: number;
   readonly signal: AbortSignal;
   readonly current?: () => void;
+  /** Host-owned completion receipt: true only after this segment completion is durably audited. */
+  readonly durablyCompleted?: () => boolean;
   readonly beforeWrite: (text?: string) => Promise<void>;
 }
 
@@ -52,9 +54,11 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
     await authorized();
     const delivery = { deliveryKey, segment: index + 1, bindingRef: createHash("sha256").update(JSON.stringify([context.destinationRef, context.caseRef, context.phaseId, text])).digest("hex") };
     await ports.audit.intent(current, action, { delivery });
+    let durablyCompleted = false;
     const attempt: DeliveryAttempt = Object.freeze({
       caseRef: context.caseRef, phaseId: context.phaseId, segment: index + 1, total: parts.length,
       text, deadline: context.deadline, signal: context.signal,
+      durablyCompleted: () => durablyCompleted,
       current: () => { check(); if (ports.authorization.current?.(action, current) !== true || context.signal.aborted || ports.clock.now() >= context.deadline) throw new Error("denied"); },
       beforeWrite: async (actual = text) => {
         if (actual !== text || !ports.sanitization.safe(text)) throw new Error("unsafe_content");
@@ -77,9 +81,11 @@ async function dispatch(ports: Ports, context: CallContext, content: DiagnosticR
     } catch (error) {
       const status = invoked ? "unknown" : "failed";
       await ports.audit.complete(current, action, status, { delivery: { ...delivery, status } });
+      durablyCompleted = true;
       throw error;
     }
     await ports.audit.complete(current, action, "ok", { delivery: { ...delivery, status, ...(receiptRef ? { receiptRef } : {}) } });
+    durablyCompleted = true;
     check();
     if (status !== "delivered") return status;
   }

@@ -20,7 +20,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
   const local = new AsyncLocalStorage<Lease>();
   const stopping = new AbortController();
   const work = new Set<Promise<unknown>>();
-  const operations = new Map<string, { binding: string; result: Promise<DeliveryResult>; settled: boolean; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"] }>();
+  const operations = new Map<string, { binding: string; result: Promise<DeliveryResult>; settled: boolean; readonly durablyCompleted?: () => boolean; caseRef: string; deliveryKey: string; segment: number; actor: TeamsMapping["actor"] }>();
   let overflowed = false;
   const questions = new Map<string, { caseRef: string; questionId: string; destinationRef: string }>();
   const cap = configuration.maxActivityBytes ?? MAX_MESSAGE_BYTES;
@@ -132,6 +132,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
           const candidates = [...operations.entries()].filter(([key, entry]) => key !== id && entry.settled);
           for (const [key, entry] of candidates) {
             if (operations.size <= 4_096) break;
+            if (entry.durablyCompleted?.() === true) { if (operations.get(key) === entry) operations.delete(key); continue; }
             const durable = await persisted(entry);
             if (durable.known && durable.result !== undefined && operations.get(key) === entry) operations.delete(key);
           }
@@ -151,7 +152,7 @@ export function teamsWire(configuration: TeamsConfiguration, ports: Ports) {
         return { status: "delivered", receiptRef };
       } catch { if (!lease.wrote && operations.size > 4_096) operations.delete(id); return lease.wrote ? "unknown" : "failed"; }
     }));
-    const entry = { binding, result, settled: false, caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
+    const entry = { binding, result, settled: false, ...(attempt.durablyCompleted ? { durablyCompleted: attempt.durablyCompleted } : {}), caseRef: attempt.caseRef, deliveryKey, segment: attempt.segment, actor: mapping.actor };
     operations.set(id, entry);
     void result.then(() => { entry.settled = true; }, () => { entry.settled = true; });
     return result;

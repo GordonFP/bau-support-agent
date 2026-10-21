@@ -35,3 +35,25 @@ test("D bounded delivery cache reconciles completed entries with C without exhau
     assert.equal(await wire.delivery.send(services.mapping.actor.destinationRef, {} as never, "case-0:report:1", { ...attempt(0), text: "changed" }), "failed"); assert.equal(writes, 4_100);
   } finally { await wire.close(); await services.close(); }
 });
+
+test("D can retire durably completed old sends after every old requester loses C read access without blocking a new requester", async () => {
+  const service = await teamsServices(), oldActor = service.mapping.actor, newActor = { ...oldActor, principalRef: "principal-2", destinationRef: "private-2" };
+  const mock = createMockTroubleshooting({ authorizedActors: [oldActor, newActor] }), committed = new Set<string>();
+  const configuration = { ...service.configuration, mappings: [service.mapping, { ...service.mapping, userId: "synthetic-user-2", oid: "synthetic-oid-2", conversationId: "synthetic-conversation-2", actor: newActor }] };
+  let writes = 0, oldReads = 0;
+  mock.ports.records.read = async (actor, caseRef) => {
+    if (actor.principalRef === oldActor.principalRef) { oldReads++; return null; }
+    return { scope: "full", view: {} as never, records: [], audits: [], deliveries: [] };
+  };
+  const wire = teamsWire(configuration, mock.ports);
+  wire.bind({ send: async () => { writes++; return { id: `receipt-${writes}` }; } } as unknown as App, {} as never);
+  const attempt = (caseRef: string) => ({ caseRef, phaseId: 1, segment: 1, total: 1, text: "safe status", deadline: 5_000,
+    signal: new AbortController().signal, beforeWrite: async () => {}, current: () => {}, durablyCompleted: () => committed.has(caseRef) });
+  try {
+    for (let index = 0; index < 4_096; index++) { const ref = `old-${index}`; await wire.delivery.send(oldActor.destinationRef, {} as never, `${ref}:report:1`, attempt(ref)); committed.add(ref); }
+    const next = await wire.delivery.send(newActor.destinationRef, {} as never, "new-1:report:1", attempt("new-1"));
+    assert.equal(typeof next === "object" ? next.status : next, "delivered"); assert.equal(writes, 4_097); assert.equal(oldReads, 0, "cache retirement does not read an old case using either principal");
+    // old-0 was evicted. Its own withdrawn C permission prevents result recovery and any physical replay.
+    assert.equal(await wire.delivery.send(oldActor.destinationRef, {} as never, "old-0:report:1", attempt("old-0")), "failed"); assert.equal(writes, 4_097);
+  } finally { await wire.close(); await service.close(); }
+});

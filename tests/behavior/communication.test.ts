@@ -79,3 +79,18 @@ for (const failure of ["revoked", "null", "status", "receipt", "receipt_object"]
   assert.equal(writes, failure === "revoked" ? 0 : 1);
   await mock.receive(); assert.equal(writes, failure === "revoked" ? 0 : 1);
 });
+
+test("D exposes durable completion only after C has confirmed the segment result audit", async () => {
+  const held = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let completed: (() => boolean) | undefined;
+  const mock = createMockTroubleshooting({ controlPorts: (ports) => {
+    const audit = ports.audit;
+    return { audit: { ...audit, complete: async (context, action, outcome, details) => {
+      if (action === "delivery.send") { held.resolve(); await release.promise; }
+      await audit.complete(context, action, outcome, details);
+    } } };
+  } });
+  mock.ports.delivery.send = async (_destination, _report, _key, attempt) => { await attempt!.beforeWrite(); completed = attempt!.durablyCompleted; return "delivered"; };
+  try { await mock.receive(); await held.promise; assert.equal(completed?.(), false); release.resolve(); await mock.closed; assert.equal(completed?.(), true); }
+  finally { release.resolve(); }
+});
