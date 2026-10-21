@@ -618,7 +618,7 @@ export class Troubleshooting {
           await disclosure;
         }
         current();
-        return result.saved;
+        return { ...result.saved, view: structuredClone(result.saved.view) };
       }, signal);
     } catch { return null; }
   }

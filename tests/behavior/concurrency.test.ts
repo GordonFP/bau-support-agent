@@ -676,3 +676,18 @@ test("timed out restored disclosure callbacks remain bounded and owned until the
     release.resolve(); await closing; assert.equal(closed, true);
   } finally { release.resolve(); await mock.application.close(); }
 });
+
+test("callers sharing a restored terminal query receive independent view snapshots", async () => {
+  const mock = createMockTroubleshooting();
+  await mock.receive(); await mock.closed; await new Promise(setImmediate);
+  const release = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>(), read = mock.ports.records.read;
+  mock.ports.records.read = async (...args) => { entered.resolve(); await release.promise; return read(...args); };
+  try {
+    const pending = [mock.application.cancel(mock.inbound, "case-1"), mock.application.cancel(mock.inbound, "case-1")];
+    await entered.promise; release.resolve(); const [first, second] = await Promise.all(pending);
+    assert.ok(first && "state" in first && second && "state" in second);
+    (first as { phaseId: number }).phaseId = 999;
+    assert.equal(second.phaseId, 1);
+    const saved = await mock.ports.records.read(mock.inbound, "case-1"); assert.ok(saved?.scope === "full"); assert.equal(saved.view.phaseId, 1);
+  } finally { release.resolve(); await mock.application.close(); }
+});
