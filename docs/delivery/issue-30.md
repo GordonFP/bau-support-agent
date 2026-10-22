@@ -1,8 +1,8 @@
 # #30 本机 CPA 前检与合成接入
 
-2026-10-22（Asia/Singapore），基于 `codex/poc-integration@1b2a8e3c4c6994dfc84405ef7167dc7d83242975`。用户明确授权检查和接入本机 CPA，随后明确决定：“先放开，看 POC 结果在评估一个合适的控制。”该调整适用于本轮合成开发 POC 的 4k 输出硬上限；不会自动扩大到业务数据、公司网关、真实 Teams、其他模型或正式部署。
+2026-10-22（Asia/Singapore）。初次前检基线为 `codex/poc-integration@1b2a8e3c4c6994dfc84405ef7167dc7d83242975`；升级复验记录见下节。用户明确授权检查和接入本机 CPA，随后明确决定：“先放开，看 POC 结果在评估一个合适的控制。”该调整适用于本轮合成开发 POC 的 4k 输出硬上限；不会自动扩大到业务数据、公司网关、真实 Teams、其他模型或正式部署。
 
-**当前结果：实际 CPA + Pi SDK 已完成 Simulator／PSP 两个合成案件，报告、交付收据、token 用量和未知费用账本均保存。** 单次 4k 生成上限按用户决定改为观察；[原 #30](https://github.com/GordonFP/bau-support-agent/issues/30) 的完整验收仍未完成，不能以两个成功样本关闭本票或父规格。
+**当前结果：实际 CPA + Pi SDK 已完成 Simulator／PSP 两个合成案件，报告、交付收据、token 用量、费用估算和未知费用预留均保存。** 单次 4k 生成上限按用户决定改为观察；[原 #30](https://github.com/GordonFP/bau-support-agent/issues/30) 的完整验收仍未完成，不能以成功样本关闭本票或父规格。
 
 ## 本轮政策与使用入口
 
@@ -139,7 +139,7 @@ Node24.22.0／Pi1.3.0／CPA8.0.38 实际运行，新增 **6 次真实模型调�
 
 #30 和父规格 #14 保持未完成。本轮不扩大至公司网关／真实 Teams／生产日志／内部 GitLab，不触发 #31/#32，也不构成 POC Go。历史中断的专门安全复核状态未改变。
 
-## 本轮验证
+## 8.0.24 接入验证（历史）
 
 - 固定 Node24.22.0：项目 build／typecheck 通过；全行为 **529/529，0 fail/skip**（原 525 项加四项 CPA 回归）。覆盖长输出观察、费用不被伪 usage 结算、授权／净化／完整输入／契约绑定拒绝，以及上游观察到输入超限后停止。
 - 本地 Postman 依赖合同 **7/7** 通过，含新的实际 Pi／SQLite／两场景 CPA 合同；独立 HTTP 合同 **3/3** 通过。仅合成网络，没有将模拟模型计为实际 CPA。
@@ -150,7 +150,7 @@ Node24.22.0／Pi1.3.0／CPA8.0.38 实际运行，新增 **6 次真实模型调�
 
 `/tmp/bau-cpa-20261022-tests.log`、`-typecheck.log`、`-pi-types.log` 保留本轮检查输出。完整真实 24k／故障取消／上游全部费用与留存、公司 G3 和 G4 均未执行，不记通过。旧镜像不作为本次源码的制品证明。
 
-## 本次固定来源镜像
+## 8.0.24 接入时的固定来源镜像（历史）
 
 从 clean `29e5e36afa186520b04f5b2dfcfe7741365f48a9` 实际重建，制品位于 `/tmp/bau-image-cpa-20261022-29e5e36`；没有部署或上传 registry。来源 pin 之后仅追加本交付收据，不改变应用 JS。
 
@@ -166,3 +166,20 @@ Node24.22.0／Pi1.3.0／CPA8.0.38 实际运行，新增 **6 次真实模型调�
 | 忽略 TS／陈旧 JS source canary | **1/1，0 fail/skip**；首轮因子进程 npm 沿用宿主 Node24.18.1 而安全拒绝，补充固定 Node24.22.0 的 PATH 后通过，没有改断言 |
 
 日志为 `/tmp/bau-cpa-20261022-image-{build,contracts,source}.log`；首轮 canary 失败另保存在 `-image-source-initial.log`。未重新运行完整 Linux 529 项或未受影响的 CBM 原生索引合同；不把先前证据记为本轮执行。Pi 上游完整声明的既有 TS1543 限制不记通过；本轮验证的是项目类型及严格 consumer。
+
+## 8.0.38 升级后的固定来源镜像
+
+从 clean `5fb2232965438b7b3849ba3d6ddb96fea6482d02` 实际重建，制品位于 `/tmp/bau-image-cpa-upgrade-20261022-5fb2232`，仅本机保存，未部署或上传 registry。之后只追加本收据，不改变应用 JS。
+
+| 项目 | 本次结果 |
+| --- | --- |
+| Docker config ID | `sha256:9bd00131f041915f2f206ee9afd3a789ebf7e43fd4f993ed5ca5feb1ef26a3cf` |
+| OCI manifest | `sha256:792f6cf4c79f36472242019ba5f1cbb64139e17acb30d8b90f0fb77c74f6dbb1` |
+| OCI index | `sha256:abec023d782a4017ea49057281943be45661162e87536130d4d5a756c92a4770` |
+| Docker save archive | `sha256:68de9639f6d1b369079dfe9cb9e1251b23d35fc3ad79dd2331c1f74471df7951` |
+| Git source archive | `fa3742ab3fb476ea90936b9eed234f8822f44238bd6634d839394fda906c6349` |
+| 来源核对 | Linux/arm64、Node24.22.0／TS7.0.2；73 个 JS 与固定来源编译路径／字节数／SHA256 全部一致 |
+| 实际容器／OCI 合同 | **6/6，0 fail/skip**；仍为无网／非 root／只读的 Mock 默认入口 |
+| 忽略 TS／陈旧 JS source canary | **1/1，0 fail/skip** |
+
+日志为 `/tmp/bau-cpa-upgrade-image-{build,contracts,source}.log`。没有将本机 OAuth 或价格数据库打入镜像；镜像验证不冒作容器内真实 CPA、完整 Linux 530 项或 POC Go 验证。
