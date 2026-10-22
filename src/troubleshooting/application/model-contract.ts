@@ -46,5 +46,7 @@ export interface ModelResponse {
   readonly reasoning?: string;
   readonly tokenUsage?: { readonly source: "upstream_tokens"; readonly inputTokens: number; readonly outputTokens: number;
     readonly reasoningTokens: number | null; readonly cachedInputTokens: number | null };
+  readonly costEstimate?: { readonly microusd: number; readonly pricingSource: "cpa_configured" | "openai_official";
+    readonly pricingRef: string; readonly basis: "standard-api-equivalent" };
   readonly message: ModelAssistant;
 }

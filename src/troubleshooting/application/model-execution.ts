@@ -80,6 +80,9 @@ export class ModelExecution {
         await ports.budget.settle(context, response.actualMicrousd, { execution: "ended", source: usageSource });
         if (["mock_usage", "upstream_usage"].includes(usageSource) && response.actualMicrousd !== null && response.actualMicrousd > envelope.planning.reservationMicrousd) throw new Error("contract_unverified");
         validateModelResponse(response, this.scope.model.state === "enabled" ? this.scope.model.policy : undefined);
+        if (this.scope.model.profile === "cpa_poc" && response.actualMicrousd === null && response.costEstimate) {
+          await ports.budget.settle(context, response.costEstimate.microusd, { execution: "ended", source: "estimated" });
+        }
         if (!ports.sanitization.safe(response)) throw new Error("unsafe_content");
       } catch (error) {
         if (error instanceof Error && error.message === "audit_unavailable") throw error;

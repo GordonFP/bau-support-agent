@@ -11,7 +11,7 @@ export const mockModelPolicy: ModelPolicy = Object.freeze({ protocol: mockModelP
   reasoning: "included", hiddenAttempts: 0, inputLimit: MODEL_INPUT_TOKENS, outputLimit: MODEL_OUTPUT_TOKENS });
 export const responsesModelPolicy: ModelPolicy = Object.freeze({ ...mockModelPolicy, protocol: "synthetic-responses-byte-pairs-1", transformation: "pi-ai-1.3.0-responses" });
 export const cpaPocModelPolicy: ModelPolicy = Object.freeze({ protocol: "cpa-poc-output-observation-1", tokenizer: "utf8-bytes-plus-2048-1",
-  transformation: "pi-ai-1.3.0-cpa-8.0.24", reasoning: "observed_only", hiddenAttempts: 0, inputLimit: MODEL_INPUT_TOKENS, outputLimit: null });
+  transformation: "pi-ai-1.3.0-cpa-8.0.38", reasoning: "observed_only", hiddenAttempts: 0, inputLimit: MODEL_INPUT_TOKENS, outputLimit: null });
 export const modelProfile = (policy: ModelPolicy): ModelEnvelope["profile"] => policy.protocol === mockModelProtocol ? "memory_mock"
   : policy.protocol === cpaPocModelPolicy.protocol ? "cpa_poc" : "local_protocol";
 const inputBound = (canonical: string, policy: ModelPolicy) => policy.protocol === cpaPocModelPolicy.protocol
@@ -87,7 +87,7 @@ export function validateModelEnvelope(turn: ModelTurn, envelope: ModelEnvelope, 
 }
 
 export function validateModelResponse(response: ModelResponse, policy?: ModelPolicy): void {
-  if (!response || response.candidate === undefined || Object.keys(response).some((key) => !["candidate", "actualMicrousd", "usageSource", "reasoning", "message", "tokenUsage"].includes(key)) ||
+  if (!response || response.candidate === undefined || Object.keys(response).some((key) => !["candidate", "actualMicrousd", "usageSource", "reasoning", "message", "tokenUsage", "costEstimate"].includes(key)) ||
     (response.actualMicrousd !== null && (!Number.isSafeInteger(response.actualMicrousd) || response.actualMicrousd < 0)) ||
     (response.reasoning !== undefined && typeof response.reasoning !== "string") ||
     (response.usageSource !== undefined && !["mock_usage", "upstream_usage", "estimated", "unknown"].includes(response.usageSource))) throw new Error("schema_mismatch");
@@ -95,6 +95,8 @@ export function validateModelResponse(response: ModelResponse, policy?: ModelPol
   if (response.tokenUsage !== undefined && !z.strictObject({ source: z.literal("upstream_tokens"), inputTokens: z.number().int().nonnegative().safe(),
     outputTokens: z.number().int().nonnegative().safe(), reasoningTokens: z.number().int().nonnegative().safe().nullable(),
     cachedInputTokens: z.number().int().nonnegative().safe().nullable() }).safeParse(response.tokenUsage).success) throw new Error("schema_mismatch");
+  if (response.costEstimate !== undefined && (policy?.protocol !== cpaPocModelPolicy.protocol || !z.strictObject({ microusd: z.number().int().nonnegative().safe(), pricingSource: z.enum(["cpa_configured", "openai_official"]),
+    pricingRef: z.string().regex(/^[a-zA-Z0-9_.-]{1,96}$/), basis: z.literal("standard-api-equivalent") }).safeParse(response.costEstimate).success)) throw new Error("schema_mismatch");
   const generated = JSON.stringify({ candidate: response.candidate, reasoning: response.reasoning ?? "" });
   const assistant = JSON.stringify({ content: response.message!.content, reasoning: response.reasoning ?? "" });
   if (policy?.protocol === cpaPocModelPolicy.protocol && verifiedModelPolicy(policy)) {

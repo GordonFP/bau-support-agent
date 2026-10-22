@@ -28,6 +28,9 @@ if (!directory) {
       const outputs = result.saved.records.filter((record) => record.kind === "model_output");
       console.log(JSON.stringify({ scene, state: result.saved.view.state, stopReason: result.saved.view.stopReason ?? null,
         attempts: result.budget.attempts, reservedMicrousd: result.budget.reservedMicrousd, actualCost: "unknown",
+        estimatedMicrousd: result.budget.charges.every((charge) => charge.estimatedMicrousd !== null)
+          ? result.budget.charges.reduce((sum, charge) => sum + charge.estimatedMicrousd, 0) : null,
+        pricing: outputs.map((record) => record.payload.costEstimate ?? null),
         tokenUsage: outputs.map((record) => record.payload.tokenUsage ?? null) }));
       if (result.saved.view.state !== "completed") { process.exitCode = 1; break; }
     }

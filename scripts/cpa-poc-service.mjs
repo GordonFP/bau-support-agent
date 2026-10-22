@@ -6,7 +6,7 @@ import { createServer, createConnection } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const sha256 = "ba0cd18bf7c4c12321c00888984823ab2048e90082ab776f290676184f36acdc";
+const sha256 = "9f613e38302bb2b798cb798910c4862757bc7ae2f5032ec6d872f170d27c9c84";
 export async function startCpaPocService() {
   const binary = resolve(process.env.BAU_CPA_BINARY ?? join(homedir(), "Library/Application Support/com.cpa.gui/cpa-core/cli-proxy-api"));
   const auth = resolve(process.env.BAU_CPA_AUTH_DIRECTORY ?? join(homedir(), "Library/Application Support/com.cpa.gui/oauth"));
@@ -22,6 +22,7 @@ export async function startCpaPocService() {
   const apiKey = randomUUID();
   const managementKey = randomUUID();
   const configuration = { "config-version": 8, server: { host: "127.0.0.1", port, discovery: { enabled: false } },
+    multimedia: { "disable-image-generation": true },
     management: { "allow-remote": false, "secret-key": managementKey, "disable-control-panel": true, "disable-auto-update-panel": true },
     access: { "api-keys": [apiKey] }, oauth: { "auth-dir": auth },
     routing: { retry: { "request-retry": 0, "max-retry-credentials": 1, "max-retry-interval": 0 }, cooldown: { "save-cooldown-status": false } },

@@ -1,0 +1,5 @@
+simulation: bau-native-cpa-synthetic-upstream
+routing: path
+mocks:
+  - routeKey: codex
+    path: ../mocks/cpa-core/config.yaml

@@ -20,7 +20,7 @@ test("actual Pi and A–D complete two fixed synthetic CPA cases with durable un
       assert.ok(result.saved.deliveries.some((delivery) => delivery.status === "delivered"));
       assert.equal(result.budget.attempts, 3); assert.equal(result.budget.reservedMicrousd, 540_000);
       assert.equal(result.budget.unsettledCalls, 0);
-      assert.ok(result.budget.charges.every((charge) => charge.source === "unknown" && charge.actualMicrousd === null));
+      assert.ok(result.budget.charges.every((charge) => charge.source === "estimated" && charge.estimatedMicrousd !== null && charge.actualMicrousd === null));
       assert.ok(result.saved.records.filter((record) => record.kind === "model_output").every((record) =>
         (record.payload as { tokenUsage: { source: string } }).tokenUsage.source === "upstream_tokens"));
       assert.doesNotMatch(JSON.stringify(result.saved), /SYNTHETIC-SECRET|synthetic-client-key/);

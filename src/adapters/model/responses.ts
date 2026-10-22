@@ -7,6 +7,7 @@ import { ModelFailure } from "../../troubleshooting/application/model-failure.js
 import { transportFailure } from "./transport-failure.js";
 import { boundedResponse } from "./bounded-response.js";
 import { terminalUsage } from "./terminal-usage.js";
+import { cpaCostEstimate, cpaPocPrices } from "./cpa-pricing.js";
 
 export { responsesModelPolicy, cpaPocModelPolicy };
 const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
@@ -26,7 +27,7 @@ function transcript(turn: ModelTurn): TranscriptContext {
 }
 
 export function createResponsesGateway(options: { readonly route: "mock" | "local_protocol" | "cpa" | "company"; readonly baseUrl: string; readonly contract: string;
-  readonly clock?: Pick<Ports["clock"], "now">; readonly apiKey?: string }) {
+  readonly clock?: Pick<Ports["clock"], "now">; readonly apiKey?: string; readonly pricingDatabase?: string }) {
   const base = new URL(options.baseUrl);
   const cpaPoc = options.route === "cpa" && options.contract === cpaPocModelPolicy.protocol;
   if (!(options.route === "local_protocol" && options.contract === responsesModelPolicy.protocol || cpaPoc) || base.protocol !== "http:" || base.hostname !== "127.0.0.1" ||
@@ -34,6 +35,7 @@ export function createResponsesGateway(options: { readonly route: "mock" | "loca
   const apiKey = cpaPoc ? options.apiKey : "synthetic-no-credential";
   if (typeof apiKey !== "string" || !apiKey || /[\r\n]/.test(apiKey)) throw new Error("contract_unverified");
   const policy = cpaPoc ? cpaPocModelPolicy : responsesModelPolicy;
+  const prices = cpaPoc ? cpaPocPrices(options.pricingDatabase) : undefined;
   const model: Model<"openai-responses"> = { id: cpaPoc ? "gpt-6.1-sol" : "gpt6.1-sol", name: "Synthetic POC only", api: "openai-responses", provider: "bau-synthetic",
     baseUrl: base.href, input: ["text"], reasoning: false, contextWindow: 24_000, maxTokens: 4_000,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, compat: { supportsMaxOutputTokens: !cpaPoc, supportsStrictMode: true,
@@ -89,7 +91,8 @@ export function createResponsesGateway(options: { readonly route: "mock" | "loca
     const text = content.filter((part) => part.type === "text").map((part) => part.text).join("");
     let candidate: unknown = text;
     try { candidate = JSON.parse(text) as unknown; } catch { /* A tool turn or plain text remains a neutral message. */ }
+    const costEstimate = prices ? cpaCostEstimate(tokenUsage, prices) : undefined;
     return { candidate, message: { content, stopReason: native.stopReason as "stop" | "toolUse" }, actualMicrousd: usage.actualMicrousd, usageSource: usage.source,
-      ...(tokenUsage ? { tokenUsage } : {}) };
+      ...(tokenUsage ? { tokenUsage } : {}), ...(costEstimate ? { costEstimate } : {}) };
   } };
 }

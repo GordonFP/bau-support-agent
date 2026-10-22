@@ -2,11 +2,22 @@
 // No provider, credentials, upstream forwarding or real GPT tokenizer/billing is implemented.
 const http = require("node:http");
 const cpaPoc = process.env.BAU_MOCK_CPA_POC === "1";
+const nativeCore = process.env.BAU_MOCK_CPA_CORE === "1";
+const native = { starts: 0, active: 0, maxActive: 0, cancelled: 0 };
+const releases = new Set();
 const model = cpaPoc ? "gpt-6.1-sol" : "gpt6.1-sol";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const fail = (response, status) => { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ error: { code: "synthetic_contract_rejected" } })); };
 const server = http.createServer(async (request, response) => {
   try {
+    const path = new URL(request.url, "http://localhost").pathname;
+    if (nativeCore && request.method === "GET" && path === "/__state") {
+      response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(native)); return;
+    }
+    if (nativeCore && request.method === "POST" && path === "/__release") {
+      for (const release of [...releases]) release();
+      response.writeHead(200); response.end(); return;
+    }
     if (request.method !== "POST" || new URL(request.url, "http://localhost").pathname !== "/v1/responses") return fail(response, 501);
     let body = request.body;
     if (body === undefined) {
@@ -15,6 +26,16 @@ const server = http.createServer(async (request, response) => {
       body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
     }
     if (typeof body === "string") body = JSON.parse(body);
+    if (nativeCore) {
+      native.starts++; native.active++; native.maxActive = Math.max(native.maxActive, native.active);
+      response.once("close", () => { native.active--; if (!response.writableEnded) native.cancelled++; });
+      const marker = JSON.stringify(body.input);
+      if (marker.includes("native-503")) return fail(response, 503);
+      if (marker.includes("native-delay")) {
+        await new Promise((done) => { const release = () => { releases.delete(release); done(); }; releases.add(release); response.once("close", release); });
+        if (response.destroyed) return;
+      }
+    }
     if (!body || body.model !== model || (cpaPoc ? Object.hasOwn(body, "max_output_tokens") : body.max_output_tokens !== 4_000) || body.stream !== true || body.store !== false ||
       !Array.isArray(body.input) || !Array.isArray(body.tools) || body.tools.length !== 2 ||
       body.tools.some((tool) => tool.type !== "function" || !["logs_read", "code_search"].includes(tool.name) ||
