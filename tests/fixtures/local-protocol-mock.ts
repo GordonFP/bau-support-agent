@@ -11,6 +11,7 @@ export async function localProtocolMock(name: "responses" | "kibana") {
   const address = reserved.address(); if (!address || typeof address === "string") throw new Error("unavailable");
   await new Promise<void>((resolve) => reserved.close(() => resolve()));
   const script = join(directory, "mock.cjs"); await copyFile(resolve(`postman/mocks/${name}/default.js`), script);
+  if (name === "responses") await copyFile(resolve("postman/mocks/responses/server.cjs"), join(directory, "server.cjs"));
   const child = spawn(process.execPath, [script], { env: { PATH: process.env.PATH, PORT: String(address.port) }, stdio: "ignore" });
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const close = async () => { if (child.exitCode === null) { child.kill(); await new Promise<void>((resolve) => child.once("exit", () => resolve())); } await rm(directory, { recursive: true, force: true }); };

@@ -41,7 +41,7 @@ export class SqliteBudget {
       const rate = db.prepare("SELECT COUNT(*) AS starts, MIN(started_at) AS oldest FROM budget WHERE started_at>?").get(now - MODEL_RATE_WINDOW_MS)!;
       if (Number(rate.starts) >= MAX_MODEL_STARTS) return { status: "wait", retryAt: Number(rate.oldest) + MODEL_RATE_WINDOW_MS };
       if (Number(totals.unsettled) >= MAX_MODEL_UNSETTLED) return { status: "wait" };
-      db.prepare("INSERT INTO budget(call_id,case_ref,reserved,actual,source,ended,started_at,binding) VALUES(?,?,?,NULL,'reserved_upper_bound',0,?,?)").run(context.callId, context.caseRef, amount, now, binding);
+      db.prepare("INSERT INTO budget(call_id,case_ref,reserved,actual,source,ended,started_at,binding) VALUES(?,?,?,NULL,'reservation',0,?,?)").run(context.callId, context.caseRef, amount, now, binding);
       this.beforeReserveCommit?.();
       return { status: "admitted" };
     });

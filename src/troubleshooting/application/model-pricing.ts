@@ -16,3 +16,9 @@ export function modelPlanning() {
   return Object.freeze({ snapshotRef: publicPricing.snapshotRef, inputCategory: "long-write-upper-bound",
     inputMicrousdPerMillion: inputRate, outputMicrousdPerMillion: outputRate, reservationMicrousd: Number((numerator + 999_999n) / 1_000_000n) });
 }
+
+// Output observation is an owner-approved synthetic POC exception. This reservation
+// is an estimate for admission accounting, not a proven maximum bill or free usage.
+export function cpaPocPlanning() {
+  return Object.freeze({ ...modelPlanning(), snapshotRef: "cpa-poc-planning-2026-10-22", inputCategory: "estimate-without-output-bound" });
+}

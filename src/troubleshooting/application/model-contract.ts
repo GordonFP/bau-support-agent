@@ -24,16 +24,16 @@ export interface ModelPolicy {
   readonly reasoning: string;
   readonly hiddenAttempts: number;
   readonly inputLimit: number;
-  readonly outputLimit: number;
+  readonly outputLimit: number | null;
 }
 export interface ModelEnvelope {
-  readonly profile: "memory_mock" | "local_protocol";
+  readonly profile: "memory_mock" | "local_protocol" | "cpa_poc";
   readonly turnRef: string;
   readonly protocol: string;
   readonly tokenizer: string;
   readonly canonicalInput: string;
   readonly inputTokensUpperBound: number;
-  readonly maxOutputTokens: number;
+  readonly maxOutputTokens: number | null;
   readonly includesReasoning: true;
   readonly hiddenRetries: 0;
   readonly planning: { readonly snapshotRef: string; readonly inputCategory: string; readonly inputMicrousdPerMillion: number;
@@ -44,5 +44,7 @@ export interface ModelResponse {
   readonly actualMicrousd: number | null;
   readonly usageSource?: UsageSource;
   readonly reasoning?: string;
+  readonly tokenUsage?: { readonly source: "upstream_tokens"; readonly inputTokens: number; readonly outputTokens: number;
+    readonly reasoningTokens: number | null; readonly cachedInputTokens: number | null };
   readonly message: ModelAssistant;
 }

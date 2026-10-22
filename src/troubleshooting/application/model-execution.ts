@@ -35,7 +35,9 @@ export class ModelExecution {
     const { ports, phase, accounting } = this;
     const check = () => { accounting.current(); if (ports.clock.now() >= context.deadline) throw new Error("timeout"); };
     const discarded = () => { try { check(); return false; } catch { return true; } };
-    const details: AuditDetails = { model: this.scope.model.profile === "local_protocol"
+    const details: AuditDetails = { model: this.scope.model.profile === "cpa_poc"
+      ? { profile: "cpa_poc", protocol: "cpa-poc-output-observation-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
+      : this.scope.model.profile === "local_protocol"
       ? { profile: "local_protocol", protocol: "synthetic-responses-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "pi-ai-1.3.0" }
       : { profile: "memory_mock", protocol: "mock-json-byte-pairs-1", schemaVersion: "model-turn-1", artifactVersion: "offline-model-1" } };
     let invoked = false;
@@ -77,7 +79,7 @@ export class ModelExecution {
         const usageSource = response.usageSource ?? (response.actualMicrousd !== null && response.actualMicrousd > 0 ? "mock_usage" : "unknown");
         await ports.budget.settle(context, response.actualMicrousd, { execution: "ended", source: usageSource });
         if (["mock_usage", "upstream_usage"].includes(usageSource) && response.actualMicrousd !== null && response.actualMicrousd > envelope.planning.reservationMicrousd) throw new Error("contract_unverified");
-        validateModelResponse(response);
+        validateModelResponse(response, this.scope.model.state === "enabled" ? this.scope.model.policy : undefined);
         if (!ports.sanitization.safe(response)) throw new Error("unsafe_content");
       } catch (error) {
         if (error instanceof Error && error.message === "audit_unavailable") throw error;

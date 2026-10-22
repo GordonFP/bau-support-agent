@@ -36,7 +36,7 @@ export class MockModelBudget {
     const recent = all.filter((charge) => charge.startedAt > now - MODEL_RATE_WINDOW_MS);
     if (recent.length >= MAX_MODEL_STARTS) return { status: "wait", retryAt: Math.min(...recent.map((charge) => charge.startedAt)) + MODEL_RATE_WINDOW_MS };
     if (all.filter((charge) => !charge.ended).length >= MAX_MODEL_UNSETTLED) return { status: "wait" };
-    this.charges.set(context.callId, { caseRef: context.caseRef, binding, reserved: amount, actual: null, estimated: null, source: "reserved_upper_bound", ended: false, startedAt: now });
+    this.charges.set(context.callId, { caseRef: context.caseRef, binding, reserved: amount, actual: null, estimated: null, source: "reservation", ended: false, startedAt: now });
     return { status: "admitted" };
   }
 

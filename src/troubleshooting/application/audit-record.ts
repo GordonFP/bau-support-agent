@@ -14,7 +14,8 @@ export function auditRecord(context: CallContext, action: string, stage: string,
   if (model && (Object.keys(model).some((key) => !["profile", "protocol", "schemaVersion", "artifactVersion"].includes(key)) ||
     model.schemaVersion !== "model-turn-1" || !(
       model.profile === "memory_mock" && model.protocol === "mock-json-byte-pairs-1" && model.artifactVersion === "offline-model-1" ||
-      model.profile === "local_protocol" && model.protocol === "synthetic-responses-byte-pairs-1" && model.artifactVersion === "pi-ai-1.3.0"))) throw new Error("invalid_request");
+      model.profile === "local_protocol" && model.protocol === "synthetic-responses-byte-pairs-1" && model.artifactVersion === "pi-ai-1.3.0" ||
+      model.profile === "cpa_poc" && model.protocol === "cpa-poc-output-observation-1" && model.artifactVersion === "pi-ai-1.3.0"))) throw new Error("invalid_request");
   const tool = details?.tool;
   if (tool && (Object.keys(tool).some((key) => !["name", "schemaVersion", "artifactVersion", "manifestSha256", "sanitizationVersion"].includes(key)) ||
     ![tool.name, tool.schemaVersion, tool.artifactVersion, tool.sanitizationVersion].every((value) => typeof value === "string" && /^[a-zA-Z0-9_.-]{1,96}$/.test(value)) ||

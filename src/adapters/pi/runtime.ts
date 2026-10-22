@@ -6,6 +6,7 @@ import { MAX_ACTIVE_CASES } from "../../troubleshooting/application/limits.js";
 import { validateModelResponse } from "../../troubleshooting/application/model-envelope.js";
 import { reviewedSkill } from "./skill.js";
 import { modelTurn } from "./transcript.js";
+import type { ModelPolicy } from "../../troubleshooting/application/model-contract.js";
 
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 const safeReasons = new Set(["denied", "invalid_request", "contract_unverified", "schema_mismatch", "unavailable", "timeout", "cancelled", "rate_limited", "budget_exhausted", "unsafe_content", "audit_unavailable"]);
@@ -22,7 +23,7 @@ interface Owned {
   unsubscribe?: () => void;
 }
 
-export async function createPiRuntime(options: { readonly skillPath: string; readonly clock: Ports["clock"] }): Promise<Ports["agent"]> {
+export async function createPiRuntime(options: { readonly skillPath: string; readonly clock: Ports["clock"]; readonly modelPolicy?: ModelPolicy }): Promise<Ports["agent"]> {
   const body = await reviewedSkill(options.skillPath);
   const runs = new Map<string, Owned>();
   const track = <T>(owned: Owned, promise: Promise<T>): Promise<T> => {
@@ -69,7 +70,7 @@ export async function createPiRuntime(options: { readonly skillPath: string; rea
               current();
               if (selected.api !== model.api || selected.provider !== model.provider || selected.id !== model.id) throw new Error("contract_unverified");
               const result = await request.generate(modelTurn(transcript, request.diagnose()));
-              current(); validateModelResponse(result);
+              current(); validateModelResponse(result, options.modelPolicy);
               const message = complete(structuredClone([...result.message.content]), result.message.stopReason);
               output.push({ type: "start", partial: message }); output.push({ type: "done", reason: result.message.stopReason, message }); output.end(message);
             } catch (error) {

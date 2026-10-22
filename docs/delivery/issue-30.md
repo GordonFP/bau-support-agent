@@ -1,0 +1,107 @@
+# #30 本机 CPA 前检与合成接入
+
+2026-10-22（Asia/Singapore），基于 `codex/poc-integration@1b2a8e3c4c6994dfc84405ef7167dc7d83242975`。用户明确授权检查和接入本机 CPA，随后明确决定：“先放开，看 POC 结果在评估一个合适的控制。”该调整适用于本轮合成开发 POC 的 4k 输出硬上限；不会自动扩大到业务数据、公司网关、真实 Teams、其他模型或正式部署。
+
+**当前结果：实际 CPA + Pi SDK 已完成 Simulator／PSP 两个合成案件，报告、交付收据、token 用量和未知费用账本均保存。** 单次 4k 生成上限按用户决定改为观察；[原 #30](https://github.com/GordonFP/bau-support-agent/issues/30) 的完整验收仍未完成，不能以两个成功样本关闭本票或父规格。
+
+## 本轮政策与使用入口
+
+- 独立 `cpa_poc` profile，`cpa-poc-output-observation-1` 契约；应用模型仍为 `gpt6.1-sol`，显式映射到 CPA 的 `gpt-6.1-sol`。不自动换模型／供应商。真实 CPA 不再发送 4k 参数，也不因本地合成 byte-pair 输出超过 4k 拒绝正常结果；Mock／local_protocol 保留原来的严格 4k 契约。
+- 输入在发送前使用完整 canonical JSON 的 UTF-8 字节数加 2048 的保守准入计量，最多 24000；返回的上游 input usage 超过 24000 时终止案件。此方法不是实际 GPT tokenizer 的完整 24k 容量证明，额外余量也不是供应商转换上界证明。
+- 保留原有授权、净化、持久输入／意图、60 秒单次／原始重试共同期限、180 秒轮次期限、每案最多六次、全局两项未知执行容量和每分钟六次起调控制。
+- 每次使用 US$0.18 的**规划预留**；每案 US$2／POC US$100 仍约束账本准入。这不是当前无输出硬上限路线的实际收费上界。真实金额缺失时始终保留预留；token usage、Pi 的本地零费率和模拟 usage 字段都不会结算成免费。确认终态只释放执行容量。
+- 保留 1 MiB 网络响应／结构结果资源边界；它不是生成前 token 或费用上界。reasoning 只记录供应商返回的 token 数，不将内部推理文本写入案件。
+- `scripts/run-cpa-poc.mjs` 自动启动固定 SHA256 的独立 CPA 8.0.24，使用随机本机客户端／管理 key、独立 loopback 端口及工作目录；全局重试为 0、每轮最多一个凭据、stream bootstrap 重试为 0，关闭管理 UI、插件、请求日志和使用聚合，使用本地模型目录。启动后经带鉴权的本机 `/v8/management/credentials` 元数据确认只有一个 Codex 账户、无正数凭据重试覆盖、未启用 WebSocket；不读取 token 下载接口，不打印账户标识。应用不解析或复制 OAuth token，不持有业务凭据。CPA 自身仍拥有 OAuth 读取／刷新能力。
+- 运行入口只接受记录目录，固定运行公开合成 Simulator／PSP 样本。不能传入任意业务问题、身份、数据或资源。Pi 只加载原已审核 Skill 和两项空参数工具，日志／代码和交付仍是 Mock。原容器／生产入口仍仅启用 Mock；开发入口的成功不代表启用了 G3。
+
+在仓库根目录、Node **24.22.0** 位于 PATH 时：
+
+```sh
+npm run build
+node scripts/run-cpa-poc.mjs /absolute/private/poc-records
+```
+
+默认定位本机 EasyCLIProxyAPI 的内核和 OAuth 目录；可通过 `BAU_CPA_BINARY`／`BAU_CPA_AUTH_DIRECTORY` 指定路径，二进制仍须匹配本文固定 SHA256。不需要复制账户 token 或在命令行输入 key。保留同一记录目录可累计预算，重启不重放历史案件。Ctrl-C／SIGTERM 触发宿主关闭及自有 CPA 清理；本机日常 8317 实例与配置不手工修改。独立 CPA 工作目录（包括可能的错误请求日志）在退出时删除，合成案件的 SQLite 和两份 JSON 留在指定目录。
+
+## 实际模型结果
+
+使用本机已登录的 CPA 账户，全部输入、工具结果和身份均为公开合成内容。最初独立协议预检有两次真实请求：空参数 `logs_read` 调用、合成工具返回后的 `SYNTHETIC_OK`；随后应用完整闭环另有六次真实请求。总计 **8 次**，没有访问业务日志／代码、公司网关或真实 Teams。
+
+| 完整应用案件 | 结果 | 模型次数 | 输入 token 总和 | 输出 token 总和 | 用时 | 费用 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Simulator | completed，10 店铺／9 齐备／1 缺口；安全报告及交付收据已保存 | 3 | 7128 | 1361 | 约 36.2 秒 | unknown；保留 US$0.54 规划预留 |
+| PSP | completed，保留 unsupported／not applicable 等独立业务状态；报告及交付收据已保存 | 3 | 10527 | 59 | 约 10.6 秒 | unknown；保留 US$0.54 规划预留 |
+
+六次应用调用的 input usage 依次为 1309、2690、3129、1447、4322、4758，output 为 14、14、1333、14、14、31；均返回 reasoning=0，最后一轮 PSP cached input=2176。它们是供应商终态中的 token 数据，不是账单金额。两次独立协议预检另有 input 374／413、output 14／10，合计 US$0.36 的预检规划预留独立记在探针收据中，不冒称已并入应用 SQLite。主应用账本保留 US$1.08，全部八次规划占用合计 US$1.44，真实费用未知。
+
+完整闭环运行使用固定 Node24.22.0、Pi1.3.0、实际 CPA8.0.24；宿主关闭为 closed，自有 CPA 已退出，日常 8317 服务保留。证据目录 `bau-cpa-live-20261022-8lvxvvep` 中有预检 `result.json`、应用 `app-result.json`、持久 SQLite 和每场景 JSON。初始两次辅助协议调用使用宿主 Node24.18.1，不冒作固定项目运行时验证。
+
+以下前检记录描述**放宽之前**的失败和边界，不撤销该事实，也不将失败改记为通过。
+
+## 本机部署与连接结果
+
+| 检查 | 实际观察 |
+| --- | --- |
+| 管理应用 | EasyCLIProxyAPI 0.3.34。检查时未运行，已按接入请求启动。 |
+| 实际内核 | CLIProxyAPI 8.0.24，帮助命令自报 Commit `091ff27f`、BuiltAt `2026-10-11T22:40:24Z`；安装二进制与本机缓存的 8.0.24 制品内二进制 SHA256 一致。没有升级或替换内核。 |
+| 二进制 SHA256 | `ba0cd18bf7c4c12321c00888984823ab2048e90082ab776f290676184f36acdc`。只建立本机文件身份，不声称发行签名或可复现构建验证。 |
+| 本机 API | `http://127.0.0.1:8317/v1`，只检查 `/models`。 |
+| 无 key／错误合成 key | 均返回 HTTP 401。 |
+| 已配置客户端 key | 返回 HTTP 200；key 仅在进程内读取并放入本机请求头，未输出、复制至证据或写入 Git。 |
+| 实际模型列表 | 包含 `gpt-6.1-sol`；不包含原政策名称 `gpt6.1-sol`。真实启用时需要显式映射，不能靠自动模型回退。 |
+| 现有重试配置 | 允许三轮额外重试、每轮凭据数不设上限；不能直接作为应用“最多一次网络重试”的运行证明。本轮没有手工修改日常 CPA 配置。 |
+
+没有读取真实账户的 OAuth token 内容。用户 CPA 留在本机 8317 运行；本轮自行启动的隔离 CPA 和 Postman 模拟进程均已关闭。
+
+## 实际内核与合成上游的验证
+
+使用同一个已安装二进制，新建独立配置、空 auth 目录、全合成客户端／上游 key。监听独立 loopback 端口，Codex 上游明确指向自有 Postman 本地 simulation；使用内置模型目录，关闭管理面板、插件和额外重试，不加载用户 OAuth 目录。
+
+配置只将原应用别名 `gpt6.1-sol` 映射到合成上游名称 `gpt-6.1-sol`。向隔离 CPA 发一个 `/v1/responses` 请求：
+
+```json
+{
+  "model": "gpt6.1-sol",
+  "max_output_tokens": 4000,
+  "stream": true,
+  "store": false,
+  "input": [{"role": "user", "content": "SYNTHETIC ONLY: return OK."}],
+  "tools": []
+}
+```
+
+本地上游实际观察如下：
+
+| 字段／行为 | 观察结果 |
+| --- | --- |
+| 实际请求路径 | `/responses`。 |
+| 上游模型 | `gpt-6.1-sol`，合成别名映射成功。 |
+| `max_output_tokens` | 不存在。 |
+| `max_completion_tokens` | 不存在。 |
+| `stream`／`store` | 分别为 true／false。 |
+| 上游结果 | 采集完请求后主动返回 HTTP 400 `synthetic_no_generation`，不实现生成。该状态不是模型调用成功。 |
+| 实际真实模型生成 | 0 次；不使用真实账户凭据，不产生供应商模型调用费用。 |
+
+这与安装版本对应的[固定转换源码](https://github.com/router-for-me/CLIProxyAPI/blob/091ff27f31285ec4fd1dd5823b44f7f51fb8f48b/internal/translator/codex/openai/responses/codex_openai-responses_request.go#L14-L27)一致：转发前删除两个 token 上限字段。运行证据来自实际二进制的合成 API-key Codex 路径；没有冒称捕获过用户真实 OAuth 请求，亦没有验证真实 usage／计费或完整工具闭环。
+
+受控本机证据目录为 `bau-cpa-preflight-20261022-l8nac56c`，包含 `probe.mjs`、合成配置、Postman simulation、采集字段、`result.json` 和仅合成日志。探针 exit 0 表示成功复现“不满足上限”，不表示 G2 通过。辅助探针使用宿主 Node24.18.1；它没有运行项目构建或将该版本冒作项目固定 Node24.22.0 的验证。
+
+## 未完成的 G2 条件
+
+- 4k 硬限制按用户决定在合成 POC 中延后评估；本轮两个正常样本不足以选定长期输出控制，亦不能证明断开后上游停止生成／计费。
+- 实际完整 24k 输入、非零 reasoning、全部供应商／凭据内隐藏尝试、故障重试、取消后的上游执行状态、可靠收费口径、供应商侧留存／遥测和账户条款适用范围尚未完整验证。配置关闭额外重试不冒称这些行为已全部实测。
+- 两个完整应用案例使用真实模型与 Mock 数据工具／交付；本地 Postman 合同使用模拟模型。两种证据分别记录，不互相替代。CPA 开发路线可执行，生产／容器默认门控继续关闭。
+- 未进行公司网关、真实 Teams、生产日志、内部 GitLab或获准真实案例评估；#31/#32 的资料和批准边界不变。
+
+#30 和父规格 #14 保持未完成。本轮不扩大至公司网关／真实 Teams／生产日志／内部 GitLab，不触发 #31/#32，也不构成 POC Go。历史中断的专门安全复核状态未改变。
+
+## 本轮验证
+
+- 固定 Node24.22.0：项目 build／typecheck 通过；全行为 **529/529，0 fail/skip**（原 525 项加四项 CPA 回归）。覆盖长输出观察、费用不被伪 usage 结算、授权／净化／完整输入／契约绑定拒绝，以及上游观察到输入超限后停止。
+- 本地 Postman 依赖合同 **7/7** 通过，含新的实际 Pi／SQLite／两场景 CPA 合同；独立 HTTP 合同 **3/3** 通过。仅合成网络，没有将模拟模型计为实际 CPA。
+- 协议首轮为 **8/10**：两个 standalone Responses fixture 因共享 server 拆为显式 CJS 后未复制依赖而启动失败。补齐 fixture 的依赖复制后，三项原始 HTTP 断言全数通过，没有删除 UTF-8 或 4k 边界检查。日志分别为 `/tmp/bau-cpa-20261022-protocols-initial.log` 与 `/tmp/bau-cpa-20261022-direct-protocols.log`。
+- Pi 严格 consumer 正例接受／负例 TS2322 通过；实际模型六次完整闭环和两次协议预检见上文。SQLite 关闭后重新经公开 C 读取，两案均 completed、各三次未知费用／US$0.54 预留及 token 记录保持；敏感字段／客户端 key 检查通过。
+- 独立 CPA launcher 的固定制品、单账户／无覆盖重试／SSE 元数据检查、启动及退出实测通过，额外模型生成 0 次。最初误用不存在的 `/v8/management/auth-files` 路径被安全拒绝；按安装版本[固定路由源码](https://github.com/router-for-me/CLIProxyAPI/blob/091ff27f31285ec4fd1dd5823b44f7f51fb8f48b/internal/api/server_management_v8.go)改为 `/credentials` 后通过，没有降级成跳过检查。
+- 首次完整应用运行后增加了输入 usage 超限终止、launcher 元数据 fence 和信号收尾；前者经红绿行为回归验证，后者经无额外生成的 launcher 实测与脚本检查验证，未为这些本地收尾变更重复付费运行同样的八次模型请求。
+
+`/tmp/bau-cpa-20261022-tests.log`、`-typecheck.log`、`-pi-types.log` 保留本轮检查输出。完整真实 24k／故障取消／上游全部费用与留存、公司 G3 和 G4 均未执行，不记通过。旧镜像不作为本次源码的制品证明。

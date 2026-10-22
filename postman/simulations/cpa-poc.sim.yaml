@@ -1,0 +1,5 @@
+simulation: bau-synthetic-cpa-poc
+routing: path
+mocks:
+  - routeKey: cpa
+    path: ../mocks/cpa-poc/config.yaml

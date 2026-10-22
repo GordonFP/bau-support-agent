@@ -33,7 +33,7 @@ export interface MockOptions {
   readonly pspObservation?: PspObservation | null;
   readonly resourceRefs?: readonly string[];
   readonly modelPolicy?: ModelPolicy | null;
-  readonly modelProfile?: "memory_mock" | "local_protocol";
+  readonly modelProfile?: "memory_mock" | "local_protocol" | "cpa_poc";
   readonly lifecycleActors?: readonly TrustedActor[];
   readonly recordGrants?: readonly { readonly actor: TrustedActor; readonly role: RecordRole; readonly caseRefs: readonly string[]; readonly resourceRefs: readonly string[] }[];
   readonly controlPorts?: (ports: Ports) => Partial<Pick<Ports, "admission" | "records" | "deliveryLedger" | "audit" | "budget" | "retention">>;
