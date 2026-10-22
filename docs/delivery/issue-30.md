@@ -105,3 +105,20 @@ node scripts/run-cpa-poc.mjs /absolute/private/poc-records
 - 首次完整应用运行后增加了输入 usage 超限终止、launcher 元数据 fence 和信号收尾；前者经红绿行为回归验证，后者经无额外生成的 launcher 实测与脚本检查验证，未为这些本地收尾变更重复付费运行同样的八次模型请求。
 
 `/tmp/bau-cpa-20261022-tests.log`、`-typecheck.log`、`-pi-types.log` 保留本轮检查输出。完整真实 24k／故障取消／上游全部费用与留存、公司 G3 和 G4 均未执行，不记通过。旧镜像不作为本次源码的制品证明。
+
+## 本次固定来源镜像
+
+从 clean `29e5e36afa186520b04f5b2dfcfe7741365f48a9` 实际重建，制品位于 `/tmp/bau-image-cpa-20261022-29e5e36`；没有部署或上传 registry。来源 pin 之后仅追加本交付收据，不改变应用 JS。
+
+| 项目 | 本轮结果 |
+| --- | --- |
+| Docker config ID | `sha256:d72ff1bdddd7d73ed69673a0cadac883a875bd5a758a89e9e4375facee4a9c42` |
+| OCI manifest | `sha256:f045f5cdcff8590fbe40030c45d83879827c28b0e292548415ef34084026c2e2` |
+| OCI index | `sha256:65e502e07555c889eb31f968bc103d3500635e475b0fbac2ba13d208d1ea59db` |
+| Docker save archive | `sha256:983b98b79b95d49ea9a67aa0baffcbf9375ad806816da21454df40f5308815b3` |
+| Git source archive | `d1476c37ea7e424ffe49a9cfab5d4bc3670aa42f6049027f2aebfbb2ceb2e0a0` |
+| 实际来源一致性 | Linux/arm64、Node24.22.0／TS7.0.2；72 个 JS 的路径／字节数／SHA256 与固定源编译逐项一致 |
+| 容器／OCI 合同 | **6/6，0 fail/skip**，原无网／非 root／只读、两场景、账本、取消／超时／未知关闭和审计／OCI 断言保留 |
+| 忽略 TS／陈旧 JS source canary | **1/1，0 fail/skip**；首轮因子进程 npm 沿用宿主 Node24.18.1 而安全拒绝，补充固定 Node24.22.0 的 PATH 后通过，没有改断言 |
+
+日志为 `/tmp/bau-cpa-20261022-image-{build,contracts,source}.log`；首轮 canary 失败另保存在 `-image-source-initial.log`。未重新运行完整 Linux 529 项或未受影响的 CBM 原生索引合同；不把先前证据记为本轮执行。Pi 上游完整声明的既有 TS1543 限制不记通过；本轮验证的是项目类型及严格 consumer。
